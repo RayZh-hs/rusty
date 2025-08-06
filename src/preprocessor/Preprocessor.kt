@@ -1,28 +1,35 @@
 package preprocessor
 
+import pub.MarkedString
+import pub.MarkedStringBuilder
+
 // The preprocessor is responsible for removing comments and standardizing string literals
 // The result will be a one-liner for the inputted text literal
 class Preprocessor {
     companion object {
-        fun run(rawText: String): String {
-            val text: StringBuilder = StringBuilder()
+        fun run(rawText: String): MarkedString {
+            val text = MarkedStringBuilder()
 
             var nestDepth = 0
             var inLineComment = false
             var inString = false
             var inByteString = false
             var isEscaped = false
+            var lineNumber = 1
 
             var idx = 0
             while (idx < rawText.length) {
                 val c = rawText[idx]
                 val nc: Char? = if (idx + 1 < rawText.length) rawText[idx + 1] else null
 
+                if (c == '\n')
+                    ++lineNumber
+
                 // Special positions
                 when {
                     inLineComment -> {
                         if (c == '\n') {
-                            text.append(' ')
+                            text.append(' ', lineNumber)
                             inLineComment = false
                         }
                         ++idx
@@ -48,8 +55,8 @@ class Preprocessor {
                         text.append(
                             when (c) {
                                 '\n' -> "\\n"   // change \n to \\n literal to make it a one-liner
-                                else -> c
-                            }
+                                else -> c.toString()
+                            }, lineNumber
                         )
                         if (isEscaped) {
                             isEscaped = false
@@ -71,8 +78,8 @@ class Preprocessor {
                         text.append(
                             when (c) {
                                 '\n' -> "\\n"   // change \n to \\n literal to make it a one-liner
-                                else -> c
-                            }
+                                else -> c.toString()
+                            }, lineNumber
                         )
                         if (isEscaped) {
                             isEscaped = false
@@ -102,34 +109,34 @@ class Preprocessor {
                     // String
                     c == '"' -> {
                         inString = true
-                        text.append(c)
+                        text.append(c, lineNumber)
                     }
                     // Byte string
                     c == '\'' -> {
                         inByteString = true
-                        text.append(c)
+                        text.append(c, lineNumber)
                     }
                     // Replace newline with space
                     c == '\n' || c == '\r' -> {
                         // Concentrate multiple newlines
-                        if (text.isNotEmpty() && text.last() != ' ') {
-                            text.append(' ')
+                        if (text.content.isNotEmpty() && text.content.last() != ' ') {
+                            text.append(' ', lineNumber)
                         }
                     }
                     c == ' ' -> {
                         // Concentrate multiple spaces
-                        if (text.isNotEmpty() && text.last() != ' ') {
-                            text.append(c)
+                        if (text.content.isNotEmpty() && text.content.last() != ' ') {
+                            text.append(c, lineNumber)
                         }
                     }
                     // Append any other character faithfully
                     else -> {
-                        text.append(c)
+                        text.append(c, lineNumber)
                     }
                 }
                 ++idx
             }
-            return text.toString().trim()
+            return text.toMarkedString()
         }
     }
 }
