@@ -1,6 +1,9 @@
 import cmd.CommandParser
 import cmd.CommandParserConfigEntry
 import cmd.Requirement
+import lexer.Lexer
+import lexer.dump
+import lexer.dumpScreen
 import preprocessor.Preprocessor
 import preprocessor.dump
 import preprocessor.dumpScreen
@@ -53,6 +56,17 @@ fun main(args: Array<String>) {
     if (mode == CompileMode.PREPROCESS) {
         // dump into file
         Preprocessor.dump(preprocessedLiteral, outputPath)
+        return
+    }
+
+    // 2. Lexical Assignment
+    val lexResult = Lexer.run(preprocessedLiteral)
+    if (displayMode == DisplayMode.VERBOSE) {
+        Lexer.dumpScreen(lexResult)
+    }
+    if (mode == CompileMode.LEX) {
+        // dump into file
+        Lexer.dump(lexResult, outputPath)
         return
     }
 }

@@ -14,4 +14,5 @@ fun Preprocessor.Companion.dump(output: MarkedString, outputPath: String) {
 fun Preprocessor.Companion.dumpScreen(output: MarkedString) {
     println("[rusty] Preprocessor dump:".green())
     println(output.text)
+    println()
 }

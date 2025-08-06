@@ -33,3 +33,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Mango ###
+.mango/
