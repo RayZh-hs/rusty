@@ -6,13 +6,16 @@ import preprocessor.dump
 import preprocessor.dumpScreen
 import pub.CompileMode
 import pub.CompileModeMap
+import pub.DisplayMode
+import pub.DisplayModeMap
 import java.io.File
 
 fun main(args: Array<String>) {
     val parser = CommandParser(listOf(
         CommandParserConfigEntry("i", Requirement.REQUIRED),    // input file path
         CommandParserConfigEntry("m", Requirement.OPTIONAL),    // mode of compilation
-        CommandParserConfigEntry("o", Requirement.REQUIRED)     // output file path
+        CommandParserConfigEntry("o", Requirement.REQUIRED),    // output file path
+        CommandParserConfigEntry("s", Requirement.OPTIONAL),    // show options
     ))
     val parsed = parser.parse(args)
 
@@ -27,6 +30,15 @@ fun main(args: Array<String>) {
         // Use default mode
         CompileMode.PREPROCESS
     }
+    val displayMode: DisplayMode = if (parsed.containsKey("s")) {
+        if (!DisplayModeMap.containsKey(parsed["s"])) {
+            throw IllegalArgumentException("Unknown display mode: '${parsed["s"]}'")
+        } else {
+            DisplayModeMap[parsed["s"]]!!
+        }
+    } else {
+        DisplayMode.RESULT
+    }
     val inputPath = parsed["i"]!!
     val outputPath = parsed["o"]!!
 
@@ -35,10 +47,12 @@ fun main(args: Array<String>) {
 
     // 1. Preprocessing
     val preprocessedLiteral = Preprocessor.run(rawFileLiteral)
-    if (mode == CompileMode.PREPROCESS) {
-        // dump to screen
+    if (displayMode == DisplayMode.VERBOSE) {
         Preprocessor.dumpScreen(preprocessedLiteral)
+    }
+    if (mode == CompileMode.PREPROCESS) {
         // dump into file
         Preprocessor.dump(preprocessedLiteral, outputPath)
+        return
     }
 }
