@@ -1,5 +1,6 @@
 ### IntelliJ IDEA ###
 out/
+.idea/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
@@ -8,6 +9,10 @@ ref/
 
 ### Kotlin ###
 .kotlin
+
+### Gradle ###
+.gradle/
+build/
 
 ### Eclipse ###
 .apt_generated
