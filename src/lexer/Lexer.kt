@@ -7,7 +7,7 @@ import pub.CompileError
 class Lexer {
 
     enum class TokenPeekClass {
-        STRING, CHAR, BYTE, BYTE_STRING, C_STRING, NUMERIC, OPERATOR, KEY_OR_ID
+        STRING, CHAR, BYTE, BYTE_STRING, C_STRING, NUMERIC, OPERATOR, KEY_OR_ID, RAW_STRING, RAW_C_STRING, RAW_BYTE_STRING
     }
 
     companion object {
@@ -31,15 +31,30 @@ class Lexer {
                 in '0'..'9' -> return TokenPeekClass.NUMERIC
                 '"' -> return TokenPeekClass.STRING
                 '\'' -> return TokenPeekClass.CHAR
+                'r' -> {
+                    val nc = input.getOrNull(cur + 1)
+                    return when {
+                        (setOf('#', '"').contains(nc)) -> TokenPeekClass.RAW_STRING
+                        else -> TokenPeekClass.KEY_OR_ID
+                    }
+                }
+
                 'b' -> {
                     // look for byte pattern
                     if (cur + 1 >= input.length) {
                         return TokenPeekClass.KEY_OR_ID
                     }
-                    val nc = input[cur + 1]
+                    val nc = input.getOrNull(cur + 1)
                     when (nc) {
                         '\'' -> return TokenPeekClass.BYTE
                         '\"' -> return TokenPeekClass.BYTE_STRING
+                        'r' -> {
+                            val nnc = input.getOrNull(cur + 2)
+                            return when {
+                                (setOf('#', '"').contains(nnc)) -> TokenPeekClass.RAW_BYTE_STRING
+                                else -> TokenPeekClass.KEY_OR_ID
+                            }
+                        }
                     }
                     return TokenPeekClass.KEY_OR_ID
                 }
@@ -49,9 +64,16 @@ class Lexer {
                     if (cur + 1 >= input.length) {
                         return TokenPeekClass.KEY_OR_ID
                     }
-                    val nc = input[cur + 1]
+                    val nc = input.getOrNull(cur + 1)
                     when (nc) {
                         '\"' -> return TokenPeekClass.C_STRING
+                        'r' -> {
+                            val nnc = input.getOrNull(cur + 2)
+                            return when {
+                                (setOf('#', '"').contains(nnc)) -> TokenPeekClass.RAW_C_STRING
+                                else -> TokenPeekClass.KEY_OR_ID
+                            }
+                        }
                     }
                     return TokenPeekClass.KEY_OR_ID
                 }
@@ -92,11 +114,11 @@ class Lexer {
                 // Escaped string lookup
                 TokenPeekClass.STRING, TokenPeekClass.BYTE, TokenPeekClass.CHAR,
                 TokenPeekClass.C_STRING, TokenPeekClass.BYTE_STRING -> {
-                    val i = cur + when(cls) {
+                    val i = cur + when (cls) {
                         TokenPeekClass.STRING, TokenPeekClass.CHAR -> 1
                         else -> 2
                     }
-                    val terminator = when(cls) {
+                    val terminator = when (cls) {
                         TokenPeekClass.CHAR, TokenPeekClass.BYTE -> '\''
                         else -> '\"'
                     }
@@ -123,6 +145,29 @@ class Lexer {
                         j++
                     }
                     throw CompileError("Unterminated literal on or after line: $lineNumber")
+                }
+                // Raw string lookup
+                TokenPeekClass.RAW_STRING, TokenPeekClass.RAW_BYTE_STRING, TokenPeekClass.RAW_C_STRING -> {
+                    // move the cursor to
+                    var i = cur + 1
+                    while (i < input.length && input[i].isWord()) ++i
+                    val hashBegin = i
+                    while (i < input.length && input[i] == '#') ++i
+                    val hashEnd = i  // non-inclusive
+                    val hashLength = hashEnd - hashBegin
+                    val endingLiteral = "\"" + "#".repeat(hashLength)
+                    val endingIndex = input.indexOf(endingLiteral, startIndex = i + 1)
+                    if (endingIndex == -1) {
+                        throw CompileError("Unterminated literal on or after line: $lineNumber")
+                    }
+                    val endpoint = endingIndex + endingLiteral.length
+                    val substr = input.substring(cur, endpoint)
+                    return Pair(TokenBearer(when(cls){
+                        TokenPeekClass.RAW_STRING -> Token.L_RAW_STRING
+                        TokenPeekClass.RAW_BYTE_STRING -> Token.L_RAW_BYTE_STRING
+                        TokenPeekClass.RAW_C_STRING -> Token.L_RAW_C_STRING
+                        else -> throw IllegalStateException("Invalid token class in string processing")
+                    }, substr, lineNumber), endpoint - 1)
                 }
                 // Operator lookup
                 TokenPeekClass.OPERATOR -> {
