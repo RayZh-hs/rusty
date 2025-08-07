@@ -13,7 +13,7 @@ class Preprocessor {
             var nestDepth = 0
             var inLineComment = false
             var inString = false
-            var inByteString = false
+            var inChar = false
             var isEscaped = false
             var lineNumber = 1
 
@@ -62,14 +62,14 @@ class Preprocessor {
                             isEscaped = false
                         } else {
                             when (c) {
-                                '\\' -> isEscaped = true // Mark the next character as escaped. [4]
+                                '\\' -> isEscaped = true // Mark the next character as escaped.
                                 '"' -> inString = false  // End of the string literal
                             }
                         }
                         idx++
                         continue
                     }
-                    inByteString -> {
+                    inChar -> {
                         if (c == '\\' && nc == '\n') {
                             // skip the \n
                             idx += 2
@@ -85,13 +85,22 @@ class Preprocessor {
                             isEscaped = false
                         } else {
                             when (c) {
-                                '\\' -> isEscaped = true // Mark the next character as escaped. [4]
-                                '\'' -> inByteString = false  // End of the string literal
+                                '\\' -> isEscaped = true // Mark the next character as escaped.
+                                '\'' -> inChar = false  // End of the string literal
                             }
                         }
                         idx++
                         continue
                     }
+                }
+
+                val (gotoCur, newlineCount) = skipToOutsideOfRawLiterals(rawText, idx)
+                lineNumber += newlineCount
+                if (gotoCur != idx) {
+                    // push the segment into the string builder
+                    text.append(rawText.substring(idx, gotoCur), lineNumber)
+                    idx = gotoCur
+                    continue
                 }
 
                 // Default field
@@ -111,9 +120,9 @@ class Preprocessor {
                         inString = true
                         text.append(c, lineNumber)
                     }
-                    // Byte string
+                    // Char
                     c == '\'' -> {
-                        inByteString = true
+                        inChar = true
                         text.append(c, lineNumber)
                     }
                     // Replace newline with space
@@ -137,6 +146,45 @@ class Preprocessor {
                 ++idx
             }
             return text.toMarkedString()
+        }
+
+        // cursor, newline count
+        private fun skipToOutsideOfRawLiterals(input: String, cur: Int): Pair<Int, Int> {
+            val c = input.getOrNull(cur)
+            val nc = input.getOrNull(cur + 1)
+
+            val startOfHashes: Int
+            when {
+                // prefix: br, cr
+                (c == 'b' || c == 'c') && nc == 'r' -> {
+                    startOfHashes = cur + 2
+                }
+                // prefix: r
+                c == 'r' -> {
+                    startOfHashes = cur + 1
+                }
+                else -> return Pair(cur, 0)
+            }
+
+            var postHashesIndex = startOfHashes
+            while (postHashesIndex < input.length && input[postHashesIndex] == '#') {
+                postHashesIndex++
+            }
+            val hashCount = postHashesIndex - startOfHashes
+
+            if (input.getOrNull(postHashesIndex) != '"') {
+                return Pair(cur, 0)
+            }
+
+            val closingDelimiter = "\"" + "#".repeat(hashCount)
+            val closingIndex = input.indexOf(closingDelimiter, startIndex = postHashesIndex + 1)
+            if (closingIndex == -1) {
+                return Pair(cur, 0)
+            }
+            val newlineCount = input.substring(postHashesIndex + 1, closingIndex).count { it == '\n' }
+
+            // Return the index right after the end of the closing delimiter.
+            return Pair(closingIndex + closingDelimiter.length, newlineCount)
         }
     }
 }
