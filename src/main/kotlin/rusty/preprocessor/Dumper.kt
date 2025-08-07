@@ -1,6 +1,6 @@
 package rusty.preprocessor
 
-import rusty.thirdparty.kolor.green
+import com.andreapivetta.kolor.green
 import rusty.core.MarkedString
 import java.io.File
 

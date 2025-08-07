@@ -1,6 +1,6 @@
-package rusty.thirdparty.kolor
+package com.andreapivetta.kolor
 
-import rusty.thirdparty.kolor.Kolor.ESCAPE
+import com.andreapivetta.kolor.Kolor.ESCAPE
 
 /**
  * The amount of codes required in order to jump from a foreground code to a background code. Equal to 10. For example,

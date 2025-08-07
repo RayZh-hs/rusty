@@ -1,4 +1,4 @@
-package rusty.thirdparty.kolor
+package com.andreapivetta.kolor
 
 /**
  * Extension functions to get colored strings

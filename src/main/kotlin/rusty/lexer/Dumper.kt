@@ -1,6 +1,6 @@
 package rusty.lexer
 
-import rusty.thirdparty.kolor.*
+import com.andreapivetta.kolor.*
 import java.io.File
 
 // This file provides dump utilities for the Lexer module
