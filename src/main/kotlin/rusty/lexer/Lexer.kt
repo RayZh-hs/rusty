@@ -19,6 +19,7 @@ class Lexer {
             var cur = getNextNonWhitespace(string, 0)
             while (cur < input.length) {
                 val (token, endpoint) = nextTokenBearer(string, cur, input.getMark(cur))
+                token.validate()    // throws Compile Error if fails
                 tokens.add(token)
                 cur = getNextNonWhitespace(string, endpoint + 1)
             }
