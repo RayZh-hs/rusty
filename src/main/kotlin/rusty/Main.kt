@@ -13,6 +13,9 @@ import rusty.core.CompileMode
 import rusty.core.CompileModeMap
 import rusty.core.DisplayMode
 import rusty.core.DisplayModeMap
+import rusty.parser.Parser
+import rusty.parser.dump
+import rusty.parser.dumpScreen
 import java.io.File
 
 fun main(args: Array<String>) {
@@ -69,6 +72,16 @@ fun main(args: Array<String>) {
     if (mode == CompileMode.LEX) {
         // dump into file
         Lexer.dump(lexResult, outputPath)
+        return
+    }
+
+    // 3. Parsing
+    val parseResult = Parser.run(lexResult)
+    if (displayMode == DisplayMode.VERBOSE) {
+        Parser.dumpScreen(parseResult)
+    }
+    if (mode == CompileMode.PARSE) {
+        Parser.dump(parseResult, outputPath)
         return
     }
 }
