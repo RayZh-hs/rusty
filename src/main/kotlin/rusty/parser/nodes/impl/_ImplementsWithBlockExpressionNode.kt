@@ -2,9 +2,9 @@ package rusty.parser.nodes.impl
 
 import rusty.core.CompileError
 import rusty.lexer.Token
-import rusty.parser.nodes.ConditionsNode
+import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.ExpressionNode
-import rusty.parser.nodes.IfBranchNode
+import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectToken

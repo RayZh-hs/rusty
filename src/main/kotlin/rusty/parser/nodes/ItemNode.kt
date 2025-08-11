@@ -3,10 +3,12 @@ package rusty.parser.nodes
 import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
+import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectToken
 
 // Since we don't need to implement OuterAttribute or MacroItem, Item directly corresponds to VisItem in our AST
+@Peekable
 sealed class ItemNode {
     companion object {
         fun peek(ctx: Context): Boolean {
@@ -26,6 +28,7 @@ sealed class ItemNode {
         }
     }
 
+    @Peekable
     data class FunctionItemNode(
         val identifier: String,
         val genericParamsNode: ParamsNode.GenericParamsNode?,
