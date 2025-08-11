@@ -59,7 +59,7 @@ fun StatementNode.LetStatementNode.Companion.parse(ctx: Context): StatementNode 
     // expect :Type
     putilsExpectToken(ctx, Token.O_COLUMN)
     val typeNode = TypeNode.parse(ctx)
-    putilsExpectToken(ctx, Token.O_EQ)
+    putilsExpectToken(ctx, Token.O_DOUBLE_EQ)
     val expressionNode = ExpressionNode.parse(ctx)
     putilsExpectToken(ctx, Token.O_SEMICOLON)
     return StatementNode.LetStatementNode(patternNode, typeNode, expressionNode)

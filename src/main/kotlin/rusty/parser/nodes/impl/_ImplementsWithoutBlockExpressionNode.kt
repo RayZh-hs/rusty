@@ -4,6 +4,7 @@ import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.lexer.TokenType
 import rusty.lexer.getType
+import rusty.parser.nodes.ExpressionNode
 import rusty.parser.putils.Context
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
 import rusty.parser.nodes.utils.literalFromChar
@@ -11,7 +12,9 @@ import rusty.parser.nodes.utils.literalFromInteger
 import rusty.parser.nodes.utils.literalFromString
 
 fun WithoutBlockExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpressionNode {
-    TODO()
+    ctx.callMe("WithoutBlockExpression") {
+        return parsePrecedence(ctx, 0)
+    }
 }
 
 fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpressionNode {
@@ -20,22 +23,23 @@ fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: Contex
     assert(tokenBearer.token.getType() == TokenType.LITERAL) {
         "Expected a literal token, but found ${tokenBearer.token.getType()}"
     }
-    when (tokenBearer.token) {
+    return when (tokenBearer.token) {
         Token.L_INTEGER -> {
-            return literalFromInteger(tokenBearer)
+            literalFromInteger(tokenBearer)
         }
-
         Token.L_STRING, Token.L_RAW_STRING,
         Token.L_C_STRING, Token.L_RAW_C_STRING -> {
-            return literalFromString(tokenBearer)
+            literalFromString(tokenBearer)
         }
-
         Token.L_CHAR -> {
-            return literalFromChar(tokenBearer)
+            literalFromChar(tokenBearer)
         }
-
         else -> {
             throw CompileError("Unexpected literal token: ${tokenBearer.token}").with(ctx)
         }
     }
+}
+
+private fun parsePrecedence(ctx: Context, precedence: Int): WithoutBlockExpressionNode {
+    TODO()
 }

@@ -44,6 +44,7 @@ sealed class ExpressionNode {
     sealed class WithoutBlockExpressionNode : ExpressionNode() {
         companion object;
 
+        // Literal Expression Node
         sealed class LiteralExpressionNode : WithoutBlockExpressionNode() {
             companion object;
 
@@ -53,26 +54,34 @@ sealed class ExpressionNode {
             data class CharLiteralNode(val value: Char) : LiteralExpressionNode()
         }
 
-        data class PathExpressionNode(val path: String) : WithoutBlockExpressionNode() {
-            companion object
-        }
+        // Literal-like Expression Node
+        data object UnderscoreLiteralNode : LiteralExpressionNode()
+        data class TupleExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
+        data class ArrayExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
 
-        sealed class OperatorExpressionNode : WithoutBlockExpressionNode() {
-            data class InfixOperatorNode(val left: ExpressionNode, val op: Token, val right: ExpressionNode) : OperatorExpressionNode()
-            data class PrefixOperatorNode(val op: Token, val expr: ExpressionNode) : OperatorExpressionNode()
-        }
+        // Literal Modification Node
+        // - handles (args)
+        data class CallExpressionNode(val callee: ExpressionNode, val arguments: List<ExpressionNode>) : WithoutBlockExpressionNode()
+        // - handles [arg]
+        data class IndexExpressionNode(val base: ExpressionNode, val index: ExpressionNode) : WithoutBlockExpressionNode()
+        // - handles [base].[field]
+        data class FieldExpressionNode(val base: ExpressionNode, val field: String) : WithoutBlockExpressionNode()
+        // - handles [id0]::[id1]::[id2]. !IMP: A single identifier is also considered a PathExpressionNode (where path.size == 1)
+        data class PathExpressionNode(val path: List<String>) : WithoutBlockExpressionNode()
+        // - handles [tuple].[id] where id is an integer
+        // - note: I don't know why rust had chosen a.0 as its tuple indexing grammar. The good thing is 0 cannot be an expression, so lookaheads work
+        data class TupleIndexingNode(val base: ExpressionNode, val index: Int) : WithoutBlockExpressionNode()
 
-        data class PrimitiveExpressionNode(val units: List<PrimitiveExpressionUnit>) : WithoutBlockExpressionNode() {
-            companion object;
-        }
+        // Generic Expression Node
+        data class InfixOperatorNode(val left: ExpressionNode, val op: Token, val right: ExpressionNode) : WithoutBlockExpressionNode()
+        data class PrefixOperatorNode(val op: Token, val expr: ExpressionNode) : WithoutBlockExpressionNode()
 
+        // Control Flow Expression Node
         sealed class ControlFlowExpressionNode : WithoutBlockExpressionNode() {
             data class ReturnExpressionNode(val expr: ExpressionNode?) : ControlFlowExpressionNode()
             data class BreakExpressionNode(val expr: ExpressionNode?) : ControlFlowExpressionNode()
             data object ContinueExpressionNode : ControlFlowExpressionNode()
         }
-
-        data object UnderscoreExpressionNode : WithoutBlockExpressionNode()
     }
 }
 
