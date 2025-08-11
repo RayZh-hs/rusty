@@ -33,7 +33,7 @@ sealed class ItemNode {
         val identifier: String,
         val genericParamsNode: ParamsNode.GenericParamsNode?,
         val functionParamsNode: ParamsNode.FunctionParamsNode?,
-        val returnTypeNode: TypeNode,
+        val returnTypeNode: TypeNode?,
         val withBlockExpressionNode: ExpressionNode?
     ) : ItemNode() {
         companion object
@@ -54,9 +54,13 @@ fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionIt
         putilsExpectToken(ctx, Token.O_LPAREN)
         val functionParamsNode = if (ctx.peekToken() != Token.O_RPAREN) ParamsNode.FunctionParamsNode.parse(ctx) else null
         putilsExpectToken(ctx, Token.O_RPAREN)
-        // Must annotate by return type
-        putilsExpectToken(ctx, Token.O_ARROW)
-        val returnTypeNode = TypeNode.parse(ctx)
+        val returnTypeNode = when (ctx.peekToken()) {
+            Token.O_ARROW -> {
+                ctx.stream.consume(1)
+                TypeNode.parse(ctx)
+            }
+            else -> null
+        }
         // ignore WHERE clause
         val withBlockExpressionNode = when (ctx.stream.peekOrNull()?.token) {
             Token.O_LCURL -> ExpressionNode.WithBlockExpressionNode.parse(ctx)

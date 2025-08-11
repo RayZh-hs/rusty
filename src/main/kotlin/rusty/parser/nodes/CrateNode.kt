@@ -1,8 +1,6 @@
 package rusty.parser.nodes
 
 import rusty.parser.putils.Context
-import rusty.parser.putils.putilsContextHasHitEOF
-import rusty.parser.putils.putilsZeroOrMore
 
 
 data class CrateNode(val items: List<ItemNode>) {
@@ -11,9 +9,9 @@ data class CrateNode(val items: List<ItemNode>) {
 
         fun parse(ctx: Context): CrateNode {
             ctx.callMe(name) {
-                val itemNodeList = putilsZeroOrMore(
-                    ctx, ItemNode::parse, ::putilsContextHasHitEOF
-                )
+                val itemNodeList: MutableList<ItemNode> = mutableListOf()
+                while (!ctx.stream.atEnd())
+                    itemNodeList.add(ItemNode.parse(ctx))
                 return CrateNode(itemNodeList)
             }
         }
