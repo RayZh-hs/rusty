@@ -1,6 +1,7 @@
 package rusty.parser.putils
 
 import rusty.lexer.Token
+import rusty.lexer.TokenBearer
 import rusty.parser.TokenStream
 import java.util.Stack
 
@@ -8,9 +9,9 @@ import java.util.Stack
 data class Context(
     val stream: TokenStream,
     val parseStack: Stack<ParseStackItem> = Stack(),
-    val prattStack: Stack<PrattStackItem> = Stack(),
     var attemptedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var failedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
+    var prattProcessingTokenBearer: TokenBearer? = null,
 ) {
     data class ParseStackItem(val lineNumber: Int?, val name: String)
     data class PrattStackItem(val rbp: Int, val name: String)
@@ -32,16 +33,20 @@ data class Context(
         if (hasBeenCalled(name))
             return null
         stream.pushCursor(name)
-        attemptedParseObjectSet.add(Pair(stream.cur, name))
-        var whatToReturn: T?
+        val currentCursor = stream.cur
+        attemptedParseObjectSet.add(Pair(currentCursor, name))
+        var whatToReturn: T? = null
         try {
             whatToReturn = block()
         } catch (t: Throwable) {
-            failedParseObjectSet.add(Pair(stream.cur, name))
+            failedParseObjectSet.add(Pair(currentCursor, name))
             whatToReturn = null
         } finally {
-            attemptedParseObjectSet.remove(Pair(stream.cur, name))
-            stream.popCursor()
+            attemptedParseObjectSet.remove(Pair(currentCursor, name))
+            when (whatToReturn) {
+                null -> stream.popCursor()
+                else -> stream.popCursorWithApply()
+            }
         }
         return whatToReturn
     }

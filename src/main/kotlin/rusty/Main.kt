@@ -36,7 +36,7 @@ fun main(args: Array<String>) {
     }
     else {
         // Use default mode
-        CompileMode.PREPROCESS
+        CompileMode.PARSE
     }
     val displayMode: DisplayMode = if (parsed.containsKey("s")) {
         if (!DisplayModeMap.containsKey(parsed["s"])) {

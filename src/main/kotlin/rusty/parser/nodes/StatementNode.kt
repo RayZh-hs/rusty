@@ -2,7 +2,10 @@ package rusty.parser.nodes
 
 import rusty.core.CompileError
 import rusty.lexer.Token
+import rusty.parser.nodes.impl.parse
+import rusty.parser.nodes.impl.peek
 import rusty.parser.putils.Context
+import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 
 sealed class StatementNode {
@@ -70,5 +73,14 @@ fun StatementNode.ItemStatementNode.Companion.parse(ctx: Context): StatementNode
 }
 
 fun StatementNode.ExpressionStatementNode.Companion.parse(ctx: Context): StatementNode.ExpressionStatementNode {
-    TODO()
+    var expression: ExpressionNode
+    if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
+        expression = ExpressionNode.WithBlockExpressionNode.parse(ctx)
+        putilsConsumeIfExistsToken(ctx, Token.O_SEMICOLON)
+    }
+    else {
+        expression = ExpressionNode.WithoutBlockExpressionNode.parse(ctx)
+        putilsExpectToken(ctx, Token.O_SEMICOLON)
+    }
+    return StatementNode.ExpressionStatementNode(expression)
 }

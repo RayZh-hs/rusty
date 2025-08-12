@@ -81,4 +81,10 @@ class Stream<T> (private val raw: List<T>) {
         assert(curs.isNotEmpty())
         return curs.pop()
     }
+
+    fun popCursorWithApply(): CursorItem {
+        val oriTop = curs.pop()
+        val oriSecondTop = curs.pop()
+        return curs.push(CursorItem(oriSecondTop.name, oriTop.ptr))
+    }
 }
