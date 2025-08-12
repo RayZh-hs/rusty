@@ -6,6 +6,7 @@ import rusty.lexer.TokenType
 import rusty.lexer.getType
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
+import rusty.parser.nodes.utils.literalFromBoolean
 import rusty.parser.nodes.utils.literalFromChar
 import rusty.parser.nodes.utils.literalFromInteger
 import rusty.parser.nodes.utils.literalFromString
@@ -45,9 +46,9 @@ private fun getTokenPrecedence(token: Token?): Precedence {
         Token.O_DOUBLE_OR -> Precedence.LOGICAL_OR
         Token.O_DOUBLE_AND -> Precedence.LOGICAL_AND
         Token.O_DOUBLE_EQ, Token.O_NEQ, Token.O_LANG, Token.O_RANG, Token.O_LEQ, Token.O_GEQ -> Precedence.COMPARISON
-        Token.O_BIT_OR -> Precedence.BITWISE_OR
+        Token.O_OR -> Precedence.BITWISE_OR
         Token.O_BIT_XOR -> Precedence.BITWISE_XOR
-        Token.O_BIT_AND -> Precedence.BITWISE_AND
+        Token.O_AND -> Precedence.BITWISE_AND
         Token.O_SLFT, Token.O_SRIT -> Precedence.SHIFT
         Token.O_PLUS, Token.O_MINUS -> Precedence.TERM
         Token.O_STAR, Token.O_DIV, Token.O_PERCENT -> Precedence.FACTOR
@@ -69,7 +70,8 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     Token.L_C_STRING to ::parseLiteral,
     Token.L_RAW_C_STRING to ::parseLiteral,
     Token.L_CHAR to ::parseLiteral,
-    // TODO K_TRUE, K_FALSE should be literals too
+    Token.K_TRUE to ::parseLiteral,
+    Token.K_FALSE to ::parseLiteral,
 
     // Identifier / Path
     Token.I_IDENTIFIER to ::parsePathExpression,
@@ -77,7 +79,7 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     // Prefix Operators
     Token.O_MINUS to ::parsePrefixOperator,
     Token.O_NOT to ::parsePrefixOperator,
-    Token.O_BIT_AND to ::parsePrefixOperator, // For borrows like &foo
+    Token.O_AND to ::parsePrefixOperator, // For borrows like &foo
 
     // Grouped, Tuple, and Array Expressions
     Token.O_LPAREN to ::parseGroupedOrTupleExpression,
@@ -98,8 +100,8 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     Token.O_DOUBLE_OR to ::parseInfixOperator, Token.O_DOUBLE_EQ to ::parseInfixOperator,
     Token.O_NEQ to ::parseInfixOperator, Token.O_LANG to ::parseInfixOperator,
     Token.O_RANG to ::parseInfixOperator, Token.O_LEQ to ::parseInfixOperator,
-    Token.O_GEQ to ::parseInfixOperator, Token.O_BIT_AND to ::parseInfixOperator,
-    Token.O_BIT_OR to ::parseInfixOperator, Token.O_BIT_XOR to ::parseInfixOperator,
+    Token.O_GEQ to ::parseInfixOperator, Token.O_AND to ::parseInfixOperator,
+    Token.O_OR to ::parseInfixOperator, Token.O_BIT_XOR to ::parseInfixOperator,
     Token.O_SLFT to ::parseInfixOperator, Token.O_SRIT to ::parseInfixOperator,
 
     // Assignment Operators
@@ -127,7 +129,7 @@ private fun parsePrecedence(ctx: Context, precedence: Int): WithoutBlockExpressi
     while (precedence < getTokenPrecedence(ctx.peekToken()).value) {
         val nextToken = ctx.peekToken()!!
         val led = ledParselets[nextToken] ?: break // Not an infix/postfix operator
-        ctx.stream.consume(1)
+        ctx.prattProcessingTokenBearer = ctx.stream.read()
         left = led(ctx, left)
     }
     return left
@@ -144,13 +146,14 @@ private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
         Token.L_INTEGER -> literalFromInteger(tokenBearer)
         Token.L_STRING, Token.L_RAW_STRING, Token.L_C_STRING, Token.L_RAW_C_STRING -> literalFromString(tokenBearer)
         Token.L_CHAR -> literalFromChar(tokenBearer)
+        Token.K_TRUE, Token.K_FALSE -> literalFromBoolean(tokenBearer)
         else -> throw CompileError("Unexpected literal token: $literalToken").with(ctx)
     }
 }
 
 private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
     // The identifier is already consumed by the main loop.
-    val firstIdent = ctx.stream.peek().raw
+    val firstIdent = ctx.prattProcessingTokenBearer!!.raw
     val path = mutableListOf(firstIdent)
     // Look for more path segments like `::ident`
     while (ctx.peekToken() == Token.O_DOUBLE_COLON) {
@@ -162,7 +165,7 @@ private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
-    val operator = ctx.stream.peek().token
+    val operator = ctx.prattProcessingTokenBearer!!.token
     val right = parsePrecedence(ctx, Precedence.PREFIX.value)
     return WithoutBlockExpressionNode.PrefixOperatorNode(operator, right)
 }
@@ -226,7 +229,7 @@ private fun parseBreakExpression(ctx: Context): WithoutBlockExpressionNode {
 }
 
 private fun parseInfixOperator(ctx: Context, left: WithoutBlockExpressionNode): WithoutBlockExpressionNode {
-    val opToken = ctx.stream.peek().token
+    val opToken = ctx.prattProcessingTokenBearer!!.token
     val precedence = getTokenPrecedence(opToken)
     val right = parsePrecedence(ctx, precedence.value)
     return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right)
@@ -263,5 +266,17 @@ private fun parseFieldOrTupleIndexExpression(ctx: Context, base: WithoutBlockExp
             WithoutBlockExpressionNode.TupleIndexingNode(base, index)
         }
         else -> throw CompileError("Expected identifier or integer for field access, found ${nextToken.token}").with(ctx)
+    }
+}
+
+// for API usage: this version consumes a token, like all other non-pratt parsers
+fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpressionNode.LiteralExpressionNode {
+    val tokenBearer = ctx.stream.read()
+    return when (tokenBearer.token) {
+        Token.L_INTEGER -> literalFromInteger(tokenBearer)
+        Token.L_STRING, Token.L_RAW_STRING, Token.L_C_STRING, Token.L_RAW_C_STRING -> literalFromString(tokenBearer)
+        Token.L_CHAR -> literalFromChar(tokenBearer)
+        Token.K_TRUE, Token.K_FALSE -> literalFromBoolean(tokenBearer)
+        else -> throw CompileError("Unexpected literal token: ${tokenBearer.token}").with(ctx)
     }
 }

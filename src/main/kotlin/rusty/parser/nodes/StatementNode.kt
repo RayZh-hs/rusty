@@ -40,7 +40,7 @@ sealed class StatementNode {
     }
     data class LetStatementNode(
         val patternNode: PatternNode,
-        val typeNode: TypeNode,
+        val typeNode: TypeNode?,
         val expressionNode: ExpressionNode,
     ) : StatementNode() {
         companion object
@@ -59,10 +59,12 @@ fun StatementNode.LetStatementNode.Companion.peek(ctx: Context): Boolean {
 fun StatementNode.LetStatementNode.Companion.parse(ctx: Context): StatementNode {
     putilsExpectToken(ctx, Token.K_LET)
     val patternNode = PatternNode.parse(ctx)
-    // expect :Type
-    putilsExpectToken(ctx, Token.O_COLUMN)
-    val typeNode = TypeNode.parse(ctx)
-    putilsExpectToken(ctx, Token.O_DOUBLE_EQ)
+    var typeNode: TypeNode? = null
+    if (ctx.peekToken() == Token.O_COLUMN) {
+        ctx.stream.consume(1)   // : type
+        typeNode = TypeNode.parse(ctx)
+    }
+    putilsExpectToken(ctx, Token.O_EQ)
     val expressionNode = ExpressionNode.parse(ctx)
     putilsExpectToken(ctx, Token.O_SEMICOLON)
     return StatementNode.LetStatementNode(patternNode, typeNode, expressionNode)

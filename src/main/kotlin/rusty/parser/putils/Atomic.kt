@@ -12,8 +12,11 @@ fun putilsExpectToken(ctx: Context, token: Token): String {
     return tokenBearer.raw
 }
 
-fun putilsConsumeIfExistsToken(ctx: Context, token: Token) {
-    val tokenBearer = ctx.stream.readOrNull()
-    if (tokenBearer?.token == token)
+fun putilsConsumeIfExistsToken(ctx: Context, token: Token): Boolean {
+    val tokenBearer = ctx.stream.peekOrNull()
+    if (tokenBearer?.token == token) {
         ctx.stream.consume(1)
+        return true
+    }
+    return false
 }

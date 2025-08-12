@@ -52,6 +52,7 @@ sealed class ExpressionNode {
             data class U32LiteralNode(val value: UInt) : LiteralExpressionNode()
             data class StringLiteralNode(val value: String) : LiteralExpressionNode()
             data class CharLiteralNode(val value: Char) : LiteralExpressionNode()
+            data class BoolLiteralNode(val value: Boolean) : LiteralExpressionNode()
         }
 
         // Literal-like Expression Node

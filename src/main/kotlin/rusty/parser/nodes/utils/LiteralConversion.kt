@@ -80,6 +80,14 @@ fun literalFromChar(tokenBearer: TokenBearer): LiteralExpressionNode {
     }
 }
 
+fun literalFromBoolean(tokenBearer: TokenBearer): LiteralExpressionNode {
+    return when (tokenBearer.token) {
+        Token.K_TRUE -> LiteralExpressionNode.BoolLiteralNode(true)
+        Token.K_FALSE -> LiteralExpressionNode.BoolLiteralNode(false)
+        else -> throw AssertionError("Expected a boolean literal token, but found ${tokenBearer.token}")
+    }
+}
+
 // A helper function to find a suffix from a list of possible suffixes.
 // Returns a pair of the string without the suffix and the suffix found (or null).
 private fun String.findSuffix(suffixes: List<String>): Pair<String, String?> {
