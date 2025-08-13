@@ -23,6 +23,7 @@ fun WithoutBlockExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpres
 
 private enum class Precedence(val value: Int) {
     NONE(0),
+    // this is delegated to RightAssociativeOperator, and is handled differently
     ASSIGNMENT(10),  // = += -= etc.
     RANGE(20),       // fix: need not implement
     LOGICAL_OR(30),  // ||
@@ -43,6 +44,7 @@ private fun getTokenPrecedence(token: Token?): Precedence {
     return when (token) {
         Token.O_EQ, Token.O_PLUS_EQ, Token.O_MINUS_EQ, Token.O_STAR_EQ, Token.O_DIV_EQ,
         Token.O_PERCENT_EQ, Token.O_AND_EQ, Token.O_OR_EQ, Token.O_XOR_EQ, Token.O_SLFT_EQ, Token.O_SRIT_EQ -> Precedence.ASSIGNMENT
+
         Token.O_DOUBLE_OR -> Precedence.LOGICAL_OR
         Token.O_DOUBLE_AND -> Precedence.LOGICAL_AND
         Token.O_DOUBLE_EQ, Token.O_NEQ, Token.O_LANG, Token.O_RANG, Token.O_LEQ, Token.O_GEQ -> Precedence.COMPARISON
@@ -94,23 +96,23 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
 // Map for LED (Left Denotation) functions. Used for infix and postfix operators.
 private val ledParselets: Map<Token, LedParselet> = mapOf(
     // Infix Operators
-    Token.O_PLUS to ::parseInfixOperator, Token.O_MINUS to ::parseInfixOperator,
-    Token.O_STAR to ::parseInfixOperator, Token.O_DIV to ::parseInfixOperator,
-    Token.O_PERCENT to ::parseInfixOperator, Token.O_DOUBLE_AND to ::parseInfixOperator,
-    Token.O_DOUBLE_OR to ::parseInfixOperator, Token.O_DOUBLE_EQ to ::parseInfixOperator,
-    Token.O_NEQ to ::parseInfixOperator, Token.O_LANG to ::parseInfixOperator,
-    Token.O_RANG to ::parseInfixOperator, Token.O_LEQ to ::parseInfixOperator,
-    Token.O_GEQ to ::parseInfixOperator, Token.O_AND to ::parseInfixOperator,
-    Token.O_OR to ::parseInfixOperator, Token.O_BIT_XOR to ::parseInfixOperator,
-    Token.O_SLFT to ::parseInfixOperator, Token.O_SRIT to ::parseInfixOperator,
+    Token.O_PLUS to ::parseLAInfixOperator, Token.O_MINUS to ::parseLAInfixOperator,
+    Token.O_STAR to ::parseLAInfixOperator, Token.O_DIV to ::parseLAInfixOperator,
+    Token.O_PERCENT to ::parseLAInfixOperator, Token.O_DOUBLE_AND to ::parseLAInfixOperator,
+    Token.O_DOUBLE_OR to ::parseLAInfixOperator, Token.O_DOUBLE_EQ to ::parseLAInfixOperator,
+    Token.O_NEQ to ::parseLAInfixOperator, Token.O_LANG to ::parseLAInfixOperator,
+    Token.O_RANG to ::parseLAInfixOperator, Token.O_LEQ to ::parseLAInfixOperator,
+    Token.O_GEQ to ::parseLAInfixOperator, Token.O_AND to ::parseLAInfixOperator,
+    Token.O_OR to ::parseLAInfixOperator, Token.O_BIT_XOR to ::parseLAInfixOperator,
+    Token.O_SLFT to ::parseLAInfixOperator, Token.O_SRIT to ::parseLAInfixOperator,
 
     // Assignment Operators
-    Token.O_EQ to ::parseInfixOperator, Token.O_PLUS_EQ to ::parseInfixOperator,
-    Token.O_MINUS_EQ to ::parseInfixOperator, Token.O_STAR_EQ to ::parseInfixOperator,
-    Token.O_DIV_EQ to ::parseInfixOperator, Token.O_PERCENT_EQ to ::parseInfixOperator,
-    Token.O_AND_EQ to ::parseInfixOperator, Token.O_OR_EQ to ::parseInfixOperator,
-    Token.O_XOR_EQ to ::parseInfixOperator, Token.O_SLFT_EQ to ::parseInfixOperator,
-    Token.O_SRIT_EQ to ::parseInfixOperator,
+    Token.O_EQ to ::parseRAInfixOperator, Token.O_PLUS_EQ to ::parseRAInfixOperator,
+    Token.O_MINUS_EQ to ::parseRAInfixOperator, Token.O_STAR_EQ to ::parseRAInfixOperator,
+    Token.O_DIV_EQ to ::parseRAInfixOperator, Token.O_PERCENT_EQ to ::parseRAInfixOperator,
+    Token.O_AND_EQ to ::parseRAInfixOperator, Token.O_OR_EQ to ::parseRAInfixOperator,
+    Token.O_XOR_EQ to ::parseRAInfixOperator, Token.O_SLFT_EQ to ::parseRAInfixOperator,
+    Token.O_SRIT_EQ to ::parseRAInfixOperator,
 
     // Postfix/Call Operators
     Token.O_LPAREN to ::parseCallExpression,
@@ -136,7 +138,8 @@ private fun parsePrecedence(ctx: Context, precedence: Int): WithoutBlockExpressi
 }
 
 private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
-    val tokenBearer = ctx.prattProcessingTokenBearer ?: throw CompileError("Expected a literal token; found none").with(ctx)
+    val tokenBearer =
+        ctx.prattProcessingTokenBearer ?: throw CompileError("Expected a literal token; found none").with(ctx)
     val literalToken = tokenBearer.token
 
     assert(literalToken.getType() == TokenType.LITERAL) {
@@ -228,10 +231,19 @@ private fun parseBreakExpression(ctx: Context): WithoutBlockExpressionNode {
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.BreakExpressionNode(expr)
 }
 
-private fun parseInfixOperator(ctx: Context, left: WithoutBlockExpressionNode): WithoutBlockExpressionNode {
+// parse left associative
+private fun parseLAInfixOperator(ctx: Context, left: WithoutBlockExpressionNode): WithoutBlockExpressionNode {
     val opToken = ctx.prattProcessingTokenBearer!!.token
     val precedence = getTokenPrecedence(opToken)
     val right = parsePrecedence(ctx, precedence.value)
+    return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right)
+}
+
+// parse right associative
+private fun parseRAInfixOperator(ctx: Context, left: WithoutBlockExpressionNode): WithoutBlockExpressionNode {
+    val opToken = ctx.prattProcessingTokenBearer!!.token
+    val precedence = getTokenPrecedence(opToken)
+    val right = parsePrecedence(ctx, precedence.value - 1)
     return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right)
 }
 
@@ -254,7 +266,10 @@ private fun parseIndexExpression(ctx: Context, base: WithoutBlockExpressionNode)
     return WithoutBlockExpressionNode.IndexExpressionNode(base, index)
 }
 
-private fun parseFieldOrTupleIndexExpression(ctx: Context, base: WithoutBlockExpressionNode): WithoutBlockExpressionNode {
+private fun parseFieldOrTupleIndexExpression(
+    ctx: Context,
+    base: WithoutBlockExpressionNode
+): WithoutBlockExpressionNode {
     // '.' is consumed
     val nextToken = ctx.stream.read()
     return when (nextToken.token) {
@@ -265,6 +280,7 @@ private fun parseFieldOrTupleIndexExpression(ctx: Context, base: WithoutBlockExp
                 ?: throw CompileError("Invalid tuple index: ${nextToken.raw}").with(ctx)
             WithoutBlockExpressionNode.TupleIndexingNode(base, index)
         }
+
         else -> throw CompileError("Expected identifier or integer for field access, found ${nextToken.token}").with(ctx)
     }
 }
