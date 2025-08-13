@@ -59,6 +59,7 @@ enum class Token {
     O_SLFT_EQ,  // <<=
     O_SRIT_EQ,  // >>=
     O_AT,       // @
+    O_UNDERSCORE, // _
 
     //: Keywords
     K_AS,
@@ -143,7 +144,8 @@ fun Token.getType(): TokenType = when (this) {
     Token.O_DOUBLE_EQ, Token.O_NEQ, Token.O_DOUBLE_AND, Token.O_DOUBLE_OR, Token.O_NOT, Token.O_AND,
     Token.O_OR, Token.O_BIT_XOR, Token.O_PLUS_EQ, Token.O_MINUS_EQ, Token.O_STAR_EQ,
     Token.O_DIV_EQ, Token.O_PERCENT_EQ, Token.O_AND_EQ, Token.O_OR_EQ,
-    Token.O_XOR_EQ, Token.O_SLFT, Token.O_SRIT, Token.O_SLFT_EQ, Token.O_SRIT_EQ, Token.O_AT
+    Token.O_XOR_EQ, Token.O_SLFT, Token.O_SRIT, Token.O_SLFT_EQ, Token.O_SRIT_EQ, Token.O_AT,
+    Token.O_UNDERSCORE
         -> TokenType.OPERATOR
 
     // Keywords
@@ -217,7 +219,8 @@ fun tokenFromLiteral(literal: String): Token = when (literal) {
     ">>" -> Token.O_SRIT
     "<<=" -> Token.O_SLFT_EQ
     ">>=" -> Token.O_SRIT_EQ
-    "@"   -> Token.O_AT
+    "@" -> Token.O_AT
+    "_" -> Token.O_UNDERSCORE
 
     "as" -> Token.K_AS
     "break" -> Token.K_BREAK

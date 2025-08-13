@@ -20,10 +20,3 @@ data class IfBranchNode(
     val condition: ConditionsNode,
     val then: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode
 )
-
-sealed class PrimitiveExpressionUnit {
-    data class PrimitiveIdentifier(val identifier: String) : PrimitiveExpressionUnit()
-    data class PrimitiveAccessor(val token: Token) : PrimitiveExpressionUnit()
-    data class PrimitiveCall(val args: List<ExpressionNode>) : PrimitiveExpressionUnit()
-    data class PrimitiveIndexing(val index: ExpressionNode) : PrimitiveExpressionUnit()
-}

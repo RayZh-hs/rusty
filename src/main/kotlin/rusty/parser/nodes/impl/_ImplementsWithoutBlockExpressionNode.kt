@@ -77,6 +77,7 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
 
     // Identifier / Path
     Token.I_IDENTIFIER to ::parsePathExpression,
+    Token.O_DOUBLE_COLON to ::parsePathExpression,
 
     // Prefix Operators
     Token.O_MINUS to ::parsePrefixOperator,
@@ -155,6 +156,11 @@ private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
 }
 
 private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
+    var isGlobal = false
+    if (ctx.prattProcessingTokenBearer!!.token == Token.O_DOUBLE_COLON) {
+        ctx.prattProcessingTokenBearer = ctx.stream.read()
+        isGlobal = true
+    }
     // The identifier is already consumed by the main loop.
     val firstIdent = ctx.prattProcessingTokenBearer!!.raw
     val path = mutableListOf(firstIdent)
@@ -164,7 +170,7 @@ private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
         val nextIdent = putilsExpectToken(ctx, Token.I_IDENTIFIER)
         path.add(nextIdent)
     }
-    return WithoutBlockExpressionNode.PathExpressionNode(path)
+    return WithoutBlockExpressionNode.PathExpressionNode(path, isGlobal)
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
