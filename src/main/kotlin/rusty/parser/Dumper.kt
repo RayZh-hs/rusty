@@ -8,6 +8,8 @@ import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
+import rusty.parser.nodes.PatternNode
+import rusty.parser.nodes.SupportingPatternNode
 import java.io.File
 
 fun Parser.Companion.dump(output: ASTTree, outputPath: String) {
@@ -84,7 +86,8 @@ private fun StringBuilder.appendStmt(stmt: StatementNode, indent: Int, cfg: Rend
         }
         is StatementNode.LetStatementNode -> {
             line(indent, label("LetStatement", cfg))
-            line(indent + 1, field("pattern", cfg) + ": " + info("(unimplemented)", cfg))
+            line(indent + 1, field("pattern", cfg) + ":")
+            appendPattern(stmt.patternNode, indent + 2, cfg)
             line(indent + 1, field("type", cfg) + ": " + info("(unimplemented)", cfg))
             line(indent + 1, field("init", cfg) + ":")
             appendExpr(stmt.expressionNode, indent + 2, cfg)
@@ -108,10 +111,18 @@ private fun StringBuilder.appendExprWithBlock(expr: ExpressionNode.WithBlockExpr
     when (expr) {
         is ExpressionNode.WithBlockExpressionNode.BlockExpressionNode -> {
             line(indent, label("Block", cfg))
-            if (expr.statements.isEmpty()) {
+            val hasStmts = expr.statements.isNotEmpty()
+            val hasTail = expr.trailingExpression != null
+            if (!hasStmts && !hasTail) {
                 line(indent + 1, info("(empty)", cfg))
             } else {
-                expr.statements.forEach { appendStmt(it, indent + 1, cfg) }
+                if (hasStmts) {
+                    expr.statements.forEach { appendStmt(it, indent + 1, cfg) }
+                }
+                if (hasTail) {
+                    line(indent + 1, field("trailing", cfg) + ":")
+                    appendExpr(expr.trailingExpression!!, indent + 2, cfg)
+                }
             }
         }
         is ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode -> {
@@ -260,8 +271,47 @@ private fun StringBuilder.appendIfBranch(br: IfBranchNode, indent: Int, cfg: Ren
     appendExprWithBlock(br.then, indent + 2, cfg)
 }
 
+// Pattern rendering
+private fun StringBuilder.appendPattern(pat: PatternNode, indent: Int, cfg: RenderConfig) {
+    val alts = pat.patternNodes
+    if (alts.size == 1) {
+        appendSupportingPattern(alts[0], indent, cfg)
+    } else {
+        line(indent, label("Pattern(|)", cfg))
+        alts.forEachIndexed { i, p ->
+            line(indent + 1, field("[$i]", cfg) + ":")
+            appendSupportingPattern(p, indent + 2, cfg)
+        }
+    }
+}
+
+private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, indent: Int, cfg: RenderConfig) {
+    when (p) {
+        is SupportingPatternNode.LiteralPatternNode -> {
+            val neg = if (p.isNegated) " " + op("-", cfg) else ""
+            line(indent, label("PatLiteral", cfg) + neg)
+            // reuse literal renderer
+            appendExpr(p.literalNode, indent + 1, cfg)
+        }
+        is SupportingPatternNode.IdentifierPatternNode -> {
+            val mods = buildList {
+                if (p.isRef) add(keyword("ref", cfg))
+                if (p.isMut) add(keyword("mut", cfg))
+            }.joinToString(" ")
+            val head = listOf(label("PatIdent", cfg), mods, value(p.identifier, cfg))
+                .filter { it.isNotEmpty() }
+                .joinToString(" ")
+            line(indent, head)
+            p.extendedByPatternNode?.let { sub ->
+                line(indent + 1, field("sub", cfg) + ":")
+                appendPattern(sub, indent + 2, cfg)
+            }
+        }
+    }
+}
+
 // Styling helpers
-private fun label(text: String, cfg: RenderConfig) = "${text}".cyanIf(cfg.color)
+private fun label(text: String, cfg: RenderConfig) = text.cyanIf(cfg.color)
 private fun field(text: String, cfg: RenderConfig) = text.grayIf(cfg.color)
 private fun value(text: String, cfg: RenderConfig) = text.greenIf(cfg.color)
 private fun number(text: String, cfg: RenderConfig) = text.blueIf(cfg.color)

@@ -18,7 +18,7 @@ sealed class ExpressionNode {
     sealed class WithBlockExpressionNode : ExpressionNode() {
         companion object;
 
-        data class BlockExpressionNode(val statements: List<StatementNode>) : WithBlockExpressionNode() {
+        data class BlockExpressionNode(val statements: List<StatementNode>, val trailingExpression: ExpressionNode?) : WithBlockExpressionNode() {
             companion object;
         }
 

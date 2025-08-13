@@ -6,6 +6,7 @@ import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.StatementNode
+import rusty.parser.nodes.parse
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectToken
 
@@ -39,12 +40,33 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
         putilsExpectToken(ctx, Token.O_LCURL)
 
         val statements = mutableListOf<StatementNode>()
+        var trailingExpression: ExpressionNode? = null
         while (ctx.peekToken() != Token.O_RCURL && ctx.peekToken() != null) {
-            statements.add(StatementNode.parse(ctx))
+            val expr = ctx.tryParse("BlockExpressionAssumingExpr") {
+                ExpressionNode.parse(ctx)
+            }
+            if (expr == null) {
+                statements.add(StatementNode.parse(ctx))
+            } else {
+                when (ctx.peekToken()) {
+                    Token.O_SEMICOLON -> {
+                        // [expr]; forms a statement
+                        ctx.stream.consume(1)
+                        statements.add(StatementNode.ExpressionStatementNode(expr))
+                    }
+
+                    Token.O_RCURL -> {
+                        // the ending expression should be marked as the trailing expression
+                        trailingExpression = expr
+                    }
+
+                    else -> throw CompileError("Unexpected token for end of expression: $expr").with(ctx)
+                }
+            }
         }
 
         putilsExpectToken(ctx, Token.O_RCURL)
-        return ExpressionNode.WithBlockExpressionNode.BlockExpressionNode(statements)
+        return ExpressionNode.WithBlockExpressionNode.BlockExpressionNode(statements, trailingExpression)
     }
 }
 
