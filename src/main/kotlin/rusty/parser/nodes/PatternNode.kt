@@ -30,4 +30,5 @@ sealed class SupportingPatternNode {
     data class IdentifierPatternNode(val identifier: String, val isRef: Boolean, val isMut: Boolean, val extendedByPatternNode: PatternNode?): SupportingPatternNode() {
         companion object
     }
+    data object WildcardPatternNode: SupportingPatternNode()
 }

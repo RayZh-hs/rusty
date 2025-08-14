@@ -169,7 +169,7 @@ private fun StringBuilder.appendExprWithoutBlock(expr: ExpressionNode.WithoutBlo
             line(indent, label("Bool", cfg) + " " + literal("${expr.value}", cfg))
 
         // Simple
-        is ExpressionNode.WithoutBlockExpressionNode.UnderscoreLiteralNode ->
+        is ExpressionNode.WithoutBlockExpressionNode.UnderscoreExpressionNode ->
             line(indent, literal("_", cfg))
         is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
             line(indent, label("Path", cfg) + " " + value(expr.path.joinToString("::"), cfg))
@@ -306,6 +306,9 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
                 line(indent + 1, field("sub", cfg) + ":")
                 appendPattern(sub, indent + 2, cfg)
             }
+        }
+        is SupportingPatternNode.WildcardPatternNode -> {
+            line(indent, label("Wildcard (_)", cfg))
         }
     }
 }

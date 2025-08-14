@@ -1,7 +1,6 @@
 package rusty.parser.nodes
 
 import rusty.lexer.Token
-import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
 import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.ConditionsNode
@@ -55,7 +54,7 @@ sealed class ExpressionNode {
         }
 
         // Literal-like Expression Node
-        data object UnderscoreLiteralNode : LiteralExpressionNode()
+        data object UnderscoreExpressionNode : LiteralExpressionNode()
         data class TupleExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
         data class ArrayExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
 

@@ -74,6 +74,7 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     Token.L_CHAR to ::parseLiteral,
     Token.K_TRUE to ::parseLiteral,
     Token.K_FALSE to ::parseLiteral,
+    Token.O_UNDERSCORE to ::parseUnderscore,
 
     // Identifier / Path
     Token.I_IDENTIFIER to ::parsePathExpression,
@@ -94,7 +95,7 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     Token.K_CONTINUE to { WithoutBlockExpressionNode.ControlFlowExpressionNode.ContinueExpressionNode }
 )
 
-// Map for LED (Left Denotation) functions. Used for infix and postfix operators.
+// Map for LED functions. Used for infix and postfix operators.
 private val ledParselets: Map<Token, LedParselet> = mapOf(
     // Infix Operators
     Token.O_PLUS to ::parseLAInfixOperator, Token.O_MINUS to ::parseLAInfixOperator,
@@ -153,6 +154,10 @@ private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
         Token.K_TRUE, Token.K_FALSE -> literalFromBoolean(tokenBearer)
         else -> throw CompileError("Unexpected literal token: $literalToken").with(ctx)
     }
+}
+
+private fun parseUnderscore(ctx: Context): WithoutBlockExpressionNode {
+    return WithoutBlockExpressionNode.UnderscoreExpressionNode
 }
 
 private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
