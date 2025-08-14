@@ -10,6 +10,9 @@ import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
+import rusty.parser.nodes.TypeNode
+import rusty.parser.nodes.support.TypePathSegment
+import rusty.parser.nodes.support.GenericArgsNode
 import java.io.File
 
 fun Parser.Companion.dump(output: ASTTree, outputPath: String) {
@@ -65,8 +68,9 @@ private fun StringBuilder.appendItem(item: ItemNode, indent: Int, cfg: RenderCon
             if (item.functionParamsNode != null) {
                 line(indent + 1, field("params", cfg) + ": " + info("present", cfg))
             }
-            if (item.returnTypeNode != null) {
-                line(indent + 1, field("return", cfg) + ": " + info("present", cfg))
+            item.returnTypeNode?.let {
+                line(indent + 1, field("return", cfg) + ":")
+                appendType(it, indent + 2, cfg)
             }
             item.withBlockExpressionNode?.let { body ->
                 line(indent + 1, field("body", cfg) + ":")
@@ -88,7 +92,10 @@ private fun StringBuilder.appendStmt(stmt: StatementNode, indent: Int, cfg: Rend
             line(indent, label("LetStatement", cfg))
             line(indent + 1, field("pattern", cfg) + ":")
             appendPattern(stmt.patternNode, indent + 2, cfg)
-            line(indent + 1, field("type", cfg) + ": " + info("(unimplemented)", cfg))
+            stmt.typeNode?.let {
+                line(indent + 1, field("type", cfg) + ":")
+                appendType(it, indent + 2, cfg)
+            }
             line(indent + 1, field("init", cfg) + ":")
             appendExpr(stmt.expressionNode, indent + 2, cfg)
         }
@@ -311,6 +318,81 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
             line(indent, label("Wildcard (_)", cfg))
         }
     }
+}
+
+// Type rendering
+private fun StringBuilder.appendType(type: TypeNode, indent: Int, cfg: RenderConfig) {
+    when (type) {
+        is TypeNode.TypePath -> {
+            val prefix = if (type.isGlobal) "::" else ""
+            val pathStr = type.path.joinToString("::") { seg ->
+                when (seg) {
+                    is TypePathSegment -> buildString {
+                        append(seg.pathIndentSegment.raw)
+                        seg.generics?.let { g ->
+                            append("<")
+                            append(g.args.joinToString(", ") { arg -> typeToInline(arg) })
+                            append(">")
+                        }
+                    }
+                    else -> seg.toString()
+                }
+            }
+            line(indent, value(prefix + pathStr, cfg))
+        }
+        is TypeNode.NeverType -> {
+            line(indent, label("Never", cfg))
+            appendType(type.type, indent + 1, cfg)
+        }
+        is TypeNode.TupleType -> {
+            line(indent, label("TupleType", cfg))
+            if (type.types.isEmpty()) {
+                line(indent + 1, info("(unit)", cfg))
+            } else {
+                type.types.forEachIndexed { i, t ->
+                    line(indent + 1, field("[$i]", cfg) + ":")
+                    appendType(t, indent + 2, cfg)
+                }
+            }
+        }
+        is TypeNode.ArrayType -> {
+            line(indent, label("ArrayType", cfg))
+            line(indent + 1, field("elem", cfg) + ":")
+            appendType(type.type, indent + 2, cfg)
+            line(indent + 1, field("len", cfg) + ":")
+            appendExpr(type.length, indent + 2, cfg)
+        }
+        is TypeNode.SliceType -> {
+            line(indent, label("SliceType", cfg))
+            appendType(type.type, indent + 1, cfg)
+        }
+        is TypeNode.ReferenceType -> {
+            val mutPart = if (type.isMut) " mut" else ""
+            line(indent, label("RefType$mutPart", cfg))
+            appendType(type.type, indent + 1, cfg)
+        }
+        TypeNode.InferredType -> line(indent, label("InferredType", cfg))
+    }
+}
+
+// Inline helper for generic args
+private fun typeToInline(t: TypeNode): String = when (t) {
+    is TypeNode.TypePath -> (if (t.isGlobal) "::" else "") + t.path.joinToString("::") { seg ->
+        if (seg is TypePathSegment) buildString {
+            append(seg.pathIndentSegment.raw)
+            seg.generics?.let { g ->
+                append("<")
+                append(g.args.joinToString(", ") { typeToInline(it) })
+                append(">")
+            }
+        } else seg.toString()
+    }
+    is TypeNode.InferredType -> "_"
+    is TypeNode.TupleType -> t.types.joinToString(prefix = "(", postfix = ")") { typeToInline(it) }
+    is TypeNode.NeverType -> "!${typeToInline(t.type)}"
+    is TypeNode.ArrayType -> "[${typeToInline(t.type)}; ...]" // length skipped for inline simplicity
+    is TypeNode.SliceType -> "[${typeToInline(t.type)}]"
+    is TypeNode.ReferenceType -> "&" + (if (t.isMut) "mut " else "") + typeToInline(t.type)
 }
 
 // Styling helpers
