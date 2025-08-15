@@ -56,7 +56,7 @@ sealed class ExpressionNode {
         // Literal-like Expression Node
         data object UnderscoreExpressionNode : LiteralExpressionNode()
         data class TupleExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
-        data class ArrayExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
+        data class ArrayExpressionNode(val elements: List<ExpressionNode>, val repeat: ExpressionNode) : WithoutBlockExpressionNode()
 
         // Literal Modification Node
         // - handles (args)

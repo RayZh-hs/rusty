@@ -87,6 +87,7 @@ private fun parseArrayOrSlice(ctx: Context): TypeNode {
         Token.O_SEMICOLON -> {
             // ArrayType [type; expression]
             val size = ExpressionNode.parse(ctx)
+            putilsExpectToken(ctx, Token.O_RSQUARE)
             TypeNode.ArrayType(type, size)
         }
         else -> throw CompileError("Unexpected token when parsing Array or Slice: $nextToken").with(ctx)

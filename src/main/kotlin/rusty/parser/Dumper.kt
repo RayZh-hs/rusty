@@ -206,6 +206,8 @@ private fun StringBuilder.appendExprWithoutBlock(expr: ExpressionNode.WithoutBlo
                 line(indent + 1, field("[$i]", cfg) + ":")
                 appendExpr(e, indent + 2, cfg)
             }
+            line(indent + 1, field("repeat", cfg) + ":")
+            appendExpr(expr.repeat, indent + 2, cfg)
         }
 
         // Modifiers / Accessors

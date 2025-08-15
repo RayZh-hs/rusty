@@ -7,6 +7,7 @@ import rusty.lexer.getType
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
 import rusty.parser.nodes.PathInExpressionNode
+import rusty.parser.nodes.parse
 import rusty.parser.nodes.utils.literalFromBoolean
 import rusty.parser.nodes.utils.literalFromChar
 import rusty.parser.nodes.utils.literalFromInteger
@@ -202,13 +203,17 @@ private fun parseGroupedOrTupleExpression(ctx: Context): WithoutBlockExpressionN
 private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
     // '[' is already consumed
     val elements = mutableListOf<ExpressionNode>()
-    if (ctx.peekToken() != Token.O_RSQUARE) {
-        do {
-            elements.add(parsePrecedence(ctx, Precedence.NONE.value))
-        } while (ctx.peekToken() == Token.O_COMMA && ctx.stream.read().token == Token.O_COMMA)
+    var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode(1)
+    while (ctx.peekToken() != Token.O_RSQUARE) {
+        elements.add(parsePrecedence(ctx, Precedence.NONE.value))
+        putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
+        if (ctx.peekToken() == Token.O_SEMICOLON) {
+            ctx.stream.consume(1)
+            repeat = ExpressionNode.parse(ctx)
+        }
     }
     putilsExpectToken(ctx, Token.O_RSQUARE)
-    return WithoutBlockExpressionNode.ArrayExpressionNode(elements)
+    return WithoutBlockExpressionNode.ArrayExpressionNode(elements, repeat)
 }
 
 private fun parseReturnExpression(ctx: Context): WithoutBlockExpressionNode {
