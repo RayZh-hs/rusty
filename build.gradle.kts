@@ -20,6 +20,14 @@ java {
 
 dependencies {
     implementation(kotlin("stdlib"))
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
 }
 
 application {
