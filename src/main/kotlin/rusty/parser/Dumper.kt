@@ -95,7 +95,11 @@ private fun StringBuilder.appendStmt(stmt: StatementNode, indent: Int, cfg: Rend
                 appendType(it, indent + 2, cfg)
             }
             line(indent + 1, field("init", cfg) + ":")
-            appendExpr(stmt.expressionNode, indent + 2, cfg)
+            if (stmt.expressionNode != null) {
+                appendExpr(stmt.expressionNode, indent + 2, cfg)
+            } else {
+                line(indent + 2, info("(uninitialized)", cfg))
+            }
         }
         is StatementNode.ExpressionStatementNode -> {
             line(indent, label("ExpressionStatement", cfg))
