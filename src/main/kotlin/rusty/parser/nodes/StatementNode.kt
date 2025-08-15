@@ -20,7 +20,7 @@ sealed class StatementNode {
                 else -> {
                     var parsed: StatementNode? = null
                     if (ItemNode.peek(ctx)) return ItemStatementNode.parse(ctx)
-                    parsed = ctx.tryParse(ExpressionStatementNode.name) {
+                    parsed = ctx.tryParse("Statement@ExpressionStatement") {
                         ExpressionStatementNode.parse(ctx)
                     }
                     if (parsed != null)

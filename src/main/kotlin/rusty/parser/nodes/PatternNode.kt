@@ -31,4 +31,8 @@ sealed class SupportingPatternNode {
         companion object
     }
     data object WildcardPatternNode: SupportingPatternNode()
+
+    data class DestructuredTuplePatternNode(val tuple: List<SupportingPatternNode>): SupportingPatternNode() {
+        companion object
+    }
 }

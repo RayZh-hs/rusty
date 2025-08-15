@@ -21,6 +21,7 @@ enum class Token {
     O_PERCENT,  // %
     O_EQ,   // =
     O_DOT,      // .
+    O_TRIPLE_DOT, // ...
     O_COMMA,    // ,
     O_SEMICOLON,// ;
     O_COLUMN,   // :
@@ -145,7 +146,7 @@ fun Token.getType(): TokenType = when (this) {
     Token.O_OR, Token.O_BIT_XOR, Token.O_PLUS_EQ, Token.O_MINUS_EQ, Token.O_STAR_EQ,
     Token.O_DIV_EQ, Token.O_PERCENT_EQ, Token.O_AND_EQ, Token.O_OR_EQ,
     Token.O_XOR_EQ, Token.O_SLFT, Token.O_SRIT, Token.O_SLFT_EQ, Token.O_SRIT_EQ, Token.O_AT,
-    Token.O_UNDERSCORE
+    Token.O_UNDERSCORE, Token.O_TRIPLE_DOT
         -> TokenType.OPERATOR
 
     // Keywords
@@ -221,6 +222,7 @@ fun tokenFromLiteral(literal: String): Token = when (literal) {
     ">>=" -> Token.O_SRIT_EQ
     "@" -> Token.O_AT
     "_" -> Token.O_UNDERSCORE
+    "..." -> Token.O_TRIPLE_DOT
 
     "as" -> Token.K_AS
     "break" -> Token.K_BREAK

@@ -42,7 +42,7 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
         val statements = mutableListOf<StatementNode>()
         var trailingExpression: ExpressionNode? = null
         while (ctx.peekToken() != Token.O_RCURL && ctx.peekToken() != null) {
-            val expr = ctx.tryParse("BlockExpressionAssumingExpr") {
+            val expr = ctx.tryParse("BlockExpression@Expression") {
                 ExpressionNode.parse(ctx)
             }
             if (expr == null) {

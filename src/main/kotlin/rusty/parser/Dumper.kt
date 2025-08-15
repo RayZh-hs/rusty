@@ -13,6 +13,10 @@ import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.support.TypePathSegment
 import rusty.parser.nodes.support.GenericArgsNode
+import rusty.parser.nodes.ParamsNode
+import rusty.parser.nodes.support.FunctionParamNode
+import rusty.parser.nodes.support.GenericParamNode
+import rusty.parser.nodes.support.SelfParamNode
 import java.io.File
 
 fun Parser.Companion.dump(output: ASTTree, outputPath: String) {
@@ -62,11 +66,13 @@ private fun StringBuilder.appendItem(item: ItemNode, indent: Int, cfg: RenderCon
         is ItemNode.FunctionItemNode -> {
             line(indent, label("FunctionItem", cfg))
             line(indent + 1, field("name", cfg) + ": " + value(item.identifier, cfg))
-            if (item.genericParamsNode != null) {
-                line(indent + 1, field("generics", cfg) + ": " + info("present", cfg))
+            item.genericParamsNode?.let { gp ->
+                line(indent + 1, field("generics", cfg) + ":")
+                appendGenericParams(gp, indent + 2, cfg)
             }
-            if (item.functionParamsNode != null) {
-                line(indent + 1, field("params", cfg) + ": " + info("present", cfg))
+            item.functionParamsNode?.let { fp ->
+                line(indent + 1, field("params", cfg) + ":")
+                appendFunctionParams(fp, indent + 2, cfg)
             }
             item.returnTypeNode?.let {
                 line(indent + 1, field("return", cfg) + ":")
@@ -83,11 +89,6 @@ private fun StringBuilder.appendItem(item: ItemNode, indent: Int, cfg: RenderCon
 // Statements
 private fun StringBuilder.appendStmt(stmt: StatementNode, indent: Int, cfg: RenderConfig) {
     when (stmt) {
-        is StatementNode.NullStatementNode -> line(indent, label("NullStatement", cfg) + " " + keyword(";", cfg))
-        is StatementNode.ItemStatementNode -> {
-            line(indent, label("ItemStatement", cfg))
-            appendItem(stmt.item, indent + 1, cfg)
-        }
         is StatementNode.LetStatementNode -> {
             line(indent, label("LetStatement", cfg))
             line(indent + 1, field("pattern", cfg) + ":")
@@ -102,6 +103,13 @@ private fun StringBuilder.appendStmt(stmt: StatementNode, indent: Int, cfg: Rend
         is StatementNode.ExpressionStatementNode -> {
             line(indent, label("ExpressionStatement", cfg))
             appendExpr(stmt.expression, indent + 1, cfg)
+        }
+        is StatementNode.NullStatementNode -> {
+            line(indent, label("NullStatement", cfg))
+        }
+        is StatementNode.ItemStatementNode -> {
+            line(indent, label("ItemStatement", cfg))
+            appendItem(stmt.item, indent + 1, cfg)
         }
     }
 }
@@ -179,7 +187,7 @@ private fun StringBuilder.appendExprWithoutBlock(expr: ExpressionNode.WithoutBlo
         is ExpressionNode.WithoutBlockExpressionNode.UnderscoreExpressionNode ->
             line(indent, literal("_", cfg))
         is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
-            line(indent, label("Path", cfg) + " " + value(expr.path.joinToString("::"), cfg))
+            line(indent, label("Path", cfg) + " " + value((if (expr.isGlobal) "::" else "") + expr.path.joinToString("::"), cfg))
 
         // Containers
         is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode -> {
@@ -297,7 +305,6 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
         is SupportingPatternNode.LiteralPatternNode -> {
             val neg = if (p.isNegated) " " + op("-", cfg) else ""
             line(indent, label("PatLiteral", cfg) + neg)
-            // reuse literal renderer
             appendExpr(p.literalNode, indent + 1, cfg)
         }
         is SupportingPatternNode.IdentifierPatternNode -> {
@@ -314,8 +321,13 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
                 appendPattern(sub, indent + 2, cfg)
             }
         }
-        is SupportingPatternNode.WildcardPatternNode -> {
-            line(indent, label("Wildcard (_)", cfg))
+        is SupportingPatternNode.WildcardPatternNode -> line(indent, label("PatWildcard", cfg))
+        is SupportingPatternNode.DestructuredTuplePatternNode -> {
+            line(indent, label("PatTuple", cfg))
+            p.tuple.forEachIndexed { i, inner ->
+                line(indent + 1, field("[$i]", cfg) + ":")
+                appendSupportingPattern(inner, indent + 2, cfg)
+            }
         }
     }
 }
@@ -404,3 +416,59 @@ private fun literal(text: String, cfg: RenderConfig) = text.yellowIf(cfg.color)
 private fun keyword(text: String, cfg: RenderConfig) = text.magentaIf(cfg.color)
 private fun op(text: String, cfg: RenderConfig) = text.redIf(cfg.color)
 private fun info(text: String, cfg: RenderConfig) = text.grayIf(cfg.color)
+
+// --- Added helpers for params & generics ---
+private fun StringBuilder.appendGenericParams(params: ParamsNode.GenericParamsNode, indent: Int, cfg: RenderConfig) {
+    if (params.genericParams.isEmpty()) {
+        line(indent, info("(none)", cfg))
+        return
+    }
+    params.genericParams.forEachIndexed { i, gp ->
+        line(indent, field("[$i]", cfg) + ":")
+        appendType(gp.type, indent + 1, cfg)
+    }
+}
+
+private fun StringBuilder.appendFunctionParams(params: ParamsNode.FunctionParamsNode, indent: Int, cfg: RenderConfig) {
+    params.selfParam?.let { sp ->
+        line(indent, field("self", cfg) + ":")
+        appendSelfParam(sp, indent + 1, cfg)
+    }
+    if (params.functionParams.isEmpty()) return
+    line(indent, field("args", cfg) + ":")
+    params.functionParams.forEachIndexed { i, fn ->
+        line(indent + 1, field("[$i]", cfg) + ":")
+        appendFunctionParam(fn, indent + 2, cfg)
+    }
+}
+
+private fun StringBuilder.appendSelfParam(sp: SelfParamNode, indent: Int, cfg: RenderConfig) {
+    val mods = buildList {
+        if (sp.isReference) add("&")
+        if (sp.isMutable) add(keyword("mut", cfg))
+    }.joinToString("")
+    line(indent, value("self", cfg) + if (mods.isNotEmpty()) " <$mods>" else "")
+    sp.type?.let {
+        line(indent + 1, field("type", cfg) + ":")
+        appendType(it, indent + 2, cfg)
+    }
+}
+
+private fun StringBuilder.appendFunctionParam(param: FunctionParamNode, indent: Int, cfg: RenderConfig) {
+    when (param) {
+        is FunctionParamNode.FunctionParamTypedPatternNode -> {
+            line(indent, label("ParamPattern", cfg))
+            line(indent + 1, field("pattern", cfg) + ":")
+            appendPattern(param.pattern, indent + 2, cfg)
+            param.type?.let {
+                line(indent + 1, field("type", cfg) + ":")
+                appendType(it, indent + 2, cfg)
+            }
+        }
+        is FunctionParamNode.FunctionParamTypeNode -> {
+            line(indent, label("ParamType", cfg))
+            appendType(param.type, indent + 1, cfg)
+        }
+        FunctionParamNode.FunctionParamWildcardNode -> line(indent, label("ParamWildcard...", cfg))
+    }
+}
