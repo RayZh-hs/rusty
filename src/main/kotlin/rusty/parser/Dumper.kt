@@ -5,17 +5,14 @@ package rusty.parser
 import com.andreapivetta.kolor.*
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
+import rusty.parser.nodes.ParamsNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
-import rusty.parser.nodes.support.TypePathSegment
-import rusty.parser.nodes.support.GenericArgsNode
-import rusty.parser.nodes.ParamsNode
 import rusty.parser.nodes.support.FunctionParamNode
-import rusty.parser.nodes.support.GenericParamNode
 import rusty.parser.nodes.support.SelfParamNode
 import java.io.File
 
@@ -186,8 +183,14 @@ private fun StringBuilder.appendExprWithoutBlock(expr: ExpressionNode.WithoutBlo
         // Simple
         is ExpressionNode.WithoutBlockExpressionNode.UnderscoreExpressionNode ->
             line(indent, literal("_", cfg))
-        is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
-            line(indent, label("Path", cfg) + " " + value((if (expr.isGlobal) "::" else "") + expr.path.joinToString("::"), cfg))
+        is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+            val pathStr = expr.pathInExpressionNode.path.joinToString("::") { seg ->
+                seg.name ?: when (seg.token) {
+                    else -> seg.token.toString().lowercase()
+                }
+            }
+            line(indent, label("Path", cfg) + " " + value(pathStr, cfg))
+        }
 
         // Containers
         is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode -> {
@@ -329,6 +332,12 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
                 appendSupportingPattern(inner, indent + 2, cfg)
             }
         }
+        is SupportingPatternNode.PathPatternNode -> {
+            val pathStr = p.path.path.joinToString("::") { seg ->
+                seg.name ?: when (seg.token) { else -> seg.token.toString().lowercase() }
+            }
+            line(indent, label("PatPath", cfg) + " " + value(pathStr, cfg))
+        }
     }
 }
 
@@ -336,21 +345,9 @@ private fun StringBuilder.appendSupportingPattern(p: SupportingPatternNode, inde
 private fun StringBuilder.appendType(type: TypeNode, indent: Int, cfg: RenderConfig) {
     when (type) {
         is TypeNode.TypePath -> {
-            val prefix = if (type.isGlobal) "::" else ""
-            val pathStr = type.path.joinToString("::") { seg ->
-                when (seg) {
-                    is TypePathSegment -> buildString {
-                        append(seg.pathIndentSegment.raw)
-                        seg.generics?.let { g ->
-                            append("<")
-                            append(g.args.joinToString(", ") { arg -> typeToInline(arg) })
-                            append(">")
-                        }
-                    }
-                    else -> seg.toString()
-                }
-            }
-            line(indent, value(prefix + pathStr, cfg))
+            val seg = type.pathSegmentNode
+            val name = seg.name ?: seg.token.toString().lowercase()
+            line(indent, value(name, cfg))
         }
         is TypeNode.NeverType -> {
             line(indent, label("Never", cfg))
@@ -389,16 +386,7 @@ private fun StringBuilder.appendType(type: TypeNode, indent: Int, cfg: RenderCon
 
 // Inline helper for generic args
 private fun typeToInline(t: TypeNode): String = when (t) {
-    is TypeNode.TypePath -> (if (t.isGlobal) "::" else "") + t.path.joinToString("::") { seg ->
-        if (seg is TypePathSegment) buildString {
-            append(seg.pathIndentSegment.raw)
-            seg.generics?.let { g ->
-                append("<")
-                append(g.args.joinToString(", ") { typeToInline(it) })
-                append(">")
-            }
-        } else seg.toString()
-    }
+    is TypeNode.TypePath -> t.pathSegmentNode.name ?: t.pathSegmentNode.token.toString().lowercase()
     is TypeNode.InferredType -> "_"
     is TypeNode.TupleType -> t.types.joinToString(prefix = "(", postfix = ")") { typeToInline(it) }
     is TypeNode.NeverType -> "!${typeToInline(t.type)}"

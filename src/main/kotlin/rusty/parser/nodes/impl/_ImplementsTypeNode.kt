@@ -3,9 +3,9 @@ package rusty.parser.nodes.impl
 import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.ExpressionNode
+import rusty.parser.nodes.PathIndentSegmentNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
-import rusty.parser.nodes.support.TypePathSegment
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
@@ -40,13 +40,7 @@ fun parseTypeNode(ctx: Context): TypeNode {
 }
 
 private fun parseTypePath(ctx: Context): TypeNode.TypePath {
-    val isGlobal = putilsConsumeIfExistsToken(ctx, Token.O_DOUBLE_COLON)
-    val path = mutableListOf(TypePathSegment.parse(ctx))
-    while (ctx.peekToken() == Token.O_DOUBLE_COLON) {
-        ctx.stream.consume(1)   // consume ::
-        path.add(TypePathSegment.parse(ctx))
-    }
-    return TypeNode.TypePath(path, isGlobal)
+    return TypeNode.TypePath(PathIndentSegmentNode.parse(ctx))
 }
 
 private fun parseNeverType(ctx: Context): TypeNode.NeverType {

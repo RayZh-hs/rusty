@@ -6,11 +6,13 @@ import rusty.lexer.TokenType
 import rusty.lexer.getType
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
+import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.utils.literalFromBoolean
 import rusty.parser.nodes.utils.literalFromChar
 import rusty.parser.nodes.utils.literalFromInteger
 import rusty.parser.nodes.utils.literalFromString
 import rusty.parser.putils.Context
+import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 
 val WithoutBlockExpressionNode.Companion.name get() = "WithoutBlockExpression"
@@ -161,21 +163,8 @@ private fun parseUnderscore(ctx: Context): WithoutBlockExpressionNode {
 }
 
 private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
-    var isGlobal = false
-    if (ctx.prattProcessingTokenBearer!!.token == Token.O_DOUBLE_COLON) {
-        ctx.prattProcessingTokenBearer = ctx.stream.read()
-        isGlobal = true
-    }
-    // The identifier is already consumed by the main loop.
-    val firstIdent = ctx.prattProcessingTokenBearer!!.raw
-    val path = mutableListOf(firstIdent)
-    // Look for more path segments like `::ident`
-    while (ctx.peekToken() == Token.O_DOUBLE_COLON) {
-        ctx.stream.read() // consume '::'
-        val nextIdent = putilsExpectToken(ctx, Token.I_IDENTIFIER)
-        path.add(nextIdent)
-    }
-    return WithoutBlockExpressionNode.PathExpressionNode(path, isGlobal)
+    ctx.stream.rewind(1)
+    return WithoutBlockExpressionNode.PathExpressionNode(PathInExpressionNode.parse(ctx))
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {

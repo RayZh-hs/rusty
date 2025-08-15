@@ -87,4 +87,9 @@ class Stream<T> (private val raw: List<T>) {
         val oriSecondTop = curs.pop()
         return curs.push(CursorItem(oriSecondTop.name, oriTop.ptr))
     }
+
+    fun rewind(x: Int): CursorItem {
+        val oriTop = curs.pop()
+        return curs.push(CursorItem(oriTop.name, oriTop.ptr - x))
+    }
 }

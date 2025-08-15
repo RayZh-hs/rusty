@@ -2,7 +2,9 @@ package rusty.parser.nodes.impl
 
 import rusty.core.CompileError
 import rusty.lexer.Token
+import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode
+import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.putils.Context
@@ -20,6 +22,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
         Token.O_UNDERSCORE -> SupportingPatternNode.WildcardPatternNode.parse(ctx)
 
         Token.O_LPAREN -> parseGroupOrTuplePattern(ctx)
+        Token.I_IDENTIFIER, Token.K_SELF, Token.K_TYPE_SELF, Token.O_DOUBLE_COLON -> SupportingPatternNode.PathPatternNode.parse(ctx)
         else -> TODO("Implement all other patterns")
     }
 }
@@ -50,6 +53,10 @@ fun SupportingPatternNode.LiteralPatternNode.Companion.parse(ctx: Context): Supp
 fun SupportingPatternNode.WildcardPatternNode.parse(ctx: Context): SupportingPatternNode.WildcardPatternNode {
     putilsExpectToken(ctx, Token.O_UNDERSCORE)
     return SupportingPatternNode.WildcardPatternNode
+}
+
+fun SupportingPatternNode.PathPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.PathPatternNode {
+    return SupportingPatternNode.PathPatternNode(path = PathInExpressionNode.parse(ctx))
 }
 
 private fun parseGroupOrTuplePattern(ctx: Context): SupportingPatternNode {

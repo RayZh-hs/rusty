@@ -6,7 +6,7 @@ import rusty.parser.putils.Context
 sealed class TypeNode {
     companion object;
 
-    data class TypePath(val path: List<Any>, val isGlobal: Boolean) : TypeNode() {}
+    data class TypePath(val pathSegmentNode: PathIndentSegmentNode) : TypeNode() {}
     data class NeverType(val type: TypeNode): TypeNode()
     data class TupleType(val types: List<TypeNode>): TypeNode()
     data class ArrayType(val type: TypeNode, val length: ExpressionNode): TypeNode()

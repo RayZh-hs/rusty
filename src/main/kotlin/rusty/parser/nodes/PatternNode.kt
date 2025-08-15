@@ -35,4 +35,8 @@ sealed class SupportingPatternNode {
     data class DestructuredTuplePatternNode(val tuple: List<SupportingPatternNode>): SupportingPatternNode() {
         companion object
     }
+
+    data class PathPatternNode(val path: PathInExpressionNode): SupportingPatternNode() {
+        companion object
+    }
 }

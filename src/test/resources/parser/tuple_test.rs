@@ -1,4 +1,8 @@
+// tuple_test.rs
+// A Norb's testcase: Designed to validate the parser's ability at handling unit types and 1-tuples
+
 fn main() {
+    let _ = ();
     let a = 1;
     let b = (1);
     let c = (1,);
