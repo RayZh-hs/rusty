@@ -20,6 +20,7 @@ fun <T> putilsExpectListWithin(
         result.add(parsingFunction(ctx))
         hasDelimiter = putilsConsumeIfExistsToken(ctx, delimiter)
     }
+    ctx.stream.consume(1)   // Consume the closing token
     return result
 }
 

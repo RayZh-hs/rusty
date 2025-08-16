@@ -14,6 +14,9 @@ import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.support.FunctionParamNode
 import rusty.parser.nodes.support.SelfParamNode
+import rusty.parser.nodes.support.StructFieldNode
+import rusty.parser.nodes.support.EnumVariantNode
+import rusty.parser.nodes.support.AssociatedItemsNode
 import java.io.File
 
 fun Parser.Companion.dump(output: ASTTree, outputPath: String) {
@@ -79,6 +82,66 @@ private fun StringBuilder.appendItem(item: ItemNode, indent: Int, cfg: RenderCon
                 line(indent + 1, field("body", cfg) + ":")
                 appendExpr(body, indent + 2, cfg)
             }
+        }
+        is ItemNode.StructItemNode -> {
+            line(indent, label("StructItem", cfg))
+            line(indent + 1, field("name", cfg) + ": " + value(item.identifier, cfg))
+            if (item.fields.isEmpty()) {
+                line(indent + 1, field("fields", cfg) + ":")
+                line(indent + 2, info("(none)", cfg))
+            } else {
+                line(indent + 1, field("fields", cfg) + ":")
+                item.fields.forEachIndexed { i, f ->
+                    line(indent + 2, field("[$i]", cfg) + ":")
+                    appendStructField(f, indent + 3, cfg)
+                }
+            }
+            if (item.isDeclaration) {
+                line(indent + 1, field("decl", cfg) + ": " + info("true", cfg))
+            }
+        }
+        is ItemNode.EnumItemNode -> {
+            line(indent, label("EnumItem", cfg))
+            line(indent + 1, field("name", cfg) + ": " + value(item.identifier, cfg))
+            if (item.variants.isEmpty()) {
+                line(indent + 1, field("variants", cfg) + ":")
+                line(indent + 2, info("(none)", cfg))
+            } else {
+                line(indent + 1, field("variants", cfg) + ":")
+                item.variants.forEachIndexed { i, v ->
+                    line(indent + 2, field("[$i]", cfg) + ":")
+                    appendEnumVariant(v, indent + 3, cfg)
+                }
+            }
+        }
+        is ItemNode.ConstItemNode -> {
+            line(indent, label("ConstItem", cfg))
+            line(indent + 1, field("name", cfg) + ": " + value(item.identifier, cfg))
+            line(indent + 1, field("type", cfg) + ":")
+            appendType(item.typeNode, indent + 2, cfg)
+            line(indent + 1, field("value", cfg) + ":")
+            item.expressionNode?.let { appendExpr(it, indent + 2, cfg) } ?: line(indent + 2, info("(none)", cfg))
+        }
+        is ItemNode.TraitItemNode -> {
+            line(indent, label("TraitItem", cfg))
+            line(indent + 1, field("name", cfg) + ": " + value(item.identifier, cfg))
+            line(indent + 1, field("assoc", cfg) + ":")
+            appendAssociatedItems(item.associatedItems, indent + 2, cfg)
+        }
+        is ItemNode.ImplItemNode.InherentImplItemNode -> {
+            line(indent, label("ImplItem(Inherent)", cfg))
+            line(indent + 1, field("type", cfg) + ":")
+            appendType(item.typeNode, indent + 2, cfg)
+            line(indent + 1, field("assoc", cfg) + ":")
+            appendAssociatedItems(item.associatedItems, indent + 2, cfg)
+        }
+        is ItemNode.ImplItemNode.TraitImplItemNode -> {
+            line(indent, label("ImplItem(Trait)", cfg))
+            line(indent + 1, field("trait", cfg) + ": " + value(item.identifier, cfg))
+            line(indent + 1, field("type", cfg) + ":")
+            appendType(item.typeNode, indent + 2, cfg)
+            line(indent + 1, field("assoc", cfg) + ":")
+            appendAssociatedItems(item.associatedItems, indent + 2, cfg)
         }
     }
 }
@@ -464,5 +527,37 @@ private fun StringBuilder.appendFunctionParam(param: FunctionParamNode, indent: 
             appendType(param.type, indent + 1, cfg)
         }
         FunctionParamNode.FunctionParamWildcardNode -> line(indent, label("ParamWildcard...", cfg))
+    }
+}
+
+// --- New helper printers for recently added item kinds ---
+private fun StringBuilder.appendStructField(field: StructFieldNode, indent: Int, cfg: RenderConfig) {
+    line(indent, field("name", cfg) + ": " + value(field.identifier, cfg))
+    line(indent, field("type", cfg) + ":")
+    appendType(field.typeNode, indent + 1, cfg)
+}
+
+private fun StringBuilder.appendEnumVariant(variant: EnumVariantNode, indent: Int, cfg: RenderConfig) {
+    line(indent, value(variant.identifier, cfg))
+}
+
+private fun StringBuilder.appendAssociatedItems(ai: AssociatedItemsNode, indent: Int, cfg: RenderConfig) {
+    if (ai.constItems.isEmpty() && ai.functionItems.isEmpty()) {
+        line(indent, info("(none)", cfg))
+        return
+    }
+    if (ai.constItems.isNotEmpty()) {
+        line(indent, field("consts", cfg) + ":")
+        ai.constItems.forEachIndexed { i, c ->
+            line(indent + 1, field("[$i]", cfg) + ":")
+            appendItem(c, indent + 2, cfg)
+        }
+    }
+    if (ai.functionItems.isNotEmpty()) {
+        line(indent, field("fns", cfg) + ":")
+        ai.functionItems.forEachIndexed { i, f ->
+            line(indent + 1, field("[$i]", cfg) + ":")
+            appendItem(f, indent + 2, cfg)
+        }
     }
 }

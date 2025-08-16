@@ -3,9 +3,12 @@ package rusty.parser.nodes
 import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
+import rusty.parser.nodes.impl.peek
+import rusty.parser.nodes.support.AssociatedItemsNode
+import rusty.parser.nodes.support.EnumVariantNode
+import rusty.parser.nodes.support.StructFieldNode
 import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context
-import rusty.parser.putils.putilsExpectToken
 
 // Since we don't need to implement OuterAttribute or MacroItem, Item directly corresponds to VisItem in our AST
 @Peekable
@@ -20,7 +23,12 @@ sealed class ItemNode {
 
         fun parse(ctx: Context): ItemNode {
             if (FunctionItemNode.peek(ctx)) return FunctionItemNode.parse(ctx)
-//            if (StructItemNode.peek(ctx)) return StructItemNode.parse(ctx)
+            if (StructItemNode.peek(ctx)) return StructItemNode.parse(ctx)
+            if (EnumItemNode.peek(ctx)) return EnumItemNode.parse(ctx)
+            if (ConstItemNode.peek(ctx)) return ConstItemNode.parse(ctx)
+            if (TraitItemNode.peek(ctx)) return TraitItemNode.parse(ctx)
+            if (ImplItemNode.peek(ctx)) return ImplItemNode.parse(ctx)
+
             if (ctx.stream.atEnd())
                 throw AssertionError("Item node parsing called upon null stream")
             else
@@ -38,53 +46,54 @@ sealed class ItemNode {
     ) : ItemNode() {
         companion object
     }
-}
 
-val ItemNode.FunctionItemNode.Companion.name get() = "FunctionItem"
+    @Peekable
+    data class StructItemNode(
+        val identifier: String,
+        val fields: List<StructFieldNode>,
+        val isDeclaration: Boolean
+    ) : ItemNode() {
+        companion object
+    }
 
-fun ItemNode.FunctionItemNode.Companion.peek(ctx: Context): Boolean {
-    return ctx.stream.peekOrNull()?.token == Token.K_FN
-}
+    @Peekable
+    data class EnumItemNode(
+        val identifier: String,
+        val variants: List<EnumVariantNode>,
+    ) : ItemNode() {
+        companion object
+    }
 
-fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionItemNode {
-    ctx.callMe(name) {
-        putilsExpectToken(ctx, Token.K_FN)
-        val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
-        val genericParamsNode = if (ctx.peekToken() == Token.O_LANG) ParamsNode.GenericParamsNode.parse(ctx) else null
-        putilsExpectToken(ctx, Token.O_LPAREN)
-        val functionParamsNode = if (ctx.peekToken() != Token.O_RPAREN) ParamsNode.FunctionParamsNode.parse(ctx) else null
-        putilsExpectToken(ctx, Token.O_RPAREN)
-        val returnTypeNode = when (ctx.peekToken()) {
-            Token.O_ARROW -> {
-                ctx.stream.consume(1)
-                TypeNode.parse(ctx)
-            }
-            else -> null
-        }
-        // ignore WHERE clause
-        val withBlockExpressionNode = when (ctx.stream.peekOrNull()?.token) {
-            Token.O_LCURL -> ExpressionNode.WithBlockExpressionNode.parse(ctx)
-            Token.O_SEMICOLON -> {
-                ctx.stream.consume(1)
-                null
-            }
-            else -> throw CompileError("Malformed function body at line ${ctx.stream.peekOrNull()?.lineNumber}").with(
-                ctx
-            )
-        }
-        return ItemNode.FunctionItemNode(
-            identifier = identifier,
-            genericParamsNode = genericParamsNode,
-            functionParamsNode = functionParamsNode,
-            returnTypeNode = returnTypeNode,
-            withBlockExpressionNode = withBlockExpressionNode
-        )
+    @Peekable
+    data class ConstItemNode(
+        val identifier: String,
+        val typeNode: TypeNode,
+        val expressionNode: ExpressionNode?
+    ) : ItemNode() {
+        companion object
+    }
+
+    @Peekable
+    data class TraitItemNode(
+        val identifier: String,
+        val associatedItems: AssociatedItemsNode
+    ) : ItemNode() {
+        companion object
+    }
+
+    @Peekable
+    sealed class ImplItemNode : ItemNode() {
+        companion object;
+
+        data class InherentImplItemNode(
+            val typeNode: TypeNode,
+            val associatedItems: AssociatedItemsNode
+        ) : ImplItemNode()
+
+        data class TraitImplItemNode(
+            val identifier: String,
+            val typeNode: TypeNode,
+            val associatedItems: AssociatedItemsNode
+        ) : ImplItemNode()
     }
 }
-
-//fun ItemNode.StructItemNode.Companion.peek(ctx: Context): Boolean {
-//    return ctx.stream.peekOrNull()?.token == Token.K_STRUCT
-//}
-
-//fun ItemNode.StructItemNode.Companion.parse(ctx: Context): ItemNode.FunctionItemNode {
-//}

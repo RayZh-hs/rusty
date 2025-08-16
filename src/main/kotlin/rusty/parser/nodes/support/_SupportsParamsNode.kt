@@ -39,22 +39,16 @@ fun parseFunctionParamNode(ctx: Context): FunctionParamNode {
         ctx.stream.consume(1)
         return FunctionParamNode.FunctionParamWildcardNode
     }
-    return when (val rawType = ctx.tryParse("FunctionParam@Type") {
-        parseTypeNode(ctx)
-    }) {
-        null -> {
-            // regard as FunctionParamPattern → PatternNoTopAlt : ( Type | ... )
-            val pattern = PatternNode.parse(ctx)
-            putilsExpectToken(ctx, Token.O_COLUMN)
-            var type: TypeNode? = null
-            if (ctx.peekToken() != Token.O_TRIPLE_DOT) {
-                type = parseTypeNode(ctx)
-            }
-            FunctionParamNode.FunctionParamTypedPatternNode(pattern, type)
-        }
-        else -> {
-            // regard as Type
-            FunctionParamNode.FunctionParamTypeNode(rawType)
-        }
-    }
+    return (
+            ctx.tryParse("FunctionParam@Pattern") {
+                val pattern = PatternNode.parse(ctx)
+                putilsExpectToken(ctx, Token.O_COLUMN)
+                var type: TypeNode? = null
+                if (ctx.peekToken() != Token.O_TRIPLE_DOT) {
+                    type = parseTypeNode(ctx)
+                }
+                FunctionParamNode.FunctionParamTypedPatternNode(pattern, type)
+            } ?: FunctionParamNode.FunctionParamTypeNode(
+                parseTypeNode(ctx)
+            ))
 }
