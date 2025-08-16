@@ -2,7 +2,6 @@ package rusty.parser.nodes.impl
 
 import rusty.core.CompileError
 import rusty.lexer.Token
-import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode
 import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.PatternNode
@@ -15,14 +14,23 @@ import rusty.parser.putils.putilsExpectToken
 fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
     return when (ctx.peekToken()) {
         null -> throw CompileError("Pattern cannot start with EOF").with(ctx)
-        Token.K_REF, Token.K_MUT, Token.I_IDENTIFIER -> SupportingPatternNode.IdentifierPatternNode.parse(ctx)
+        Token.K_REF, Token.K_MUT -> SupportingPatternNode.IdentifierPatternNode.parse(ctx)
         Token.L_RAW_STRING, Token.L_RAW_BYTE_STRING, Token.L_RAW_C_STRING,
         Token.L_STRING, Token.L_BYTE_STRING, Token.L_C_STRING,
         Token.L_BYTE, Token.L_CHAR, Token.L_INTEGER, Token.K_TRUE, Token.K_FALSE -> SupportingPatternNode.LiteralPatternNode.parse(ctx)
         Token.O_UNDERSCORE -> SupportingPatternNode.WildcardPatternNode.parse(ctx)
 
         Token.O_LPAREN -> parseGroupOrTuplePattern(ctx)
-        Token.I_IDENTIFIER, Token.K_SELF, Token.K_TYPE_SELF, Token.O_DOUBLE_COLON -> SupportingPatternNode.PathPatternNode.parse(ctx)
+        Token.K_SELF, Token.K_TYPE_SELF, Token.O_DOUBLE_COLON -> SupportingPatternNode.PathPatternNode.parse(ctx)
+
+        Token.I_IDENTIFIER -> {
+            // interpret as identifier first, then check if it's a path pattern
+            ctx.tryParse("Pattern@Identifier") {
+                SupportingPatternNode.IdentifierPatternNode.parse(ctx)
+            } ?: run {
+                SupportingPatternNode.PathPatternNode.parse(ctx)
+            }
+        }
         else -> TODO("Implement all other patterns")
     }
 }

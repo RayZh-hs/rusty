@@ -82,6 +82,8 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     // Identifier / Path
     Token.I_IDENTIFIER to ::parsePathExpression,
     Token.O_DOUBLE_COLON to ::parsePathExpression,
+    Token.K_SELF to ::parsePathExpression,
+    Token.K_TYPE_SELF to ::parsePathExpression,
 
     // Prefix Operators
     Token.O_MINUS to ::parsePrefixOperator,
@@ -145,12 +147,7 @@ private fun parsePrecedence(ctx: Context, precedence: Int): WithoutBlockExpressi
 private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
     val tokenBearer =
         ctx.prattProcessingTokenBearer ?: throw CompileError("Expected a literal token; found none").with(ctx)
-    val literalToken = tokenBearer.token
-
-    assert(literalToken.getType() == TokenType.LITERAL) {
-        "Expected a literal token; found ${literalToken.getType()}"
-    }
-    return when (literalToken) {
+    return when (val literalToken = tokenBearer.token) {
         Token.L_INTEGER -> literalFromInteger(tokenBearer)
         Token.L_STRING, Token.L_RAW_STRING, Token.L_C_STRING, Token.L_RAW_C_STRING -> literalFromString(tokenBearer)
         Token.L_CHAR -> literalFromChar(tokenBearer)

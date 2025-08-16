@@ -42,7 +42,9 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
         val statements = mutableListOf<StatementNode>()
         var trailingExpression: ExpressionNode? = null
         while (ctx.peekToken() != Token.O_RCURL && ctx.peekToken() != null) {
+            var isBlockExpr = false
             val expr = ctx.tryParse("BlockExpression@Expression") {
+                isBlockExpr = ExpressionNode.WithBlockExpressionNode.peek(ctx)
                 ExpressionNode.parse(ctx)
             }
             if (expr == null) {
@@ -60,7 +62,16 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
                         trailingExpression = expr
                     }
 
-                    else -> throw CompileError("Unexpected token for end of expression: $expr").with(ctx)
+                    else -> {
+                        // In the event of a block expression, we can omit the ending semicolumn
+                        if (isBlockExpr) {
+                            statements.add(StatementNode.ExpressionStatementNode(expr))
+                            continue
+                        }
+                        throw CompileError("Unexpected token for end of expression: ${ctx.peekToken()} when parsing $expr").with(
+                            ctx
+                        )
+                    }
                 }
             }
         }

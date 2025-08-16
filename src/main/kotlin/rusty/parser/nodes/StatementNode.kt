@@ -4,6 +4,7 @@ import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
+import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
@@ -18,15 +19,8 @@ sealed class StatementNode {
                 Token.O_SEMICOLON -> return NullStatementNode
                 Token.K_LET -> return LetStatementNode.parse(ctx)
                 else -> {
-                    var parsed: StatementNode? = null
                     if (ItemNode.peek(ctx)) return ItemStatementNode.parse(ctx)
-                    parsed = ctx.tryParse("Statement@ExpressionStatement") {
-                        ExpressionStatementNode.parse(ctx)
-                    }
-                    if (parsed != null)
-                        return parsed
-
-                    throw CompileError("Statement parsing failed").with(ctx)
+                    return ExpressionStatementNode.parse(ctx)
                 }
             }
         }
@@ -38,6 +32,7 @@ sealed class StatementNode {
             val name get() = "ItemStatement"
         }
     }
+
     data class LetStatementNode(
         val patternNode: PatternNode,
         val typeNode: TypeNode?,
@@ -45,6 +40,7 @@ sealed class StatementNode {
     ) : StatementNode() {
         companion object
     }
+
     data class ExpressionStatementNode(val expression: ExpressionNode) : StatementNode() {
         companion object {
             val name get() = "ExpressionStatement"
@@ -77,14 +73,15 @@ fun StatementNode.ItemStatementNode.Companion.parse(ctx: Context): StatementNode
 }
 
 fun StatementNode.ExpressionStatementNode.Companion.parse(ctx: Context): StatementNode.ExpressionStatementNode {
-    var expression: ExpressionNode
-    if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
-        expression = ExpressionNode.WithBlockExpressionNode.parse(ctx)
-        putilsConsumeIfExistsToken(ctx, Token.O_SEMICOLON)
-    }
-    else {
-        expression = ExpressionNode.WithoutBlockExpressionNode.parse(ctx)
-        putilsExpectToken(ctx, Token.O_SEMICOLON)
-    }
-    return StatementNode.ExpressionStatementNode(expression)
+    return StatementNode.ExpressionStatementNode(
+        expression = if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
+            ExpressionNode.WithBlockExpressionNode.parse(ctx).afterWhich {
+                putilsConsumeIfExistsToken(ctx, Token.O_SEMICOLON)
+            }
+        } else {
+            ExpressionNode.WithoutBlockExpressionNode.parse(ctx).afterWhich {
+                putilsExpectToken(ctx, Token.O_SEMICOLON)
+            }
+        }
+    )
 }
