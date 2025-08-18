@@ -189,6 +189,25 @@ private fun StringBuilder.appendExpr(expr: ExpressionNode, indent: Int, cfg: Ren
 
 private fun StringBuilder.appendExprWithBlock(expr: ExpressionNode.WithBlockExpressionNode, indent: Int, cfg: RenderConfig) {
     when (expr) {
+        is ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode -> {
+            line(indent, label("MatchBlock", cfg))
+            line(indent + 1, field("scrutinee", cfg) + ":")
+            appendExpr(expr.scrutinee, indent + 2, cfg)
+            line(indent + 1, field("arms", cfg) + ":")
+            val arms = expr.matchArmsNode.arms
+            val values = expr.matchArmsNode.values
+            for (i in arms.indices) {
+                line(indent + 2, field("[$i]", cfg) + ":")
+                line(indent + 3, field("pattern", cfg) + ":")
+                appendPattern(arms[i].pattern, indent + 4, cfg)
+                arms[i].guard?.let {
+                    line(indent + 3, field("guard", cfg) + ":")
+                    appendExpr(it, indent + 4, cfg)
+                }
+                line(indent + 3, field("value", cfg) + ":")
+                appendExpr(values[i], indent + 4, cfg)
+            }
+        }
         is ExpressionNode.WithBlockExpressionNode.BlockExpressionNode -> {
             line(indent, label("Block", cfg))
             val hasStmts = expr.statements.isNotEmpty()

@@ -7,6 +7,8 @@ import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.parse
+import rusty.parser.nodes.parseWithoutStruct
+import rusty.parser.nodes.support.MatchArmsNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectToken
 
@@ -22,7 +24,7 @@ fun ExpressionNode.WithBlockExpressionNode.Companion.parse(ctx: Context): Expres
         Token.K_LOOP -> ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.parse(ctx)
         Token.K_WHILE -> ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.parse(ctx)
         Token.K_IF -> ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.parse(ctx)
-        Token.K_MATCH -> TODO("Match expressions are not yet implemented")
+        Token.K_MATCH -> ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.parse(ctx)
         else -> throw CompileError("Unexpected token for block expression: $token").with(ctx)
     }
 }
@@ -33,6 +35,7 @@ val ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.Companion.na
 val ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.name get() = "LoopBlockExpression"
 val ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.name get() = "WhileBlockExpression"
 val ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.name get() = "IfBlockExpression"
+val ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.name get() = "MatchBlockExpression"
 
 // { ... }
 fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.BlockExpressionNode {
@@ -137,5 +140,15 @@ fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse
         }
 
         return ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode(ifBranches, elseBranch)
+    }
+}
+
+// match scrutinee { ... }
+fun ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode {
+    ctx.callMe(name) {
+        putilsExpectToken(ctx, Token.K_MATCH)
+        val scrutinee = ExpressionNode.parseWithoutStruct(ctx)
+        val matchArmsNode = MatchArmsNode.parse(ctx)
+        return ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode(scrutinee, matchArmsNode)
     }
 }

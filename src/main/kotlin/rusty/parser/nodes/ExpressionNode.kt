@@ -6,6 +6,7 @@ import rusty.parser.nodes.impl.parseWithoutStruct
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
+import rusty.parser.nodes.support.MatchArmsNode
 import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context
@@ -36,6 +37,11 @@ sealed class ExpressionNode {
         }
 
         data class IfBlockExpressionNode(val ifs: List<IfBranchNode>, val elseBranch: BlockExpressionNode?) :
+            WithBlockExpressionNode() {
+            companion object;
+        }
+
+        data class MatchBlockExpressionNode(val scrutinee: ExpressionNode, val matchArmsNode: MatchArmsNode) :
             WithBlockExpressionNode() {
             companion object;
         }
@@ -85,6 +91,10 @@ sealed class ExpressionNode {
             data object ContinueExpressionNode : ControlFlowExpressionNode()
         }
     }
+}
+
+fun ExpressionNode.Companion.peekIsBlock(ctx: Context): Boolean {
+    return ExpressionNode.WithBlockExpressionNode.peek(ctx)
 }
 
 fun ExpressionNode.Companion.parse(ctx: Context): ExpressionNode {

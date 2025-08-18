@@ -6,6 +6,7 @@ import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode.LiteralExpre
 import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
+import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectGroupOrTupleWithin
@@ -16,7 +17,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
         null -> throw CompileError("Pattern cannot start with EOF").with(ctx)
         Token.K_REF, Token.K_MUT -> SupportingPatternNode.IdentifierPatternNode.parse(ctx)
         Token.L_RAW_STRING, Token.L_RAW_BYTE_STRING, Token.L_RAW_C_STRING,
-        Token.L_STRING, Token.L_BYTE_STRING, Token.L_C_STRING,
+        Token.L_STRING, Token.L_BYTE_STRING, Token.L_C_STRING, Token.O_MINUS,
         Token.L_BYTE, Token.L_CHAR, Token.L_INTEGER, Token.K_TRUE, Token.K_FALSE -> SupportingPatternNode.LiteralPatternNode.parse(ctx)
         Token.O_UNDERSCORE -> SupportingPatternNode.WildcardPatternNode.parse(ctx)
 
@@ -26,12 +27,15 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
         Token.I_IDENTIFIER -> {
             // interpret as identifier first, then check if it's a path pattern
             ctx.tryParse("Pattern@Identifier") {
-                SupportingPatternNode.IdentifierPatternNode.parse(ctx)
+                val parsed = SupportingPatternNode.IdentifierPatternNode.parse(ctx)
+                if (ctx.peekToken() == Token.O_DOUBLE_COLON || ctx.peekToken() == Token.O_DOT)
+                    throw CompileError("Expected path pattern after identifier, found: ${ctx.peekToken()}").with(ctx)
+                parsed
             } ?: run {
                 SupportingPatternNode.PathPatternNode.parse(ctx)
             }
         }
-        else -> TODO("Implement all other patterns")
+        else -> throw CompileError("Unknown pattern start token: ${ctx.peekToken()}").with(ctx)
     }
 }
 
