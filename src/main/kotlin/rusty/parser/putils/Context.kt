@@ -8,6 +8,7 @@ import java.util.Stack
 // A parsing context implementation
 data class Context(
     val stream: TokenStream,
+    val flags: Flags = Flags(),
     val parseStack: Stack<ParseStackItem> = Stack(),
     var attemptedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var failedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),

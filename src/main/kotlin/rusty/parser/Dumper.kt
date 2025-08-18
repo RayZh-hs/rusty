@@ -14,9 +14,10 @@ import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.support.FunctionParamNode
 import rusty.parser.nodes.support.SelfParamNode
-import rusty.parser.nodes.support.StructFieldNode
+import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.EnumVariantNode
 import rusty.parser.nodes.support.AssociatedItemsNode
+import rusty.parser.nodes.support.StructFieldNode
 import java.io.File
 
 fun Parser.Companion.dump(output: ASTTree, outputPath: String) {
@@ -257,6 +258,28 @@ private fun StringBuilder.appendExprWithoutBlock(expr: ExpressionNode.WithoutBlo
                 }
             }
             line(indent, label("Path", cfg) + " " + value(pathStr, cfg))
+        }
+
+        // Struct expression
+        is ExpressionNode.WithoutBlockExpressionNode.StructExpressionNode -> {
+            val pathStr = expr.pathInExpressionNode.path.joinToString("::") { seg ->
+                seg.name ?: seg.token.toString().lowercase()
+            }
+            line(indent, label("StructExpr", cfg) + " " + value(pathStr, cfg))
+            if (expr.fields.isEmpty()) {
+                line(indent + 1, info("(no fields)", cfg))
+            } else {
+                expr.fields.forEachIndexed { i, f ->
+                    line(indent + 1, field("[$i]", cfg) + ":")
+                    line(indent + 2, field("name", cfg) + ": " + value(f.identifier, cfg))
+                    if (f.expressionNode != null) {
+                        line(indent + 2, field("value", cfg) + ":")
+                        appendExpr(f.expressionNode, indent + 3, cfg)
+                    } else {
+                        line(indent + 2, info("(no value)", cfg))
+                    }
+                }
+            }
         }
 
         // Containers

@@ -9,6 +9,7 @@ import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
+import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.StructFieldNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken

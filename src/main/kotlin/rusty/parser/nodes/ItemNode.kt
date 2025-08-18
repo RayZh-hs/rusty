@@ -6,6 +6,7 @@ import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
+import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.StructFieldNode
 import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context

@@ -2,14 +2,13 @@ package rusty.parser.nodes
 
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
+import rusty.parser.nodes.impl.parseWithoutStruct
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
+import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.utils.Peekable
-import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
-import rusty.parser.putils.putilsConsumeIfExistsToken
-import rusty.parser.putils.putilsExpectToken
 
 // Expression nodes use a Pratt-based parsing system
 sealed class ExpressionNode {
@@ -60,6 +59,7 @@ sealed class ExpressionNode {
         data object UnderscoreExpressionNode : LiteralExpressionNode()
         data class TupleExpressionNode(val elements: List<ExpressionNode>) : WithoutBlockExpressionNode()
         data class ArrayExpressionNode(val elements: List<ExpressionNode>, val repeat: ExpressionNode) : WithoutBlockExpressionNode()
+        data class StructExpressionNode(val pathInExpressionNode: PathInExpressionNode, val fields: List<StructExprFieldNode>) : WithoutBlockExpressionNode()
 
         // Literal Modification Node
         // - handles (args)
@@ -92,5 +92,13 @@ fun ExpressionNode.Companion.parse(ctx: Context): ExpressionNode {
         ExpressionNode.WithBlockExpressionNode.parse(ctx)
     } else {
         ExpressionNode.WithoutBlockExpressionNode.parse(ctx)
+    }
+}
+
+fun ExpressionNode.Companion.parseWithoutStruct(ctx: Context): ExpressionNode {
+    return if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
+        ExpressionNode.WithBlockExpressionNode.parse(ctx)
+    } else {
+        ExpressionNode.WithoutBlockExpressionNode.parseWithoutStruct(ctx)
     }
 }

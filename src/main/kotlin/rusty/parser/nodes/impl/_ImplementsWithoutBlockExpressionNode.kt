@@ -2,18 +2,18 @@ package rusty.parser.nodes.impl
 
 import rusty.core.CompileError
 import rusty.lexer.Token
-import rusty.lexer.TokenType
-import rusty.lexer.getType
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
 import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.parse
+import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.utils.literalFromBoolean
 import rusty.parser.nodes.utils.literalFromChar
 import rusty.parser.nodes.utils.literalFromInteger
 import rusty.parser.nodes.utils.literalFromString
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
+import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.putils.putilsExpectToken
 
 val WithoutBlockExpressionNode.Companion.name get() = "WithoutBlockExpression"
@@ -21,6 +21,12 @@ val WithoutBlockExpressionNode.Companion.name get() = "WithoutBlockExpression"
 fun WithoutBlockExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpressionNode {
     ctx.callMe(name) {
         return parsePrecedence(ctx, Precedence.NONE.value)
+    }
+}
+
+fun WithoutBlockExpressionNode.Companion.parseWithoutStruct(ctx: Context): WithoutBlockExpressionNode {
+    ctx.callMe(name) {
+        return parsePrecedence(ctx, Precedence.NONE.value, true)
     }
 }
 
@@ -80,10 +86,10 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     Token.O_UNDERSCORE to ::parseUnderscore,
 
     // Identifier / Path
-    Token.I_IDENTIFIER to ::parsePathExpression,
-    Token.O_DOUBLE_COLON to ::parsePathExpression,
-    Token.K_SELF to ::parsePathExpression,
-    Token.K_TYPE_SELF to ::parsePathExpression,
+    Token.I_IDENTIFIER to ::parsePathOrStructExpression,
+    Token.O_DOUBLE_COLON to ::parsePathOrStructExpression,
+    Token.K_SELF to ::parsePathOrStructExpression,
+    Token.K_TYPE_SELF to ::parsePathOrStructExpression,
 
     // Prefix Operators
     Token.O_MINUS to ::parsePrefixOperator,
@@ -127,11 +133,14 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     Token.O_DOT to ::parseFieldOrTupleIndexExpression
 )
 
-private fun parsePrecedence(ctx: Context, precedence: Int): WithoutBlockExpressionNode {
+private fun parsePrecedence(ctx: Context, precedence: Int, disableStructExpression: Boolean = false): WithoutBlockExpressionNode {
     val currentToken = ctx.stream.read()
     ctx.prattProcessingTokenBearer = currentToken // Store the token for literal conversion
-    val nud = nudParselets[currentToken.token]
+    var nud = nudParselets[currentToken.token]
         ?: throw CompileError("Invalid start of expression: ${currentToken.token}").with(ctx)
+    if (nud == ::parsePathOrStructExpression && disableStructExpression) {
+        nud = ::parsePathExpression
+    }
 
     var left = nud(ctx)
 
@@ -160,9 +169,26 @@ private fun parseUnderscore(ctx: Context): WithoutBlockExpressionNode {
     return WithoutBlockExpressionNode.UnderscoreExpressionNode
 }
 
+private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNode {
+    ctx.stream.rewind(1)
+    val path = PathInExpressionNode.parse(ctx)
+    return when (ctx.peekToken()) {
+        Token.O_LCURL -> {
+            val fields = putilsExpectListWithin(
+                ctx,
+                parsingFunction = StructExprFieldNode::parse,
+                wrappingTokens = Pair(Token.O_LCURL, Token.O_RCURL)
+            )
+            WithoutBlockExpressionNode.StructExpressionNode(path, fields)
+        }
+        else -> WithoutBlockExpressionNode.PathExpressionNode(path)
+    }
+}
+
 private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
     ctx.stream.rewind(1)
-    return WithoutBlockExpressionNode.PathExpressionNode(PathInExpressionNode.parse(ctx))
+    val path = PathInExpressionNode.parse(ctx)
+    return WithoutBlockExpressionNode.PathExpressionNode(path)
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
