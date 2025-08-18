@@ -17,7 +17,7 @@ data class TypePathSegment(
             val pathIndentSegment = ctx.stream.read()
             if (!setOf(Token.I_IDENTIFIER, Token.K_SUPER, Token.K_SELF, Token.K_TYPE_SELF, Token.K_CRATE)
                 .contains(pathIndentSegment.token)) {
-                throw CompileError("Invalid type PathIdentSegment: $pathIndentSegment on line ${pathIndentSegment.lineNumber}")
+                throw CompileError("Invalid type PathIdentSegment: $pathIndentSegment at ${pathIndentSegment.lineNumber}:${pathIndentSegment.columnNumber}")
             }
             val cur = ctx.stream.cur
             val nToken = ctx.stream.peekAtOrNull(cur + 1)?.token

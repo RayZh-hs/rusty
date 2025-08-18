@@ -6,11 +6,11 @@ fun TokenBearer.validate() {
     when (token) {
         Token.L_CHAR -> {
             if (!raw.matches("""'([^'\\\n\r\t]|\\['"nrt\\]|\\x[0-7][0-9a-fA-F]|\\u\{[0-9a-fA-F_]{1,6}\})'""".toRegex()))
-                throw CompileError("Invalid char: $raw on line $lineNumber")
+                throw CompileError("Invalid char: $raw at ${pointer.line}:${pointer.column}")
         }
         Token.L_BYTE -> {
             if (!raw.matches("""b'((?!['\\\n\r\t])[\x00-\x7F]|\\x[0-7][0-9a-fA-F]|\\[nrt\\0'"])'""".toRegex()))
-                throw CompileError("Invalid byte: $raw on line $lineNumber")
+                throw CompileError("Invalid byte: $raw at ${pointer.line}:${pointer.column}")
         }
         Token.L_INTEGER -> {
             var num = raw
@@ -37,9 +37,9 @@ fun TokenBearer.validate() {
             }.toRegex()
             num = num.replace("_", "")
             if (num.isEmpty())
-                throw CompileError("Empty integer $raw on line $lineNumber")
+                throw CompileError("Empty integer $raw at ${pointer.line}:${pointer.column}")
             if (!num.matches(reg))
-                throw CompileError("Invalid number $raw on line $lineNumber")
+                throw CompileError("Invalid number $raw at ${pointer.line}:${pointer.column}")
         }
 
         else -> {}

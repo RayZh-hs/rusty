@@ -6,7 +6,6 @@ import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode.LiteralExpre
 import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
-import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectGroupOrTupleWithin
@@ -35,7 +34,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
                 SupportingPatternNode.PathPatternNode.parse(ctx)
             }
         }
-        else -> throw CompileError("Unknown pattern start token: ${ctx.peekToken()}").with(ctx)
+        else -> throw CompileError("Unknown pattern start token: ${ctx.peekToken()}").with(ctx).at(ctx.peekPointer())
     }
 }
 

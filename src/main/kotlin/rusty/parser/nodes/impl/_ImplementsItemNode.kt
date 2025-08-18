@@ -9,7 +9,6 @@ import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
-import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.StructFieldNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
@@ -42,7 +41,7 @@ fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionIt
                 ctx.stream.consume(1)
                 null
             }
-            else -> throw CompileError("Malformed function body at line ${ctx.stream.peekOrNull()?.lineNumber}").with(
+            else -> throw CompileError("Malformed function body at ${ctx.stream.peekOrNull()?.lineNumber}:${ctx.stream.peekOrNull()?.columnNumber}").with(
                 ctx
             )
         }

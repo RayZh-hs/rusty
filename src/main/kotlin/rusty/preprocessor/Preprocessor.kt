@@ -2,6 +2,7 @@ package rusty.preprocessor
 
 import rusty.core.MarkedString
 import rusty.core.MarkedStringBuilder
+import rusty.core.CompilerPointer
 
 // The preprocessor is responsible for removing comments and standardizing string literals
 // The result will be a one-liner for the inputted text literal
@@ -16,20 +17,23 @@ class Preprocessor {
             var inChar = false
             var isEscaped = false
             var lineNumber = 1
+            var columnNumber = 1 // 1-based column in original source
 
             var idx = 0
             while (idx < rawText.length) {
                 val c = rawText[idx]
                 val nc: Char? = if (idx + 1 < rawText.length) rawText[idx + 1] else null
 
-                if (c == '\n')
-                    ++lineNumber
+                if (c == '\n') {
+                    lineNumber += 1
+                    columnNumber = 1
+                }
 
                 // Special positions
                 when {
                     inLineComment -> {
                         if (c == '\n') {
-                            text.append(' ', lineNumber)
+                            text.append(' ', CompilerPointer(lineNumber, columnNumber))
                             inLineComment = false
                         }
                         ++idx
@@ -52,12 +56,11 @@ class Preprocessor {
                             idx += 2
                             continue
                         }
-                        text.append(
-                            when (c) {
-                                '\n' -> "\\n"   // change \n to \\n literal to make it a one-liner
-                                else -> c.toString()
-                            }, lineNumber
-                        )
+                        val toAppend = when (c) {
+                            '\n' -> "\\n"
+                            else -> c.toString()
+                        }
+                        text.append(toAppend, CompilerPointer(lineNumber, columnNumber))
                         if (isEscaped) {
                             isEscaped = false
                         } else {
@@ -67,6 +70,7 @@ class Preprocessor {
                             }
                         }
                         idx++
+                        columnNumber += 1
                         continue
                     }
                     inChar -> {
@@ -75,12 +79,11 @@ class Preprocessor {
                             idx += 2
                             continue
                         }
-                        text.append(
-                            when (c) {
-                                '\n' -> "\\n"   // change \n to \\n literal to make it a one-liner
-                                else -> c.toString()
-                            }, lineNumber
-                        )
+                        val toAppend = when (c) {
+                            '\n' -> "\\n"
+                            else -> c.toString()
+                        }
+                        text.append(toAppend, CompilerPointer(lineNumber, columnNumber))
                         if (isEscaped) {
                             isEscaped = false
                         } else {
@@ -90,15 +93,41 @@ class Preprocessor {
                             }
                         }
                         idx++
+                        columnNumber += 1
                         continue
                     }
                 }
 
-                val (gotoCur, newlineCount) = skipToOutsideOfRawLiterals(rawText, idx)
-                lineNumber += newlineCount
+                val (gotoCur, _) = skipToOutsideOfRawLiterals(rawText, idx)
+                if (gotoCur != idx) {
+                    // update line/column by scanning segment
+                    var localLine = lineNumber
+                    var localColumn = columnNumber
+                    for (i in idx until gotoCur) {
+                        val ch = rawText[i]
+                        if (ch == '\n') {
+                            localLine += 1
+                            localColumn = 1
+                        } else {
+                            localColumn += 1
+                        }
+                    }
+                    lineNumber = localLine
+                    columnNumber = localColumn
+                }
                 if (gotoCur != idx) {
                     // push the segment into the string builder
-                    text.append(rawText.substring(idx, gotoCur), lineNumber)
+                    // each char gets its own pointer from the original segment
+                    for (i in idx until gotoCur) {
+                        val ch = rawText[i]
+                        text.append(ch, CompilerPointer(lineNumber, columnNumber))
+                        if (ch == '\n') {
+                            lineNumber += 1
+                            columnNumber = 1
+                        } else {
+                            columnNumber += 1
+                        }
+                    }
                     idx = gotoCur
                     continue
                 }
@@ -118,32 +147,33 @@ class Preprocessor {
                     // String
                     c == '"' -> {
                         inString = true
-                        text.append(c, lineNumber)
+                        text.append(c, CompilerPointer(lineNumber, columnNumber))
                     }
                     // Char
                     c == '\'' -> {
                         inChar = true
-                        text.append(c, lineNumber)
+                        text.append(c, CompilerPointer(lineNumber, columnNumber))
                     }
                     // Replace newline with space
                     c == '\n' || c == '\r' -> {
                         // Concentrate multiple newlines
                         if (text.content.isNotEmpty() && text.content.last() != ' ') {
-                            text.append(' ', lineNumber)
+                            text.append(' ', CompilerPointer(lineNumber, columnNumber))
                         }
                     }
                     c == ' ' -> {
                         // Concentrate multiple spaces
                         if (text.content.isNotEmpty() && text.content.last() != ' ') {
-                            text.append(c, lineNumber)
+                            text.append(c, CompilerPointer(lineNumber, columnNumber))
                         }
                     }
                     // Append any other character faithfully
                     else -> {
-                        text.append(c, lineNumber)
+                        text.append(c, CompilerPointer(lineNumber, columnNumber))
                     }
                 }
                 ++idx
+                columnNumber += 1
             }
             return text.toMarkedString()
         }

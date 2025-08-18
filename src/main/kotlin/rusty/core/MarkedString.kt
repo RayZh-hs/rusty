@@ -1,36 +1,33 @@
 package rusty.core
 
-data class MarkedString(val text: String, val marks: List<Int>) {
+/**
+ * MarkedString now associates every character with its original CompilerPointer (line & column).
+ */
+data class MarkedString(val text: String, val marks: List<CompilerPointer>) {
 
     init {
-        // Ensure that the size of the string and the marks list are identical.
         require(text.length == marks.size) {
             "The length of the string (${text.length}) must be equal to the size of the marks list (${marks.size})."
         }
     }
 
     fun getChar(index: Int): Char = text[index]
-    fun getMark(index: Int): Int = marks[index]
-    val length: Int
-        get() = text.length
+    fun getMark(index: Int): CompilerPointer = marks[index]
+    val length: Int get() = text.length
 }
 
 class MarkedStringBuilder {
-
     val content = StringBuilder()
-    private val marksList = mutableListOf<Int>()
+    private val marksList = mutableListOf<CompilerPointer>()
 
-    fun append(char: Char, mark: Int): MarkedStringBuilder {
+    fun append(char: Char, mark: CompilerPointer): MarkedStringBuilder {
         content.append(char)
         marksList.add(mark)
         return this
     }
 
-    // uniform mark
-    fun append(text: String, mark: Int): MarkedStringBuilder {
-        text.forEach { char ->
-            append(char, mark)
-        }
+    fun append(text: String, mark: CompilerPointer): MarkedStringBuilder {
+        text.forEach { char -> append(char, mark) }
         return this
     }
 
@@ -40,11 +37,7 @@ class MarkedStringBuilder {
         return this
     }
 
-    fun toMarkedString(): MarkedString {
-        return MarkedString(content.toString(), marksList.toList())
-    }
+    fun toMarkedString(): MarkedString = MarkedString(content.toString(), marksList.toList())
 
-    override fun toString(): String {
-        return content.toString()
-    }
+    override fun toString(): String = content.toString()
 }

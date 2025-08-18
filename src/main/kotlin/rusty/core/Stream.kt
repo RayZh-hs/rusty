@@ -15,6 +15,8 @@ class Stream<T> (private val raw: List<T>) {
             val item = curs.pop()
             curs.push(CursorItem(item.name, value))
         }
+    var size: Int = raw.size
+        private set
 
     init {
         // the main cursor is the crate cursor

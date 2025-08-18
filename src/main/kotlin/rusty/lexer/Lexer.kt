@@ -3,6 +3,7 @@ package rusty.lexer
 import rusty.core.MarkedString
 import rusty.core.isWord
 import rusty.core.CompileError
+import rusty.core.CompilerPointer
 
 class Lexer {
 
@@ -87,7 +88,7 @@ class Lexer {
             }
         }
 
-        private fun nextTokenBearer(input: String, cur: Int, lineNumber: Int): Pair<TokenBearer, Int> {
+    private fun nextTokenBearer(input: String, cur: Int, ptr: CompilerPointer): Pair<TokenBearer, Int> {
             val cls = peekClass(input, cur)
             when (cls) {
                 // Word boundary lookup
@@ -98,19 +99,18 @@ class Lexer {
                         ++i
                     --i     // this points to the endpoint
                     val substr = input.slice(cur..i)
-                    return Pair(
-                        when (cls) {
-                            TokenPeekClass.NUMERIC -> TokenBearer(Token.L_INTEGER, substr, lineNumber)
-                            else -> {
-                                val tokenTypeLookup = tokenFromLiteral(substr)
-                                TokenBearer(
-                                    if (tokenTypeLookup == Token.E_ERROR) Token.I_IDENTIFIER else tokenTypeLookup,
-                                    substr,
-                                    lineNumber
-                                )
-                            }
-                        }, i
-                    )
+                    val bearer = when (cls) {
+                        TokenPeekClass.NUMERIC -> TokenBearer(Token.L_INTEGER, substr, ptr)
+                        else -> {
+                            val tokenTypeLookup = tokenFromLiteral(substr)
+                            TokenBearer(
+                                if (tokenTypeLookup == Token.E_ERROR) Token.I_IDENTIFIER else tokenTypeLookup,
+                                substr,
+                                ptr
+                            )
+                        }
+                    }
+                    return Pair(bearer, i)
                 }
                 // Escaped string lookup
                 TokenPeekClass.STRING, TokenPeekClass.BYTE, TokenPeekClass.CHAR,
@@ -141,11 +141,11 @@ class Lexer {
                                 TokenPeekClass.C_STRING -> Token.L_C_STRING
                                 else -> throw IllegalStateException("Invalid token class in string processing")
                             }
-                            return Pair(TokenBearer(tokenType, substr, lineNumber), endpoint)
+                return Pair(TokenBearer(tokenType, substr, ptr), endpoint)
                         }
                         j++
                     }
-                    throw CompileError("Unterminated literal on or after line: $lineNumber")
+            throw CompileError("Unterminated literal near $ptr").at(ptr)
                 }
                 // Raw string lookup
                 TokenPeekClass.RAW_STRING, TokenPeekClass.RAW_BYTE_STRING, TokenPeekClass.RAW_C_STRING -> {
@@ -159,7 +159,7 @@ class Lexer {
                     val endingLiteral = "\"" + "#".repeat(hashLength)
                     val endingIndex = input.indexOf(endingLiteral, startIndex = i + 1)
                     if (endingIndex == -1) {
-                        throw CompileError("Unterminated literal on or after line: $lineNumber")
+                        throw CompileError("Unterminated literal near $ptr").at(ptr)
                     }
                     val endpoint = endingIndex + endingLiteral.length
                     val substr = input.substring(cur, endpoint)
@@ -168,7 +168,7 @@ class Lexer {
                         TokenPeekClass.RAW_BYTE_STRING -> Token.L_RAW_BYTE_STRING
                         TokenPeekClass.RAW_C_STRING -> Token.L_RAW_C_STRING
                         else -> throw IllegalStateException("Invalid token class in string processing")
-                    }, substr, lineNumber), endpoint - 1)
+                    }, substr, ptr), endpoint - 1)
                 }
                 // Operator lookup
                 TokenPeekClass.OPERATOR -> {
@@ -178,11 +178,11 @@ class Lexer {
                             val substr = input.substring(cur, i + 1)
                             val type = tokenFromLiteral(substr)
                             if (type != Token.E_ERROR)
-                                return Pair(TokenBearer(type, substr, lineNumber), i)
+                                return Pair(TokenBearer(type, substr, ptr), i)
                         }
                         --i
                     }
-                    throw CompileError("Unrecognized operator starting with ${input[cur]} on or after line: $lineNumber")
+                    throw CompileError("Unrecognized operator starting with ${input[cur]} near $ptr").at(ptr)
                 }
             }
         }

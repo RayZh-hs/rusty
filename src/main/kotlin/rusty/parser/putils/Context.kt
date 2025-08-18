@@ -1,5 +1,6 @@
 package rusty.parser.putils
 
+import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.lexer.TokenBearer
 import rusty.parser.TokenStream
@@ -53,4 +54,9 @@ data class Context(
     }
 
     fun peekToken(): Token? = stream.peekOrNull()?.token
+    fun peekPointer(): CompilerPointer {
+        val pos = stream.cur.coerceIn(0, stream.size - 1)
+        val bearer = stream.peekAt(pos)
+        return CompilerPointer(bearer.lineNumber, bearer.columnNumber)
+    }
 }

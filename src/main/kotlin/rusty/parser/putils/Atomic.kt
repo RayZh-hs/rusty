@@ -8,7 +8,7 @@ fun putilsExpectToken(ctx: Context, token: Token): String {
     if (tokenBearer == null)
         throw CompileError("Parsec: End of stream when expecting token $token")
     else if (tokenBearer.token != token)
-        throw CompileError("Unexpected token '${tokenBearer.raw}' on line ${tokenBearer.lineNumber}").with(ctx)
+    throw CompileError("Unexpected token '${tokenBearer.raw}' at ${tokenBearer.lineNumber}:${tokenBearer.columnNumber}").with(ctx)
     return tokenBearer.raw
 }
 

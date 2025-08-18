@@ -3,6 +3,7 @@ package rusty
 import rusty.cli.CommandParser
 import rusty.cli.CommandParserConfigEntry
 import rusty.cli.Requirement
+import rusty.core.CompileError
 import rusty.lexer.Lexer
 import rusty.lexer.dump
 import rusty.lexer.dumpScreen
@@ -52,6 +53,7 @@ fun main(args: Array<String>) {
 
     // 0. Read from file given in -i
     val rawFileLiteral = File(inputPath).readText()
+    CompileError.registerSource(rawFileLiteral.split("\n"))
 
     // 1. Preprocessing
     val preprocessedLiteral = Preprocessor.run(rawFileLiteral)

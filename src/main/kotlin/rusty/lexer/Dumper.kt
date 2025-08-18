@@ -30,7 +30,7 @@ fun Lexer.Companion.dumpScreen(tokens: MutableList<TokenBearer>) {
 
 private fun formatTokenForFile(tokenBearer: TokenBearer): String {
     return "Token(${tokenBearer.token.getType()}: ${tokenBearer.token}) " +
-           "raw='${tokenBearer.raw}' line=${tokenBearer.lineNumber}"
+           "raw='${tokenBearer.raw}' line=${tokenBearer.lineNumber} col=${tokenBearer.columnNumber}"
 }
 
 private fun formatTokenForScreen(tokenBearer: TokenBearer): String {
@@ -45,7 +45,7 @@ private fun formatTokenForScreen(tokenBearer: TokenBearer): String {
     
     val tokenName = tokenBearer.token.toString().lightGray()
     val rawValue = "'${tokenBearer.raw}'".cyan()
-    val lineInfo = "line=${tokenBearer.lineNumber}".lightGray()
+    val lineInfo = "line=${tokenBearer.lineNumber} col=${tokenBearer.columnNumber}".lightGray()
     
     return "Token($tokenTypeStr: $tokenName) raw=$rawValue $lineInfo"
 }
