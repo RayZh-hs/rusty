@@ -150,8 +150,10 @@ fun ItemNode.ImplItemNode.Companion.peek(ctx: Context): Boolean {
 fun ItemNode.ImplItemNode.Companion.parse(ctx: Context): ItemNode.ImplItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_IMPL)
-        when (ctx.peekToken()) {
-            Token.I_IDENTIFIER -> {
+        val nt = ctx.stream.peekAtOrNull(ctx.stream.cur)?.token
+        val nnt = ctx.stream.peekAtOrNull(ctx.stream.cur + 1)?.token
+        when {
+            nt == Token.I_IDENTIFIER && nnt == Token.K_FOR -> {
                 // TraitImpl →
                 //    impl IDENTIFIER for Type {...}
                 val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)

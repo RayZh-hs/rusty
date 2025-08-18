@@ -25,7 +25,7 @@ fun TypeNode.Companion.parse(ctx: Context): TypeNode {
 // It is exposed for external use (see _SupportsTypeNode)
 fun parseTypeNode(ctx: Context): TypeNode {
     return when (ctx.peekToken()) {
-        Token.O_DOUBLE_COLON, Token.I_IDENTIFIER -> parseTypePath(ctx)
+        Token.O_DOUBLE_COLON, Token.I_IDENTIFIER, Token.K_SELF, Token.K_TYPE_SELF -> parseTypePath(ctx)
         Token.O_NOT -> parseNeverType(ctx)
         Token.O_LPAREN -> parseTupleOrGroup(ctx)
         Token.O_LSQUARE -> parseArrayOrSlice(ctx)

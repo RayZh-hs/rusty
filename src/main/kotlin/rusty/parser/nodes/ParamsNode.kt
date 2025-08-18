@@ -8,7 +8,9 @@ import rusty.parser.nodes.support.SelfParamNode
 import rusty.parser.nodes.support.parse
 import rusty.parser.nodes.support.parseFunctionParamNode
 import rusty.parser.nodes.support.parseGenericParamNode
+import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
+import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.putils.putilsExpectToken
 
@@ -30,7 +32,9 @@ fun ParamsNode.GenericParamsNode.Companion.parse(ctx: Context): ParamsNode.Gener
 fun ParamsNode.FunctionParamsNode.Companion.parse(ctx: Context): ParamsNode.FunctionParamsNode {
     putilsExpectToken(ctx, Token.O_LPAREN)
     val selfParam = ctx.tryParse("FunctionParams@SelfParam") {
-        SelfParamNode.parse(ctx)
+        SelfParamNode.parse(ctx).afterWhich {
+            putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
+        }
     }
     val args = putilsExpectListWithin(ctx, ::parseFunctionParamNode, Pair(null, Token.O_RPAREN))
     return ParamsNode.FunctionParamsNode(selfParam, args)
