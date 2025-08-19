@@ -60,7 +60,7 @@ data class Context(
         return CompilerPointer(bearer.lineNumber, bearer.columnNumber)
     }
 
-    fun parseStackPointer(): CompilerPointer {
+    fun topPointer(): CompilerPointer {
         return if (parseStack.isEmpty()) {
             peekPointer()
         } else {

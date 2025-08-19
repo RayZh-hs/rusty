@@ -1,6 +1,7 @@
 package rusty.parser.nodes
 
 import rusty.core.CompileError
+import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
@@ -9,14 +10,16 @@ import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 
-sealed class StatementNode {
+sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name get() = "Statement"
 
         fun parse(ctx: Context): StatementNode {
             when (ctx.peekToken()) {
                 null -> throw AssertionError("Statement node parsing called upon null stream")
-                Token.O_SEMICOLON -> return NullStatementNode
+                Token.O_SEMICOLON -> return NullStatementNode(ctx.peekPointer()).afterWhich {
+                    ctx.stream.consume(1) // consume the semicolon
+                }
                 Token.K_LET -> return LetStatementNode.parse(ctx)
                 else -> {
                     if (ItemNode.peek(ctx)) return ItemStatementNode.parse(ctx)
@@ -26,8 +29,8 @@ sealed class StatementNode {
         }
     }
 
-    data object NullStatementNode : StatementNode()
-    data class ItemStatementNode(val item: ItemNode) : StatementNode() {
+    data class NullStatementNode(override val pointer: CompilerPointer) : StatementNode(pointer)
+    data class ItemStatementNode(val item: ItemNode, override val pointer: CompilerPointer) : StatementNode(pointer) {
         companion object {
             val name get() = "ItemStatement"
         }
@@ -37,11 +40,14 @@ sealed class StatementNode {
         val patternNode: PatternNode,
         val typeNode: TypeNode?,
         val expressionNode: ExpressionNode?,
-    ) : StatementNode() {
-        companion object
+        override val pointer: CompilerPointer
+    ) : StatementNode(pointer) {
+        companion object {
+            val name get() = "LetStatement"
+        }
     }
 
-    data class ExpressionStatementNode(val expression: ExpressionNode) : StatementNode() {
+    data class ExpressionStatementNode(val expression: ExpressionNode, override val pointer: CompilerPointer) : StatementNode(pointer) {
         companion object {
             val name get() = "ExpressionStatement"
         }
@@ -53,35 +59,42 @@ fun StatementNode.LetStatementNode.Companion.peek(ctx: Context): Boolean {
 }
 
 fun StatementNode.LetStatementNode.Companion.parse(ctx: Context): StatementNode {
-    putilsExpectToken(ctx, Token.K_LET)
-    val patternNode = PatternNode.parse(ctx)
-    var typeNode: TypeNode? = null
-    if (ctx.peekToken() == Token.O_COLUMN) {
-        ctx.stream.consume(1)   // : type
-        typeNode = TypeNode.parse(ctx)
+    ctx.callMe(name) {
+        putilsExpectToken(ctx, Token.K_LET)
+        val patternNode = PatternNode.parse(ctx)
+        var typeNode: TypeNode? = null
+        if (ctx.peekToken() == Token.O_COLUMN) {
+            ctx.stream.consume(1)   // : type
+            typeNode = TypeNode.parse(ctx)
+        }
+        var expressionNode: ExpressionNode? = null
+        if (putilsConsumeIfExistsToken(ctx, Token.O_EQ)) {
+            expressionNode = ExpressionNode.parse(ctx)
+        }
+        putilsExpectToken(ctx, Token.O_SEMICOLON)
+        return StatementNode.LetStatementNode(patternNode, typeNode, expressionNode, ctx.topPointer())
     }
-    var expressionNode: ExpressionNode? = null
-    if (putilsConsumeIfExistsToken(ctx, Token.O_EQ)) {
-        expressionNode = ExpressionNode.parse(ctx)
-    }
-    putilsExpectToken(ctx, Token.O_SEMICOLON)
-    return StatementNode.LetStatementNode(patternNode, typeNode, expressionNode)
 }
 
 fun StatementNode.ItemStatementNode.Companion.parse(ctx: Context): StatementNode.ItemStatementNode {
-    return StatementNode.ItemStatementNode(item = ItemNode.parse(ctx))
+    ctx.callMe(name) {
+        return StatementNode.ItemStatementNode(item = ItemNode.parse(ctx), pointer = ctx.topPointer())
+    }
 }
 
 fun StatementNode.ExpressionStatementNode.Companion.parse(ctx: Context): StatementNode.ExpressionStatementNode {
-    return StatementNode.ExpressionStatementNode(
-        expression = if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
-            ExpressionNode.WithBlockExpressionNode.parse(ctx).afterWhich {
-                putilsConsumeIfExistsToken(ctx, Token.O_SEMICOLON)
-            }
-        } else {
-            ExpressionNode.WithoutBlockExpressionNode.parse(ctx).afterWhich {
-                putilsExpectToken(ctx, Token.O_SEMICOLON)
-            }
-        }
-    )
+    ctx.callMe(name) {
+        return StatementNode.ExpressionStatementNode(
+            expression = if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
+                ExpressionNode.WithBlockExpressionNode.parse(ctx).afterWhich {
+                    putilsConsumeIfExistsToken(ctx, Token.O_SEMICOLON)
+                }
+            } else {
+                ExpressionNode.WithoutBlockExpressionNode.parse(ctx).afterWhich {
+                    putilsExpectToken(ctx, Token.O_SEMICOLON)
+                }
+            },
+            pointer = ctx.topPointer()
+        )
+    }
 }

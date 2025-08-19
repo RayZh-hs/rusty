@@ -8,9 +8,7 @@ import rusty.core.CompilerPointer
  * 'name' identifies the grammar production (best-effort).
  */
 abstract class ASTNode(override val pointer: CompilerPointer) : WithPointer {
-    companion object {
-        val name get() = "ASTNode"
-    }
+    companion object
 }
 
 /**

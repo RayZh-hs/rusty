@@ -491,7 +491,7 @@ private fun StringBuilder.appendType(type: TypeNode, indent: Int, cfg: RenderCon
             line(indent, label("RefType$mutPart", cfg))
             appendType(type.type, indent + 1, cfg)
         }
-        TypeNode.InferredType -> line(indent, label("InferredType", cfg))
+        is TypeNode.InferredType -> line(indent, label("InferredType", cfg))
     }
 }
 

@@ -39,6 +39,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
 }
 
 fun SupportingPatternNode.IdentifierPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.IdentifierPatternNode {
+    val pointer = ctx.peekPointer()
     val isRef = putilsConsumeIfExistsToken(ctx, Token.K_REF)
     val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
     val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -49,32 +50,40 @@ fun SupportingPatternNode.IdentifierPatternNode.Companion.parse(ctx: Context): S
         identifier = identifier,
         isMut = isMut,
         isRef = isRef,
-        extendedByPatternNode = extendedByPattern
+        extendedByPatternNode = extendedByPattern,
+        pointer = pointer,
     )
 }
 
 fun SupportingPatternNode.LiteralPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.LiteralPatternNode {
+    val pointer = ctx.peekPointer()
     val isNegated = putilsConsumeIfExistsToken(ctx, Token.O_MINUS)
     return SupportingPatternNode.LiteralPatternNode(
         literalNode = LiteralExpressionNode.parse(ctx),
         isNegated = isNegated,
+        pointer = pointer,
     )
 }
 
-fun SupportingPatternNode.WildcardPatternNode.parse(ctx: Context): SupportingPatternNode.WildcardPatternNode {
+fun SupportingPatternNode.WildcardPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.WildcardPatternNode {
+    val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_UNDERSCORE)
-    return SupportingPatternNode.WildcardPatternNode
+    return SupportingPatternNode.WildcardPatternNode(pointer)
 }
 
 fun SupportingPatternNode.PathPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.PathPatternNode {
-    return SupportingPatternNode.PathPatternNode(path = PathInExpressionNode.parse(ctx))
+    val pointer = ctx.peekPointer()
+    return SupportingPatternNode.PathPatternNode(path = PathInExpressionNode.parse(ctx), pointer = pointer)
 }
 
 private fun parseGroupOrTuplePattern(ctx: Context): SupportingPatternNode {
+    val pointer = ctx.peekPointer()
     return putilsExpectGroupOrTupleWithin(
         ctx,
         parsingFunction = SupportingPatternNode.Companion::parse,
-        tupleConstructor = SupportingPatternNode::DestructuredTuplePatternNode,
+        tupleConstructor = { list ->
+            SupportingPatternNode.DestructuredTuplePatternNode(list, pointer)
+        },
         Pair(Token.O_LPAREN, Token.O_RPAREN)
     )
 }

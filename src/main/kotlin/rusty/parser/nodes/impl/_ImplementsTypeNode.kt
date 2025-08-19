@@ -6,6 +6,7 @@ import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.PathIndentSegmentNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
+import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
@@ -31,8 +32,9 @@ fun parseTypeNode(ctx: Context): TypeNode {
         Token.O_LSQUARE -> parseArrayOrSlice(ctx)
         Token.O_AND -> parseReferenceType(ctx)
         Token.O_UNDERSCORE -> {
-            ctx.stream.consume(1)
-            TypeNode.InferredType
+            TypeNode.InferredType(ctx.peekPointer()).afterWhich {
+                ctx.stream.consume(1)
+            }
         }
 
         else -> throw CompileError("Unidentified typing prefix: ${ctx.peekToken()}")
@@ -40,20 +42,23 @@ fun parseTypeNode(ctx: Context): TypeNode {
 }
 
 private fun parseTypePath(ctx: Context): TypeNode.TypePath {
-    return TypeNode.TypePath(PathIndentSegmentNode.parse(ctx))
+    val pointer = ctx.peekPointer()
+    return TypeNode.TypePath(PathIndentSegmentNode.parse(ctx), pointer)
 }
 
 private fun parseNeverType(ctx: Context): TypeNode.NeverType {
+    val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_NOT)
-    return TypeNode.NeverType(parseTypeNode(ctx))
+    return TypeNode.NeverType(parseTypeNode(ctx), pointer)
 }
 
 private fun parseTupleOrGroup(ctx: Context): TypeNode {
+    val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_LPAREN)
     if (ctx.peekToken() == Token.O_RPAREN) {
         // () forms a unit type, aka. 0-tuple
         ctx.stream.consume(1)
-        return TypeNode.TupleType(listOf())
+        return TypeNode.TupleType(listOf(), pointer)
     }
     val firstType = parseTypeNode(ctx)
     when (val nextToken = ctx.stream.read().token) {
@@ -70,33 +75,35 @@ private fun parseTupleOrGroup(ctx: Context): TypeNode {
                 hasTrailingComma = putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
             }
             ctx.stream.consume(1)
-            return TypeNode.TupleType(listOfTypes)
+            return TypeNode.TupleType(listOfTypes, pointer)
         }
         else -> throw CompileError("Unexpected token when parsing Tuple or Group: $nextToken").with(ctx)
     }
 }
 
 private fun parseArrayOrSlice(ctx: Context): TypeNode {
+    val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val type = parseTypeNode(ctx)
     return when (val nextToken = ctx.stream.read().token) {
         Token.O_RSQUARE -> {
             // SliceType [type]
-            TypeNode.SliceType(type)
+            TypeNode.SliceType(type, pointer)
         }
         Token.O_SEMICOLON -> {
             // ArrayType [type; expression]
             val size = ExpressionNode.parse(ctx)
             putilsExpectToken(ctx, Token.O_RSQUARE)
-            TypeNode.ArrayType(type, size)
+            TypeNode.ArrayType(type, size, pointer)
         }
         else -> throw CompileError("Unexpected token when parsing Array or Slice: $nextToken").with(ctx)
     }
 }
 
 private fun parseReferenceType(ctx: Context): TypeNode.ReferenceType {
+    val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_AND)
     val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
     val type = parseTypeNode(ctx)
-    return TypeNode.ReferenceType(type, isMut)
+    return TypeNode.ReferenceType(type, isMut, pointer)
 }

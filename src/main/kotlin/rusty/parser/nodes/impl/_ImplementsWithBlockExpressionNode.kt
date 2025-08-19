@@ -57,7 +57,7 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
                     Token.O_SEMICOLON -> {
                         // [expr]; forms a statement
                         ctx.stream.consume(1)
-                        statements.add(StatementNode.ExpressionStatementNode(expr))
+                        statements.add(StatementNode.ExpressionStatementNode(expr, ctx.topPointer()))
                     }
 
                     Token.O_RCURL -> {
@@ -68,7 +68,7 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
                     else -> {
                         // In the event of a block expression, we can omit the ending semicolumn
                         if (isBlockExpr) {
-                            statements.add(StatementNode.ExpressionStatementNode(expr))
+                            statements.add(StatementNode.ExpressionStatementNode(expr, ctx.topPointer()))
                             continue
                         }
                         throw CompileError("Unexpected token for end of expression: ${ctx.peekToken()} when parsing $expr").with(
@@ -80,7 +80,7 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
         }
 
         putilsExpectToken(ctx, Token.O_RCURL)
-        return ExpressionNode.WithBlockExpressionNode.BlockExpressionNode(statements, trailingExpression, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.BlockExpressionNode(statements, trailingExpression, ctx.topPointer())
     }
 }
 
@@ -89,7 +89,7 @@ fun ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.Companion.pa
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_CONST)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
-        return ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode(block, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode(block, ctx.topPointer())
     }
 }
 
@@ -98,7 +98,7 @@ fun ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.par
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_LOOP)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
-        return ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode(block, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode(block, ctx.topPointer())
     }
 }
 
@@ -108,7 +108,7 @@ fun ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.pa
         putilsExpectToken(ctx, Token.K_WHILE)
         val condition = ConditionsNode.parse(ctx)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
-        return ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode(condition, block, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode(condition, block, ctx.topPointer())
     }
 }
 
@@ -139,7 +139,7 @@ fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse
             }
         }
 
-        return ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode(ifBranches, elseBranch, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode(ifBranches, elseBranch, ctx.topPointer())
     }
 }
 
@@ -149,6 +149,6 @@ fun ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.pa
         putilsExpectToken(ctx, Token.K_MATCH)
         val scrutinee = ExpressionNode.parseWithoutStruct(ctx)
         val matchArmsNode = MatchArmsNode.parse(ctx)
-        return ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode(scrutinee, matchArmsNode, ctx.parseStackPointer())
+        return ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode(scrutinee, matchArmsNode, ctx.topPointer())
     }
 }

@@ -50,7 +50,8 @@ fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionIt
             genericParamsNode = genericParamsNode,
             functionParamsNode = functionParamsNode,
             returnTypeNode = returnTypeNode,
-            withBlockExpressionNode = withBlockExpressionNode
+            withBlockExpressionNode = withBlockExpressionNode,
+            pointer = ctx.topPointer()
         )
     }
 }
@@ -70,7 +71,8 @@ fun ItemNode.StructItemNode.Companion.parse(ctx: Context): ItemNode.StructItemNo
             return ItemNode.StructItemNode(
                 identifier = identifier,
                 fields = emptyList(),
-                isDeclaration = true
+                isDeclaration = true,
+                pointer = ctx.topPointer()
             )
         }
         val fields = putilsExpectListWithin(
@@ -78,7 +80,7 @@ fun ItemNode.StructItemNode.Companion.parse(ctx: Context): ItemNode.StructItemNo
             parsingFunction = StructFieldNode.Companion::parse,
             wrappingTokens = Pair(Token.O_LCURL, Token.O_RCURL)
         )
-        return ItemNode.StructItemNode(identifier, fields, isDeclaration = false)
+        return ItemNode.StructItemNode(identifier, fields, isDeclaration = false, pointer = ctx.topPointer())
     }
 }
 
@@ -98,7 +100,7 @@ fun ItemNode.EnumItemNode.Companion.parse(ctx: Context): ItemNode.EnumItemNode {
             parsingFunction = EnumVariantNode.Companion::parse,
             wrappingTokens = Pair(Token.O_LCURL, Token.O_RCURL)
         )
-        return ItemNode.EnumItemNode(identifier, variants)
+        return ItemNode.EnumItemNode(identifier, variants, pointer = ctx.topPointer())
     }
 }
 
@@ -119,7 +121,7 @@ fun ItemNode.ConstItemNode.Companion.parse(ctx: Context): ItemNode.ConstItemNode
             ExpressionNode.parse(ctx)
         } else null
         putilsExpectToken(ctx, Token.O_SEMICOLON)
-        return ItemNode.ConstItemNode(identifier, typeNode, expressionNode)
+        return ItemNode.ConstItemNode(identifier, typeNode, expressionNode, pointer = ctx.topPointer())
     }
 }
 
@@ -135,7 +137,7 @@ fun ItemNode.TraitItemNode.Companion.parse(ctx: Context): ItemNode.TraitItemNode
         putilsExpectToken(ctx, Token.K_TRAIT)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
         val associatedItems = AssociatedItemsNode.parse(ctx)
-        return ItemNode.TraitItemNode(identifier, associatedItems)
+        return ItemNode.TraitItemNode(identifier, associatedItems, pointer = ctx.topPointer())
     }
 }
 
@@ -162,7 +164,8 @@ fun ItemNode.ImplItemNode.Companion.parse(ctx: Context): ItemNode.ImplItemNode {
                 return ItemNode.ImplItemNode.TraitImplItemNode(
                     identifier = identifier,
                     typeNode = forTypeNode,
-                    associatedItems = associatedItems
+                    associatedItems = associatedItems,
+                    pointer = ctx.topPointer()
                 )
             }
             else -> {
@@ -172,7 +175,8 @@ fun ItemNode.ImplItemNode.Companion.parse(ctx: Context): ItemNode.ImplItemNode {
                 val associatedItems = AssociatedItemsNode.parse(ctx)
                 return ItemNode.ImplItemNode.InherentImplItemNode(
                     typeNode = forTypeNode,
-                    associatedItems = associatedItems
+                    associatedItems = associatedItems,
+                    pointer = ctx.topPointer()
                 )
             }
         }

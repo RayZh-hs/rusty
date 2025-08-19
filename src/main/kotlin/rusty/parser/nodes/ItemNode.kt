@@ -1,6 +1,7 @@
 package rusty.parser.nodes
 
 import rusty.core.CompileError
+import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
@@ -8,12 +9,13 @@ import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
 import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.StructFieldNode
+import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context
 
 // Since we don't need to implement OuterAttribute or MacroItem, Item directly corresponds to VisItem in our AST
-@Peekable
-sealed class ItemNode {
+@Peekable @Parsable
+sealed class ItemNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         fun peek(ctx: Context): Boolean {
             return when (ctx.peekToken()) {
@@ -37,64 +39,71 @@ sealed class ItemNode {
         }
     }
 
-    @Peekable
+    @Peekable @Parsable
     data class FunctionItemNode(
         val identifier: String,
         val genericParamsNode: ParamsNode.GenericParamsNode?,
         val functionParamsNode: ParamsNode.FunctionParamsNode?,
         val returnTypeNode: TypeNode?,
-        val withBlockExpressionNode: ExpressionNode?
-    ) : ItemNode() {
+        val withBlockExpressionNode: ExpressionNode?,
+        override val pointer: CompilerPointer
+    ) : ItemNode(pointer) {
         companion object
     }
 
-    @Peekable
+    @Peekable @Parsable
     data class StructItemNode(
         val identifier: String,
         val fields: List<StructFieldNode>,
-        val isDeclaration: Boolean
-    ) : ItemNode() {
+        val isDeclaration: Boolean,
+        override val pointer: CompilerPointer
+    ) : ItemNode(pointer) {
         companion object
     }
 
-    @Peekable
+    @Peekable @Parsable
     data class EnumItemNode(
         val identifier: String,
         val variants: List<EnumVariantNode>,
-    ) : ItemNode() {
+        override val pointer: CompilerPointer
+    ) : ItemNode(pointer) {
         companion object
     }
 
-    @Peekable
+    @Peekable @Parsable
     data class ConstItemNode(
         val identifier: String,
         val typeNode: TypeNode,
-        val expressionNode: ExpressionNode?
-    ) : ItemNode() {
+        val expressionNode: ExpressionNode?,
+        override val pointer: CompilerPointer
+    ) : ItemNode(pointer) {
         companion object
     }
 
-    @Peekable
+    @Peekable @Parsable
     data class TraitItemNode(
         val identifier: String,
-        val associatedItems: AssociatedItemsNode
-    ) : ItemNode() {
+        val associatedItems: AssociatedItemsNode,
+        override val pointer: CompilerPointer
+    ) : ItemNode(pointer) {
         companion object
     }
 
-    @Peekable
-    sealed class ImplItemNode : ItemNode() {
+    @Peekable @Parsable
+    sealed class ImplItemNode(pointer: CompilerPointer) : ItemNode(pointer) {
         companion object;
 
         data class InherentImplItemNode(
             val typeNode: TypeNode,
-            val associatedItems: AssociatedItemsNode
-        ) : ImplItemNode()
+            val associatedItems: AssociatedItemsNode,
+            override val pointer: CompilerPointer
+        ) : ImplItemNode(pointer)
 
         data class TraitImplItemNode(
             val identifier: String,
             val typeNode: TypeNode,
-            val associatedItems: AssociatedItemsNode
-        ) : ImplItemNode()
+            val associatedItems: AssociatedItemsNode,
+            override val pointer: CompilerPointer
+        ) : ImplItemNode(pointer)
     }
 }
