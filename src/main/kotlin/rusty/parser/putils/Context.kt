@@ -15,7 +15,7 @@ data class Context(
     var failedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var prattProcessingTokenBearer: TokenBearer? = null,
 ) {
-    data class ParseStackItem(val lineNumber: Int?, val name: String)
+    data class ParseStackItem(val pointer: CompilerPointer, val name: String)
     data class PrattStackItem(val rbp: Int, val name: String)
 
     fun hasBeenCalled(name: String): Boolean {
@@ -23,7 +23,7 @@ data class Context(
     }
 
     inline fun <T> callMe(name: String, block: () -> T): T {
-        parseStack.push(ParseStackItem(lineNumber = stream.peekOrNull()?.lineNumber, name))
+        parseStack.push(ParseStackItem(pointer = peekPointer(), name))
         try {
             return block()
         } finally {
@@ -58,5 +58,13 @@ data class Context(
         val pos = stream.cur.coerceIn(0, stream.size - 1)
         val bearer = stream.peekAt(pos)
         return CompilerPointer(bearer.lineNumber, bearer.columnNumber)
+    }
+
+    fun parseStackPointer(): CompilerPointer {
+        return if (parseStack.isEmpty()) {
+            peekPointer()
+        } else {
+            parseStack.peek().pointer
+        }
     }
 }

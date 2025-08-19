@@ -26,11 +26,11 @@ fun literalFromInteger(tokenBearer: TokenBearer): LiteralExpressionNode {
             }
 
             return when (suffix) {
-                "u32", "usize" -> LiteralExpressionNode.U32LiteralNode(numericPart.toUInt(radix))
-                "i32", "isize" -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix))
+                "u32", "usize" -> LiteralExpressionNode.U32LiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
+                "i32", "isize" -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 // default to i32
                 else -> {
-                    LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix))
+                    LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 }
             }
         }
@@ -43,23 +43,23 @@ fun literalFromString(tokenBearer: TokenBearer): LiteralExpressionNode {
     when (tokenBearer.token) {
         Token.L_STRING -> {
             val content = rawString.substring(1, rawString.length - 1)
-            return LiteralExpressionNode.StringLiteralNode(unescapeString(content))
+            return LiteralExpressionNode.StringLiteralNode(unescapeString(content), tokenBearer.pointer)
         }
         Token.L_RAW_STRING -> {
             val firstQuote = rawString.indexOf('"')
             val hashes = rawString.substring(1, firstQuote)
             val content = rawString.substring(firstQuote + 1, rawString.length - 1 - hashes.length)
-            return LiteralExpressionNode.StringLiteralNode(content)
+            return LiteralExpressionNode.StringLiteralNode(content, tokenBearer.pointer)
         }
         Token.L_C_STRING -> {
             val content = rawString.substring(2, rawString.length - 1)
-            return LiteralExpressionNode.StringLiteralNode(unescapeString(content))
+            return LiteralExpressionNode.StringLiteralNode(unescapeString(content), tokenBearer.pointer)
         }
         Token.L_RAW_C_STRING -> {
             val firstQuote = rawString.indexOf('"')
             val hashes = rawString.substring(2, firstQuote)
             val content = rawString.substring(firstQuote + 1, rawString.length - 1 - hashes.length)
-            return LiteralExpressionNode.StringLiteralNode(content)
+            return LiteralExpressionNode.StringLiteralNode(content, tokenBearer.pointer)
         }
         else -> throw AssertionError("Expected a string literal token, but found ${tokenBearer.token}")
     }
@@ -74,7 +74,7 @@ fun literalFromChar(tokenBearer: TokenBearer): LiteralExpressionNode {
             if (unescaped.length != 1) {
                 throw AssertionError("Character literal must be a single character, but found '$unescaped'")
             }
-            return LiteralExpressionNode.CharLiteralNode(unescaped[0])
+            return LiteralExpressionNode.CharLiteralNode(unescaped[0], tokenBearer.pointer)
         }
         else -> throw AssertionError("Expected a char literal token, but found ${tokenBearer.token}")
     }
@@ -82,8 +82,8 @@ fun literalFromChar(tokenBearer: TokenBearer): LiteralExpressionNode {
 
 fun literalFromBoolean(tokenBearer: TokenBearer): LiteralExpressionNode {
     return when (tokenBearer.token) {
-        Token.K_TRUE -> LiteralExpressionNode.BoolLiteralNode(true)
-        Token.K_FALSE -> LiteralExpressionNode.BoolLiteralNode(false)
+        Token.K_TRUE -> LiteralExpressionNode.BoolLiteralNode(true, tokenBearer.pointer)
+        Token.K_FALSE -> LiteralExpressionNode.BoolLiteralNode(false, tokenBearer.pointer)
         else -> throw AssertionError("Expected a boolean literal token, but found ${tokenBearer.token}")
     }
 }
