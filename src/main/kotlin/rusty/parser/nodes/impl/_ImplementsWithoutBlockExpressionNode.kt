@@ -137,7 +137,7 @@ private fun parsePrecedence(ctx: Context, precedence: Int, disableStructExpressi
     val currentToken = ctx.stream.read()
     ctx.prattProcessingTokenBearer = currentToken // Store the token for literal conversion
     var nud = nudParselets[currentToken.token]
-        ?: throw CompileError("Invalid start of expression: ${currentToken.token}").with(ctx)
+        ?: throw CompileError("Invalid start of expression: ${currentToken.token}").with(ctx).at(ctx.peekPointer())
     if (nud == ::parsePathOrStructExpression && disableStructExpression) {
         nud = ::parsePathExpression
     }
@@ -156,13 +156,13 @@ private fun parsePrecedence(ctx: Context, precedence: Int, disableStructExpressi
 // --- Correct implementation below (replaces corrupted previous content) ---
 
 private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
-    val tokenBearer = ctx.prattProcessingTokenBearer ?: throw CompileError("Expected a literal token; found none").with(ctx)
+    val tokenBearer = ctx.prattProcessingTokenBearer ?: throw CompileError("Expected a literal token; found none").with(ctx).at(ctx.peekPointer())
     return when (val literalToken = tokenBearer.token) {
         Token.L_INTEGER -> literalFromInteger(tokenBearer)
         Token.L_STRING, Token.L_RAW_STRING, Token.L_C_STRING, Token.L_RAW_C_STRING -> literalFromString(tokenBearer)
         Token.L_CHAR -> literalFromChar(tokenBearer)
         Token.K_TRUE, Token.K_FALSE -> literalFromBoolean(tokenBearer)
-        else -> throw CompileError("Unexpected literal token: $literalToken").with(ctx)
+        else -> throw CompileError("Unexpected literal token: $literalToken").with(ctx).at(ctx.peekPointer())
     }
 }
 
@@ -284,10 +284,10 @@ private fun parseFieldOrTupleIndexExpression(ctx: Context, base: WithoutBlockExp
     return when (nextToken.token) {
         Token.I_IDENTIFIER -> WithoutBlockExpressionNode.FieldExpressionNode(base, nextToken.raw, ctx.topPointer())
         Token.L_INTEGER -> {
-            val index = nextToken.raw.toIntOrNull() ?: throw CompileError("Invalid tuple index: ${nextToken.raw}").with(ctx)
+            val index = nextToken.raw.toIntOrNull() ?: throw CompileError("Invalid tuple index: ${nextToken.raw}").with(ctx).at(ctx.peekPointer())
             WithoutBlockExpressionNode.TupleIndexingNode(base, index, ctx.topPointer())
         }
-        else -> throw CompileError("Expected identifier or integer for field access, found ${nextToken.token}").with(ctx)
+        else -> throw CompileError("Expected identifier or integer for field access, found ${nextToken.token}").with(ctx).at(ctx.peekPointer())
     }
 }
 
@@ -298,6 +298,6 @@ fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: Contex
         Token.L_STRING, Token.L_RAW_STRING, Token.L_C_STRING, Token.L_RAW_C_STRING -> literalFromString(tokenBearer)
         Token.L_CHAR -> literalFromChar(tokenBearer)
         Token.K_TRUE, Token.K_FALSE -> literalFromBoolean(tokenBearer)
-        else -> throw CompileError("Unexpected literal token: ${tokenBearer.token}").with(ctx)
+        else -> throw CompileError("Unexpected literal token: ${tokenBearer.token}").with(ctx).at(ctx.peekPointer())
     }
 }

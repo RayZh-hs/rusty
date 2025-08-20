@@ -35,7 +35,7 @@ sealed class ItemNode(pointer: CompilerPointer): ASTNode(pointer) {
             if (ctx.stream.atEnd())
                 throw AssertionError("Item node parsing called upon null stream")
             else
-                throw CompileError("Unknown token bearer ${ctx.stream.peekOrNull()} for ItemNode").with(ctx)
+                throw CompileError("Unknown token bearer ${ctx.stream.peekOrNull()} for ItemNode").with(ctx).at(ctx.peekPointer())
         }
     }
 

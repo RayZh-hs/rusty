@@ -13,7 +13,7 @@ import rusty.parser.putils.putilsExpectToken
 
 fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
     return when (ctx.peekToken()) {
-        null -> throw CompileError("Pattern cannot start with EOF").with(ctx)
+        null -> throw CompileError("Pattern cannot start with EOF").with(ctx).at(ctx.peekPointer())
         Token.K_REF, Token.K_MUT -> SupportingPatternNode.IdentifierPatternNode.parse(ctx)
         Token.L_RAW_STRING, Token.L_RAW_BYTE_STRING, Token.L_RAW_C_STRING,
         Token.L_STRING, Token.L_BYTE_STRING, Token.L_C_STRING, Token.O_MINUS,
@@ -28,7 +28,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
             ctx.tryParse("Pattern@Identifier") {
                 val parsed = SupportingPatternNode.IdentifierPatternNode.parse(ctx)
                 if (ctx.peekToken() == Token.O_DOUBLE_COLON || ctx.peekToken() == Token.O_DOT)
-                    throw CompileError("Expected path pattern after identifier, found: ${ctx.peekToken()}").with(ctx)
+                    throw CompileError("Expected path pattern after identifier, found: ${ctx.peekToken()}").with(ctx).at(ctx.peekPointer())
                 parsed
             } ?: run {
                 SupportingPatternNode.PathPatternNode.parse(ctx)

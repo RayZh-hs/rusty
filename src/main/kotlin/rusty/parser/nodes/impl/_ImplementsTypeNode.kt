@@ -70,14 +70,14 @@ private fun parseTupleOrGroup(ctx: Context): TypeNode {
             listOfTypes.add(firstType)
             while (ctx.peekToken() != Token.O_RPAREN) {
                 if (!hasTrailingComma)
-                    throw CompileError("Types in a Tuple Type must be separated by commas").with(ctx)
+                    throw CompileError("Types in a Tuple Type must be separated by commas").with(ctx).at(ctx.peekPointer())
                 listOfTypes.add(parseTypeNode(ctx))
                 hasTrailingComma = putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
             }
             ctx.stream.consume(1)
             return TypeNode.TupleType(listOfTypes, pointer)
         }
-        else -> throw CompileError("Unexpected token when parsing Tuple or Group: $nextToken").with(ctx)
+        else -> throw CompileError("Unexpected token when parsing Tuple or Group: $nextToken").with(ctx).at(ctx.peekPointer())
     }
 }
 
@@ -96,7 +96,7 @@ private fun parseArrayOrSlice(ctx: Context): TypeNode {
             putilsExpectToken(ctx, Token.O_RSQUARE)
             TypeNode.ArrayType(type, size, pointer)
         }
-        else -> throw CompileError("Unexpected token when parsing Array or Slice: $nextToken").with(ctx)
+        else -> throw CompileError("Unexpected token when parsing Array or Slice: $nextToken").with(ctx).at(ctx.peekPointer())
     }
 }
 

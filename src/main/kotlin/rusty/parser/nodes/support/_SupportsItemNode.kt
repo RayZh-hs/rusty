@@ -41,7 +41,7 @@ data class AssociatedItemsNode(
                 when (ctx.peekToken()) {
                     Token.K_CONST -> constItems.add(ItemNode.ConstItemNode.parse(ctx))
                     Token.K_FN -> functionItems.add(ItemNode.FunctionItemNode.parse(ctx))
-                    else -> throw CompileError("Associated items: Unexpected token ${ctx.peekToken()} at ${ctx.stream.peekOrNull()?.lineNumber}:${ctx.stream.peekOrNull()?.columnNumber}").with(ctx)
+                    else -> throw CompileError("Associated items: Unexpected token ${ctx.peekToken()} at ${ctx.stream.peekOrNull()?.lineNumber}:${ctx.stream.peekOrNull()?.columnNumber}").with(ctx).at(ctx.peekPointer())
                 }
             }
             ctx.stream.consume(1)

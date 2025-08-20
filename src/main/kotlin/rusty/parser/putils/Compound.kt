@@ -16,7 +16,7 @@ fun <T> putilsExpectListWithin(
     var hasDelimiter = true
     while (ctx.peekToken() != wrappingTokens.second) {
         if (!hasDelimiter)
-            throw CompileError("Items not separated by $delimiter").with(ctx)
+            throw CompileError("Items not separated by $delimiter").with(ctx).at(ctx.peekPointer())
         result.add(parsingFunction(ctx))
         hasDelimiter = putilsConsumeIfExistsToken(ctx, delimiter)
     }
@@ -53,6 +53,6 @@ fun <T> putilsExpectGroupOrTupleWithin(
             ctx.stream.consume(1)
             tupleConstructor(list)
         }
-        else -> throw CompileError("Items not separated by $delimiter").with(ctx)
+        else -> throw CompileError("Items not separated by $delimiter").with(ctx).at(ctx.peekPointer())
     }
 }

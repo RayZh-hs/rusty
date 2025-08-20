@@ -25,7 +25,7 @@ fun ExpressionNode.WithBlockExpressionNode.Companion.parse(ctx: Context): Expres
         Token.K_WHILE -> ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.parse(ctx)
         Token.K_IF -> ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.parse(ctx)
         Token.K_MATCH -> ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.parse(ctx)
-        else -> throw CompileError("Unexpected token for block expression: $token").with(ctx)
+        else -> throw CompileError("Unexpected token for block expression: $token").with(ctx).at(ctx.peekPointer())
     }
 }
 

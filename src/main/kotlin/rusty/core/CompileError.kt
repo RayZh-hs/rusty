@@ -22,7 +22,7 @@ class CompileError(message: String) : Exception() {
     }
 
     fun at(ptr: CompilerPointer): CompileError {
-        val src = source
+        val src = CompileError.Companion.source
         if (src != null && ptr.line - 1 in src.indices) {
             val lineContent = src[ptr.line - 1]
             val caretLine = buildString {
@@ -31,7 +31,7 @@ class CompileError(message: String) : Exception() {
             }
             mutableMessage += "\nCompile Error occurred at position: ${ptr.line}:${ptr.column}\n    $lineContent\n    $caretLine"
         } else {
-            mutableMessage += "\nCompile Error occurred at position ${ptr.line}:${ptr.column}"
+            mutableMessage += "\nCompile Error occurred at position ${ptr.line}:${ptr.column} for unknown source"
         }
         return this
     }
