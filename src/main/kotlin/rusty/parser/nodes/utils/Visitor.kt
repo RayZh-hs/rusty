@@ -23,8 +23,10 @@ interface Visitor<R> {
 	fun visitMatchBlockExpression(node: ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode): R
 
 	// Literal expressions
-	fun visitI32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode): R
-	fun visitU32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode): R
+    fun visitI32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode): R
+    fun visitISizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode): R
+    fun visitU32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode): R
+    fun visitUSizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode): R
 	fun visitStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode): R
 	fun visitCharLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode): R
 	fun visitBoolLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.BoolLiteralNode): R
@@ -101,8 +103,10 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
 	is ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode -> visitor.visitIfBlockExpression(this)
 	is ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode -> visitor.visitMatchBlockExpression(this)
 
-	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode -> visitor.visitI32Literal(this)
-	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode -> visitor.visitU32Literal(this)
+    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode -> visitor.visitI32Literal(this)
+    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode -> visitor.visitISizeLiteral(this)
+    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode -> visitor.visitU32Literal(this)
+    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode -> visitor.visitUSizeLiteral(this)
 	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode -> visitor.visitStringLiteral(this)
 	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode -> visitor.visitCharLiteral(this)
 	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.BoolLiteralNode -> visitor.visitBoolLiteral(this)
@@ -148,5 +152,5 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
 	is PathIndentSegmentNode -> visitor.visitPathIndentSegment(this)
 	is PathInExpressionNode -> visitor.visitPathInExpression(this)
 
-	else -> throw IllegalArgumentException("Unhandled AST node type: ${this::class.simpleName}")
+    else -> throw IllegalArgumentException("Unknown ASTNode type: ${this::class.simpleName}")
 }

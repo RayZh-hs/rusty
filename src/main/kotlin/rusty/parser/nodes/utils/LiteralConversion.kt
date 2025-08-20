@@ -26,8 +26,10 @@ fun literalFromInteger(tokenBearer: TokenBearer): LiteralExpressionNode {
             }
 
             return when (suffix) {
-                "u32", "usize" -> LiteralExpressionNode.U32LiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
-                "i32", "isize" -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
+                "u32"   -> LiteralExpressionNode.U32LiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
+                "usize" -> LiteralExpressionNode.USizeLiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
+                "i32"   -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
+                "isize" -> LiteralExpressionNode.ISizeLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 // default to i32
                 else -> {
                     LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
