@@ -4,7 +4,6 @@ import rusty.lexer.Token
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.parse
-import rusty.parser.nodes.parseWithoutStruct
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
@@ -12,9 +11,13 @@ import rusty.parser.putils.putilsExpectToken
 // TODO condition can also be a let chain
 data class ConditionsNode(val expression: ExpressionNode) {
     companion object {
+        val name get() = "Conditions"
+
         fun parse(ctx: Context): ConditionsNode {
-            val expression = ExpressionNode.parseWithoutStruct(ctx)
-            return ConditionsNode(expression)
+            ctx.callMe(name, enable_stack = false) {
+                val expression = ExpressionNode.parse(ctx)
+                return ConditionsNode(expression)
+            }
         }
     }
 }

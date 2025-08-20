@@ -24,12 +24,6 @@ fun WithoutBlockExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpres
     }
 }
 
-fun WithoutBlockExpressionNode.Companion.parseWithoutStruct(ctx: Context): WithoutBlockExpressionNode {
-    ctx.callMe(name) {
-        return parsePrecedence(ctx, Precedence.NONE.value, true)
-    }
-}
-
 private enum class Precedence(val value: Int) {
     NONE(0),
     // this is delegated to RightAssociativeOperator, and is handled differently
@@ -136,11 +130,8 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
 private fun parsePrecedence(ctx: Context, precedence: Int, disableStructExpression: Boolean = false): WithoutBlockExpressionNode {
     val currentToken = ctx.stream.read()
     ctx.prattProcessingTokenBearer = currentToken // Store the token for literal conversion
-    var nud = nudParselets[currentToken.token]
+    val nud = nudParselets[currentToken.token]
         ?: throw CompileError("Invalid start of expression: ${currentToken.token}").with(ctx).at(ctx.peekPointer())
-    if (nud == ::parsePathOrStructExpression && disableStructExpression) {
-        nud = ::parsePathExpression
-    }
 
     var left = nud(ctx)
 
@@ -172,6 +163,9 @@ private fun parseUnderscore(ctx: Context): WithoutBlockExpressionNode =
 private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNode {
     ctx.stream.rewind(1)
     val path = PathInExpressionNode.parse(ctx)
+    if (!ctx.isStructEnabled()) {
+        return WithoutBlockExpressionNode.PathExpressionNode(path, ctx.topPointer())
+    }
     return when (ctx.peekToken()) {
         Token.O_LCURL -> {
             val fields = putilsExpectListWithin(
@@ -183,12 +177,6 @@ private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNod
         }
         else -> WithoutBlockExpressionNode.PathExpressionNode(path, ctx.topPointer())
     }
-}
-
-private fun parsePathExpression(ctx: Context): WithoutBlockExpressionNode {
-    ctx.stream.rewind(1)
-    val path = PathInExpressionNode.parse(ctx)
-    return WithoutBlockExpressionNode.PathExpressionNode(path, ctx.topPointer())
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {

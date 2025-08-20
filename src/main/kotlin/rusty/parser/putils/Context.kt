@@ -11,6 +11,7 @@ data class Context(
     val stream: TokenStream,
     val flags: Flags = Flags(),
     val parseStack: Stack<ParseStackItem> = Stack(),
+    val structEnabledStack: Stack<Boolean> = Stack(),
     var attemptedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var failedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var prattProcessingTokenBearer: TokenBearer? = null,
@@ -18,16 +19,35 @@ data class Context(
     data class ParseStackItem(val pointer: CompilerPointer, val name: String)
     data class PrattStackItem(val rbp: Int, val name: String)
 
+    init {
+        structEnabledStack.push(true)
+    }
+
     fun hasBeenCalled(name: String): Boolean {
         return attemptedParseObjectSet.contains(Pair(stream.cur, name)) || failedParseObjectSet.contains(Pair(stream.cur, name))
     }
 
-    inline fun <T> callMe(name: String, block: () -> T): T {
+    inline fun <T> callMe(name: String, enable_stack: Boolean? = null, block: () -> T): T {
         parseStack.push(ParseStackItem(pointer = peekPointer(), name))
+        if (enable_stack != null) {
+            structEnabledStack.push(enable_stack)
+        }
         try {
             return block()
         } finally {
+            if (enable_stack != null) {
+                structEnabledStack.pop()
+            }
             parseStack.pop()
+        }
+    }
+
+    inline fun <T> withEnableStruct(enable: Boolean, block: () -> T): T {
+        structEnabledStack.push(enable)
+        try {
+            return block()
+        } finally {
+            structEnabledStack.pop()
         }
     }
 
@@ -66,5 +86,9 @@ data class Context(
         } else {
             parseStack.peek().pointer
         }
+    }
+
+    fun isStructEnabled(): Boolean {
+        return structEnabledStack.isNotEmpty() && structEnabledStack.peek()
     }
 }

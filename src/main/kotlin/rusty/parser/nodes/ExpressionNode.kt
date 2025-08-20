@@ -3,7 +3,6 @@ package rusty.parser.nodes
 import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
-import rusty.parser.nodes.impl.parseWithoutStruct
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.IfBranchNode
@@ -158,13 +157,5 @@ fun ExpressionNode.Companion.parse(ctx: Context): ExpressionNode {
         ExpressionNode.WithBlockExpressionNode.parse(ctx)
     } else {
         ExpressionNode.WithoutBlockExpressionNode.parse(ctx)
-    }
-}
-
-fun ExpressionNode.Companion.parseWithoutStruct(ctx: Context): ExpressionNode {
-    return if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
-        ExpressionNode.WithBlockExpressionNode.parse(ctx)
-    } else {
-        ExpressionNode.WithoutBlockExpressionNode.parseWithoutStruct(ctx)
     }
 }

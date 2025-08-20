@@ -10,7 +10,7 @@ data class CrateNode(val items: List<ItemNode>, override val pointer: CompilerPo
         val name get() = "Crate"
 
         fun parse(ctx: Context): CrateNode {
-            ctx.callMe(name) {
+            ctx.callMe(name, enable_stack = true) {
                 val pointer = ctx.peekPointer()
                 val itemNodeList: MutableList<ItemNode> = mutableListOf()
                 while (!ctx.stream.atEnd())
