@@ -7,16 +7,21 @@ import rusty.parser.nodes.impl.parseTypeNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
+@Peekable @Parsable
 data class GenericParamNode(val type: TypeNode)
+@Peekable @Parsable
 data class SelfParamNode(val isReference: Boolean, val isMutable: Boolean, val type: TypeNode?) {
     companion object
 }
 
+@Peekable @Parsable
 sealed class FunctionParamNode {
-    data class FunctionParamTypedPatternNode(val pattern: PatternNode, val type: TypeNode?) : FunctionParamNode()
-    data class FunctionParamTypeNode(val type: TypeNode) : FunctionParamNode()
-    data object FunctionParamWildcardNode : FunctionParamNode()
+    @Peekable @Parsable data class FunctionParamTypedPatternNode(val pattern: PatternNode, val type: TypeNode?) : FunctionParamNode()
+    @Peekable @Parsable data class FunctionParamTypeNode(val type: TypeNode) : FunctionParamNode()
+    @Peekable @Parsable data object FunctionParamWildcardNode : FunctionParamNode()
 }
 
 fun parseGenericParamNode(ctx: Context): GenericParamNode {

@@ -7,8 +7,11 @@ import rusty.parser.nodes.parse
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
 // TODO condition can also be a let chain
+@Peekable @Parsable
 data class ConditionsNode(val expression: ExpressionNode) {
     companion object {
         val name get() = "Conditions"
@@ -22,11 +25,13 @@ data class ConditionsNode(val expression: ExpressionNode) {
     }
 }
 
+@Peekable @Parsable
 data class IfBranchNode(
     val condition: ConditionsNode,
     val then: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode
 )
 
+@Peekable @Parsable
 data class StructExprFieldNode(
     val identifier: String,
     val expressionNode: ExpressionNode?
@@ -44,6 +49,7 @@ data class StructExprFieldNode(
     }
 }
 
+@Peekable @Parsable
 data class MatchArmNode(val pattern: PatternNode, val guard: ExpressionNode?) {
     companion object {
         fun parse(ctx: Context): MatchArmNode {
@@ -58,6 +64,7 @@ data class MatchArmNode(val pattern: PatternNode, val guard: ExpressionNode?) {
     }
 }
 
+@Peekable @Parsable
 data class MatchArmsNode(val arms: List<MatchArmNode>, val values: List<ExpressionNode>) {
     companion object {
         fun parse(ctx: Context): MatchArmsNode {

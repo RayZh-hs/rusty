@@ -2,6 +2,7 @@ package rusty.parser.nodes
 
 import rusty.core.CompilerPointer
 import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 import rusty.parser.putils.Context
 
 @Parsable

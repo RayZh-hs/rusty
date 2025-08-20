@@ -5,7 +5,10 @@ import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
+@Parsable
 data class PathIndentSegmentNode(val token: Token, val name: String?, override val pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name: String = "PathIndentSegment"
@@ -23,6 +26,7 @@ data class PathIndentSegmentNode(val token: Token, val name: String?, override v
     }
 }
 
+@Parsable
 data class PathInExpressionNode(val path: List<PathIndentSegmentNode>, override val pointer: CompilerPointer) : ASTNode(pointer) {
     companion object {
         val name: String = "PathInExpression"

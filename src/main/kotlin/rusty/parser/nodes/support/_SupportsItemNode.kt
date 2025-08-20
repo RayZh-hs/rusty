@@ -7,7 +7,10 @@ import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.impl.parse
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectToken
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
+@Peekable @Parsable
 data class StructFieldNode(val identifier: String, val typeNode: TypeNode) {
     companion object {
         fun parse(ctx: Context): StructFieldNode {
@@ -19,6 +22,7 @@ data class StructFieldNode(val identifier: String, val typeNode: TypeNode) {
     }
 }
 
+@Peekable @Parsable
 data class EnumVariantNode(val identifier: String) {
     companion object {
         fun parse(ctx: Context): EnumVariantNode {
@@ -28,6 +32,7 @@ data class EnumVariantNode(val identifier: String) {
     }
 }
 
+@Peekable @Parsable
 data class AssociatedItemsNode(
     val constItems: List<ItemNode.ConstItemNode>,
     val functionItems: List<ItemNode.FunctionItemNode>,

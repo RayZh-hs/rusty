@@ -7,7 +7,10 @@ import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.impl.parseTypeNode
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsExpectListWithin
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
+@Peekable @Parsable
 data class TypePathSegment(
     val pathIndentSegment: TokenBearer,
     val generics: GenericArgsNode?
@@ -34,6 +37,7 @@ data class TypePathSegment(
 }
 
 // After simplifying, each generic arg must be a TypeNode
+@Peekable @Parsable
 data class GenericArgsNode(val args: List<TypeNode>) {
     companion object {
         fun parse(ctx: Context): GenericArgsNode {

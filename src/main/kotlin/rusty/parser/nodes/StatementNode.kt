@@ -9,7 +9,10 @@ import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
+@Parsable
 sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name get() = "Statement"
@@ -30,12 +33,15 @@ sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
     }
 
     data class NullStatementNode(override val pointer: CompilerPointer) : StatementNode(pointer)
+
+    @Parsable
     data class ItemStatementNode(val item: ItemNode, override val pointer: CompilerPointer) : StatementNode(pointer) {
         companion object {
             val name get() = "ItemStatement"
         }
     }
 
+    @Peekable @Parsable
     data class LetStatementNode(
         val patternNode: PatternNode,
         val typeNode: TypeNode?,
@@ -47,6 +53,7 @@ sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
         }
     }
 
+    @Parsable
     data class ExpressionStatementNode(val expression: ExpressionNode, override val pointer: CompilerPointer) : StatementNode(pointer) {
         companion object {
             val name get() = "ExpressionStatement"

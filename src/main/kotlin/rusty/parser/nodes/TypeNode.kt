@@ -2,11 +2,15 @@ package rusty.parser.nodes
 
 import rusty.core.CompilerPointer
 import rusty.parser.putils.Context
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 
 // I will assume that Type refers to TypeNoBounds.
+@Parsable
 sealed class TypeNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object;
 
+    // The parsing of types is dedicated to functions to ensure efficiency and to resolve ambiguity
     data class TypePath(val pathSegmentNode: PathIndentSegmentNode, override val pointer: CompilerPointer) : TypeNode(pointer)
     data class NeverType(val type: TypeNode, override val pointer: CompilerPointer): TypeNode(pointer)
     data class TupleType(val types: List<TypeNode>, override val pointer: CompilerPointer): TypeNode(pointer)

@@ -8,19 +8,24 @@ import rusty.parser.nodes.support.SelfParamNode
 import rusty.parser.nodes.support.parse
 import rusty.parser.nodes.support.parseFunctionParamNode
 import rusty.parser.nodes.support.parseGenericParamNode
+import rusty.parser.nodes.utils.Parsable
+import rusty.parser.nodes.utils.Peekable
 import rusty.parser.nodes.utils.afterWhich
 import rusty.parser.putils.Context
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.putils.putilsExpectToken
 
+@Parsable
 sealed class ParamsNode(pointer: CompilerPointer): ASTNode(pointer) {
+    @Parsable
     data class GenericParamsNode(val genericParams: List<GenericParamNode>, override val pointer: CompilerPointer): ParamsNode(pointer) {
         companion object {
             val name: String = "GenericParamsNode"
         }
     }
 
+    @Parsable
     data class FunctionParamsNode(val selfParam: SelfParamNode?, val functionParams: List<FunctionParamNode>, override val pointer: CompilerPointer): ParamsNode(pointer) {
         companion object {
             val name: String = "FunctionParamsNode"
