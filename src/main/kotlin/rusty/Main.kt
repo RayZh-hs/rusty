@@ -17,6 +17,9 @@ import rusty.core.DisplayModeMap
 import rusty.parser.Parser
 import rusty.parser.dump
 import rusty.parser.dumpScreen
+import rusty.semantic.SemanticConstructor
+import rusty.semantic.dump
+import rusty.semantic.dumpScreen
 import java.io.File
 
 fun main(args: Array<String>) {
@@ -84,6 +87,17 @@ fun main(args: Array<String>) {
     }
     if (mode == CompileMode.PARSE) {
         Parser.dump(parseResult, outputPath)
+        return
+    }
+
+    // 4. Semantic Construction
+    val semanticResult = SemanticConstructor.run(parseResult)
+    if (displayMode == DisplayMode.VERBOSE) {
+        SemanticConstructor.dumpScreen(semanticResult)
+    }
+    if (mode == CompileMode.SEMANTIC) {
+        // dump into file
+        SemanticConstructor.dump(semanticResult, outputPath)
         return
     }
 }

@@ -21,7 +21,8 @@ class CompileError(message: String) : Exception() {
         return this
     }
 
-    fun at(ptr: CompilerPointer): CompileError {
+    fun at(ptr: CompilerPointer?): CompileError {
+        if (ptr == null) return this
         val src = CompileError.Companion.source
         if (src != null && ptr.line - 1 in src.indices) {
             val lineContent = src[ptr.line - 1]

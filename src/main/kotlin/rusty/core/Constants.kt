@@ -1,7 +1,7 @@
 package rusty.core
 
 enum class CompileMode {
-    PREPROCESS, LEX, PARSE
+    PREPROCESS, LEX, PARSE, SEMANTIC,
 }
 
 val CompileModeMap = mapOf(
@@ -10,6 +10,9 @@ val CompileModeMap = mapOf(
     "lex" to CompileMode.LEX,
     "parse" to CompileMode.PARSE,
     "parser" to CompileMode.PARSE,
+    "parsing" to CompileMode.PARSE,
+    "sem" to CompileMode.SEMANTIC,
+    "semantic" to CompileMode.SEMANTIC,
 )
 
 enum class DisplayMode {

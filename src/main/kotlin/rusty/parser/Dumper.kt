@@ -466,7 +466,7 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
                 line(field("generics") + ":")
                 indented { appendGenericParams(it) }
             }
-            node.functionParamsNode?.let {
+            node.functionParamsNode.let {
                 line(field("params") + ":")
                 indented { appendFunctionParams(it) }
             }
@@ -557,6 +557,10 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
     override fun visitPathInExpression(node: PathInExpressionNode) {
         val pathStr = node.path.joinToString("::") { it.name ?: it.token.toString().lowercase() }
         line(label("Path") + " " + value(pathStr))
+    }
+
+    override fun visitConditions(node: ConditionsNode) {
+        visit(node.expression)
     }
     // endregion
 }
