@@ -233,16 +233,18 @@ private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
 }
 
 private fun parseReturnExpression(ctx: Context): WithoutBlockExpressionNode {
-    val expr = if (getTokenPrecedence(ctx.peekToken()) != Precedence.NONE) {
-        parsePrecedence(ctx, Precedence.NONE.value)
-    } else null
+    val expr = when (ctx.peekToken()) {
+        Token.O_SEMICOLON -> null
+        else -> parsePrecedence(ctx, Precedence.NONE.value)
+    }
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode(expr, ctx.topPointer())
 }
 
 private fun parseBreakExpression(ctx: Context): WithoutBlockExpressionNode {
-    val expr = if (getTokenPrecedence(ctx.peekToken()) != Precedence.NONE) {
-        parsePrecedence(ctx, Precedence.NONE.value)
-    } else null
+    val expr = when (ctx.peekToken()) {
+        Token.O_SEMICOLON -> null
+        else -> parsePrecedence(ctx, Precedence.NONE.value)
+    }
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.BreakExpressionNode(expr, ctx.topPointer())
 }
 

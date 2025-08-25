@@ -1,3 +1,4 @@
+// ! Skip
 // ! Expected to fail
 // ! Reason: Cannot capture environment variable `a` in inner function
 

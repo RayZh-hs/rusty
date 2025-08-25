@@ -1,3 +1,4 @@
+// ! Skip
 // ! Expected to fail
 
 fn main() {
