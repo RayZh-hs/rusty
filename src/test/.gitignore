@@ -1,2 +1,4 @@
 *.pp
 *.lex
+
+resources/@official/*
