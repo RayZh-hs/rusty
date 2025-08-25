@@ -12,7 +12,6 @@ import rusty.parser.putils.putilsExpectToken
 import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
 
-// TODO condition can also be a let chain
 @Peekable @Parsable
 data class ConditionsNode(val expression: ExpressionNode, override val pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
