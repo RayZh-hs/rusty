@@ -43,7 +43,7 @@ sealed class ItemNode(pointer: CompilerPointer): ASTNode(pointer) {
     data class FunctionItemNode(
         val identifier: String,
         val genericParamsNode: ParamsNode.GenericParamsNode?,
-        val functionParamsNode: ParamsNode.FunctionParamsNode?,
+        val functionParamsNode: ParamsNode.FunctionParamsNode,
         val returnTypeNode: TypeNode?,
         val withBlockExpressionNode: ExpressionNode?,
         override val pointer: CompilerPointer
