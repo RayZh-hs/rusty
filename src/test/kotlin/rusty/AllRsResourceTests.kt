@@ -27,8 +27,9 @@ class AllRsResourceTests {
                 val expectsFailure = file.readLines().any { it.trimStart().startsWith("// ! Expected to fail") }
                 val outFile = outputDir.resolve(file.name + ".out").toFile()
                 val mode = when {
-                    file.path.contains("/preprocessor/") -> "preprocess"
+                    file.path.contains("/preprocessor/") -> "pre"
                     file.path.contains("/lexer/") -> "lex"
+                    file.path.contains("/semantic/") -> "sem"
                     else -> "parse"
                 }
                 val args = arrayOf("-i", file.path, "-o", outFile.path, "-m", mode)

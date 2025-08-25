@@ -10,6 +10,7 @@ import rusty.parser.Parser
 import rusty.parser.dumpScreen
 import rusty.preprocessor.Preprocessor
 import rusty.preprocessor.dumpScreen
+import rusty.semantic.SemanticConstructor
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readText
@@ -79,7 +80,18 @@ class LocalManualTest {
 
             // 3. Parse
             val ast = Parser.run(tokens)
-            Parser.dumpScreen(ast)
+            if (mode == CompileMode.PARSE) {
+                Parser.dumpScreen(ast)
+                return
+            }
+
+            // 4. Semantic (with per-phase dumps)
+            if (mode == CompileMode.SEMANTIC) {
+                // Always show the AST first for context
+                Parser.dumpScreen(ast)
+                SemanticConstructor.runWithDumps(astTree = ast, dumpToScreen = true, dumpDir = null)
+                return
+            }
         } catch (t: Throwable) {
             println("[LocalManualTest] ERROR: ${t::class.simpleName}: ${t.message}")
             t.printStackTrace(System.out)

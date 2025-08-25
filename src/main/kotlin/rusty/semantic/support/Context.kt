@@ -6,7 +6,7 @@ import rusty.parser.ASTTree
 
 data class Context (
     val astTree: ASTTree,
-    val scopeTree: Scope = Scope.from(parent = null, name = "prelude", pointer = null)
+    val scopeTree: Scope = Scope.from(parent = null, name = "_Prelude", pointer = null)
 ) {
     fun toString(withColor: Boolean): String {
         return "Context(astTree=$astTree, scopeTree=$scopeTree)"

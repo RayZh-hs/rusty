@@ -91,9 +91,9 @@ fun main(args: Array<String>) {
     }
 
     // 4. Semantic Construction
-    val semanticResult = SemanticConstructor.run(parseResult)
-    if (displayMode == DisplayMode.VERBOSE) {
-        SemanticConstructor.dumpScreen(semanticResult)
+    val semanticResult = when (displayMode) {
+        DisplayMode.VERBOSE -> SemanticConstructor.runWithDumps(parseResult)
+        else -> SemanticConstructor.run(parseResult)
     }
     if (mode == CompileMode.SEMANTIC) {
         // dump into file

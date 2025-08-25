@@ -6,6 +6,7 @@ enum class CompileMode {
 
 val CompileModeMap = mapOf(
     "pp" to CompileMode.PREPROCESS,
+    "pre" to CompileMode.PREPROCESS,
     "preprocess" to CompileMode.PREPROCESS,
     "lex" to CompileMode.LEX,
     "parse" to CompileMode.PARSE,
