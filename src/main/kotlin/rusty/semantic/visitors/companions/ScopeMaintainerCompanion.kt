@@ -5,8 +5,8 @@ import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
 import java.util.Stack
 
-class ScopeMaintainerCompanion(private val ctx: Context) {
-    private var currentScope: Scope = ctx.scopeTree
+class ScopeMaintainerCompanion(ctx: Context) {
+    var currentScope: Scope = ctx.scopeTree
     private val curStack: Stack<Int> = Stack<Int>().apply { push(0) }
 
     private fun enterScope() {

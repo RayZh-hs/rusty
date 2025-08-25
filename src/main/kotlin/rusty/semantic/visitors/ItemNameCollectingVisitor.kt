@@ -45,28 +45,29 @@ class ItemNameCollectingVisitor(override val ctx: Context) : SimpleVisitorBase(c
 
     // Items: Declare new symbols
     override fun visitFunctionItem(node: ItemNode.FunctionItemNode) {
+        // Declare into the current scope, not the root
+        val signature = newFunctionSignature(ctx, node)
+        scopeCursor.functionST.declare(signature)
+        // Enter a child scope to hold parameters/body
         withinNewScope(node, "FunctionParam") {
-            val signature = newFunctionSignature(ctx, node)
-            ctx.scopeTree.functionST.declare(signature)
-            // Continue traversal using base
             super.visitFunctionItem(node)
         }
     }
     override fun visitStructItem(node: ItemNode.StructItemNode) {
-        ctx.scopeTree.structEnumST.declare(Symbol.Struct(
+    scopeCursor.structEnumST.declare(Symbol.Struct(
             identifier = node.identifier,
             definedAt = node
         ))
     }
     override fun visitEnumItem(node: ItemNode.EnumItemNode) {
-        ctx.scopeTree.structEnumST.declare(Symbol.Enum(
+    scopeCursor.structEnumST.declare(Symbol.Enum(
             identifier = node.identifier,
             definedAt = node,
             elements = Slot(node.variants.map { it.identifier }),
         ))
     }
     override fun visitConstItem(node: ItemNode.ConstItemNode) {
-        ctx.scopeTree.variableConstantST.declare(Symbol.Const(
+    scopeCursor.variableConstantST.declare(Symbol.Const(
             identifier = node.identifier,
             definedAt = node,
         ))
@@ -80,7 +81,7 @@ class ItemNameCollectingVisitor(override val ctx: Context) : SimpleVisitorBase(c
             Symbol.Const(it.identifier, node)
         }.associateUniquelyBy({it.identifier},
             exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
-        ctx.scopeTree.structEnumST.declare(Symbol.Trait(
+    scopeCursor.structEnumST.declare(Symbol.Trait(
             identifier = node.identifier,
             definedAt = node,
             functions = Slot(functions),

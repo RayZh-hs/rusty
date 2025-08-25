@@ -6,8 +6,10 @@ import rusty.parser.nodes.ItemNode
 import rusty.semantic.support.Context
 import rusty.semantic.visitors.companions.ScopeMaintainerCompanion
 
-open class ScopeAwareVisitorBase(override val ctx: Context) : SimpleVisitorBase(ctx) {
+open class ScopeAwareVisitorBase(ctx: Context) : SimpleVisitorBase(ctx) {
     protected val scopeMaintainer = ScopeMaintainerCompanion(ctx)
+
+    fun currentScope() = scopeMaintainer.currentScope
 
     override fun run() {
         visit(ctx.astTree)

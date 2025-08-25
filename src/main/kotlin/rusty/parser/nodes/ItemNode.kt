@@ -19,7 +19,7 @@ sealed class ItemNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         fun peek(ctx: Context): Boolean {
             return when (ctx.peekToken()) {
-                Token.K_FN, Token.K_STRUCT -> true
+                Token.K_FN, Token.K_STRUCT, Token.K_IMPL, Token.K_CONST, Token.K_ENUM, Token.K_TRAIT -> true
                 else -> false
             }
         }

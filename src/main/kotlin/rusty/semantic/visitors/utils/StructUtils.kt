@@ -33,8 +33,8 @@ fun getSemanticStructFromId(ctx: Context, identifier: String, startingPoint: Sco
             else -> throw IllegalStateException("Unexpected identifier: $lookup in structEnumST")
         }
     }
-    throw CompileError("Struct '$identifier' not found in any accessible scope")
-        .with(ctx).at(null)
+    throw CompileError("Struct '$identifier' not found in any accessible scope. Search starting from:")
+        .with(startingPoint.annotation)
 }
 
 fun Symbol.Struct.injectAssociatedItems(ctx: Context, node: AssociatedItemsNode) {
