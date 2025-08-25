@@ -1,6 +1,8 @@
 package rusty.parser.nodes.support
 
+import rusty.core.CompilerPointer
 import rusty.lexer.Token
+import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.parse
@@ -12,14 +14,14 @@ import rusty.parser.nodes.utils.Peekable
 
 // TODO condition can also be a let chain
 @Peekable @Parsable
-data class ConditionsNode(val expression: ExpressionNode) {
+data class ConditionsNode(val expression: ExpressionNode, override val pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name get() = "Conditions"
 
         fun parse(ctx: Context): ConditionsNode {
             ctx.callMe(name, enable_stack = false) {
                 val expression = ExpressionNode.parse(ctx)
-                return ConditionsNode(expression)
+                return ConditionsNode(expression, ctx.topPointer())
             }
         }
     }

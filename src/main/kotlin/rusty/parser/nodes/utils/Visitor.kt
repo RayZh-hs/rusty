@@ -1,6 +1,7 @@
 package rusty.parser.nodes.utils
 
 import rusty.parser.nodes.*
+import rusty.parser.nodes.support.ConditionsNode
 
 interface Visitor<R> {
 	// Crate
@@ -81,6 +82,9 @@ interface Visitor<R> {
 	fun visitPathIndentSegment(node: PathIndentSegmentNode): R
 	fun visitPathInExpression(node: PathInExpressionNode): R
 
+    // Misc
+    fun visitConditions(node: ConditionsNode): R
+
 	// Dynamic dispatch (entrypoint)
 	fun visit(node: ASTNode): R = node.accept(this)
 }
@@ -151,6 +155,8 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
 
 	is PathIndentSegmentNode -> visitor.visitPathIndentSegment(this)
 	is PathInExpressionNode -> visitor.visitPathInExpression(this)
+
+    is ConditionsNode -> visitor.visitConditions(this)
 
     else -> throw IllegalArgumentException("Unknown ASTNode type: ${this::class.simpleName}")
 }

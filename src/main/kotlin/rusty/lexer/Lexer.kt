@@ -1,7 +1,7 @@
 package rusty.lexer
 
 import rusty.core.MarkedString
-import rusty.core.isWord
+import rusty.core.utils.isWord
 import rusty.core.CompileError
 import rusty.core.CompilerPointer
 
