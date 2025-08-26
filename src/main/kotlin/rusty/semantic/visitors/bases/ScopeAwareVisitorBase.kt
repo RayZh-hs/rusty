@@ -32,4 +32,16 @@ open class ScopeAwareVisitorBase(ctx: Context) : SimpleVisitorBase(ctx) {
             super.visitFunctionItem(node)
         }
     }
+
+    override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
+        scopeMaintainer.withNextScope {
+            super.visitInherentImplItem(node)
+        }
+    }
+
+    override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
+        scopeMaintainer.withNextScope {
+            super.visitTraitImplItem(node)
+        }
+    }
 }

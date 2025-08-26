@@ -89,7 +89,16 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
         ))
     }
 
-    // Implements will be injected by the ImplementInjectingVisitor (Phase 2)
-    override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) = Unit
-    override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) = Unit
+    override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
+        withinNewScope(node, "Impl") {
+            // Delegate traversal to base
+            super.visitInherentImplItem(node)
+        }
+    }
+    override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
+        withinNewScope(node, "Impl") {
+            // Delegate traversal to base
+            super.visitTraitImplItem(node)
+        }
+    }
 }

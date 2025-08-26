@@ -11,6 +11,8 @@ fn main() {
             fn bar() {}
             fn baz(self: Self) {}
         }
+
+        fn random() {}
     }
 }
 
