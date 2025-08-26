@@ -73,6 +73,7 @@ sealed interface Symbol {
         override val definedAt: ASTNode?,
 
         val type: Slot<SemanticTypeNode> = Slot(),
+        val value: Slot<SemanticValueNode> = Slot(),
     ) : Symbol
 
     data class Trait(

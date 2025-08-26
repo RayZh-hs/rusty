@@ -5,18 +5,19 @@ import rusty.core.utils.Slot
 sealed class SemanticTypeNode {
     private annotation class Primitive
 
-    data object UnknownType : SemanticTypeNode()
-
     @Primitive data object I32Type : SemanticTypeNode()
     @Primitive data object U32Type : SemanticTypeNode()
     @Primitive data object ISizeType : SemanticTypeNode()
     @Primitive data object USizeType : SemanticTypeNode()
     @Primitive data object CharType : SemanticTypeNode()
     @Primitive data object StringType : SemanticTypeNode()
+    @Primitive data object CStringType : SemanticTypeNode()
     @Primitive data object BoolType : SemanticTypeNode()
     @Primitive data object UnitType : SemanticTypeNode()
 
-    data class ArrayType(val elementType: Slot<SemanticTypeNode>) : SemanticTypeNode()
+    data class ArrayType(val elementType: Slot<SemanticTypeNode>, val length: Slot<SemanticValueNode.USizeValue>) : SemanticTypeNode()
+
+    @Deprecated("Slices have been removed from the spec")
     data class SliceType(val elementType: Slot<SemanticTypeNode>) : SemanticTypeNode()
 
     // Tuples are removed; 0-tuples are converted into TypeUnit

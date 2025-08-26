@@ -30,6 +30,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticTypeNode.USizeType -> "usize"
         is SemanticTypeNode.CharType -> "char"
         is SemanticTypeNode.StringType -> "str"
+        is SemanticTypeNode.CStringType -> "cstr"
         is SemanticTypeNode.BoolType -> "bool"
         is SemanticTypeNode.UnitType -> "()"
         is SemanticTypeNode.ArrayType -> "[${typeToStr(t.elementType.getOrNull())}]"
@@ -44,7 +45,6 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         }
         is SemanticTypeNode.SliceType -> "slice"
         null -> "~"
-        else -> "unknown"
     }
 
     fun patternToName(p: PatternNode): String {

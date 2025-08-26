@@ -80,6 +80,7 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
             data class U32LiteralNode(val value: UInt, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class USizeLiteralNode(val value: UInt, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class StringLiteralNode(val value: String, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class CStringLiteralNode(val value: String, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class CharLiteralNode(val value: Char, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class BoolLiteralNode(val value: Boolean, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
         }

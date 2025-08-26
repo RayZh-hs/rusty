@@ -55,13 +55,13 @@ fun literalFromString(tokenBearer: TokenBearer): LiteralExpressionNode {
         }
         Token.L_C_STRING -> {
             val content = rawString.substring(2, rawString.length - 1)
-            return LiteralExpressionNode.StringLiteralNode(unescapeString(content), tokenBearer.pointer)
+            return LiteralExpressionNode.CStringLiteralNode(unescapeString(content), tokenBearer.pointer)
         }
         Token.L_RAW_C_STRING -> {
             val firstQuote = rawString.indexOf('"')
             val hashes = rawString.substring(2, firstQuote)
             val content = rawString.substring(firstQuote + 1, rawString.length - 1 - hashes.length)
-            return LiteralExpressionNode.StringLiteralNode(content, tokenBearer.pointer)
+            return LiteralExpressionNode.CStringLiteralNode(content, tokenBearer.pointer)
         }
         else -> throw AssertionError("Expected a string literal token, but found ${tokenBearer.token}")
     }
