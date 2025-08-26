@@ -7,7 +7,7 @@ import rusty.semantic.visitors.utils.getSemanticStructFromId
 import rusty.semantic.visitors.utils.getStructIdFromType
 import rusty.semantic.visitors.utils.injectAssociatedItems
 
-class ImplementInjectingVisitor(override val ctx: Context) : ScopeAwareVisitorBase(ctx) {
+class ImplementInjectorVisitor(override val ctx: Context) : ScopeAwareVisitorBase(ctx) {
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
         val structIdentifier = getStructIdFromType(ctx, node.typeNode)

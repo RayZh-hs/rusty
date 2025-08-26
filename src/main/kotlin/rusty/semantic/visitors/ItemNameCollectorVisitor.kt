@@ -12,7 +12,7 @@ import rusty.semantic.support.Symbol
 import rusty.semantic.visitors.bases.SimpleVisitorBase
 import rusty.semantic.visitors.utils.newFunctionSignature
 
-class ItemNameCollectingVisitor(override val ctx: Context) : SimpleVisitorBase(ctx) {
+class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ctx) {
     private var scopeCursor = ctx.scopeTree
 
     private fun <R> withinNewScope(parentNode: ASTNode, childName: String? = null, action: () -> R): R {

@@ -89,7 +89,7 @@ class LocalManualTest {
             if (mode == CompileMode.SEMANTIC) {
                 // Always show the AST first for context
                 Parser.dumpScreen(ast)
-                SemanticConstructor.runWithDumps(astTree = ast, dumpToScreen = true, dumpDir = null)
+                SemanticConstructor.run(astTree = ast, dumpToScreen = true)
                 return
             }
         } catch (t: Throwable) {
