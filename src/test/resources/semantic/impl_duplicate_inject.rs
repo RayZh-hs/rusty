@@ -1,4 +1,3 @@
-// ! Skip
 // ! Expected to fail
 
 fn main() {
@@ -15,7 +14,6 @@ fn main() {
             fn baz(self: Self) {}
         }
     }
-
 
     impl foo {
         fn bar() {}
