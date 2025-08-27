@@ -23,3 +23,20 @@ The program will be stepped to ensure that all types align correctly. Let shadow
 A context stack will be maintained whist the program is being stepped through. This check will ensure that:
 
 1. Breaks and Returns are used correctly;
+
+---
+
+## Class Diagram
+```text
+SemanticType (defines fields & names)
+    |
+    | BIND
+    v
+SemanticSymbol (+ defines name and POD - Place of Declaration)
+    |
+    | INIT
+    v
+SemanticValue (+ defines value)
+```
+
+Non-assignable types (functions, traits) only have a `SemanticSymbol` representation.

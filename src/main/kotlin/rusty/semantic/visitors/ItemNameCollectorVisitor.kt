@@ -8,7 +8,8 @@ import rusty.parser.nodes.CrateNode
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.utils.afterWhich
 import rusty.semantic.support.Context
-import rusty.semantic.support.Symbol
+import rusty.semantic.support.SemanticSymbol
+import rusty.semantic.support.SemanticType
 import rusty.semantic.visitors.bases.SimpleVisitorBase
 import rusty.semantic.visitors.utils.newFunctionSignature
 
@@ -54,38 +55,43 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
         }
     }
     override fun visitStructItem(node: ItemNode.StructItemNode) {
-    scopeCursor.structEnumST.declare(Symbol.Struct(
+        val fields = node.fields.associate { it.identifier to Slot<SemanticType>()}
+        val definesType = SemanticType.StructType(node.identifier, fields)
+        scopeCursor.structEnumST.declare(SemanticSymbol.Struct(
             identifier = node.identifier,
-            definedAt = node
+            definedAt = node,
+            definesType = definesType,
         ))
     }
     override fun visitEnumItem(node: ItemNode.EnumItemNode) {
-    scopeCursor.structEnumST.declare(Symbol.Enum(
+        val elements = node.variants.map { it.identifier }
+        val definesType = SemanticType.EnumType(node.identifier, Slot(elements))
+        scopeCursor.structEnumST.declare(SemanticSymbol.Enum(
             identifier = node.identifier,
             definedAt = node,
-            elements = Slot(node.variants.map { it.identifier }),
+            definesType = definesType,
         ))
     }
     override fun visitConstItem(node: ItemNode.ConstItemNode) {
-    scopeCursor.variableConstantST.declare(Symbol.Const(
+        scopeCursor.variableConstantST.declare(SemanticSymbol.Const(
             identifier = node.identifier,
             definedAt = node,
         ))
     }
     override fun visitTraitItem(node: ItemNode.TraitItemNode) {
         val functions = node.associatedItems.functionItems.map {
-            Symbol.Function(it.identifier, node)
+            SemanticSymbol.Function(it.identifier, node)
         }.associateUniquelyBy({it.identifier},
             exception = { CompileError("Duplicate function $it in trait found").with(ctx).at(node.pointer) })
         val constants = node.associatedItems.constItems.map {
-            Symbol.Const(it.identifier, node)
+            SemanticSymbol.Const(it.identifier, node)
         }.associateUniquelyBy({it.identifier},
             exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
-    scopeCursor.structEnumST.declare(Symbol.Trait(
+        scopeCursor.structEnumST.declare(SemanticSymbol.Trait(
             identifier = node.identifier,
             definedAt = node,
-            functions = Slot(functions),
-            constants = Slot(constants),
+            functions = functions,
+            constants = constants,
         ))
     }
 

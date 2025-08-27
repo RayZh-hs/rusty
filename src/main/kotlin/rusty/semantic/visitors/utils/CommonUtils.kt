@@ -1,10 +1,10 @@
 package rusty.semantic.visitors.utils
 
 import rusty.semantic.support.Scope
-import rusty.semantic.support.Symbol
+import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SymbolTable
 
-data class SymbolAndScope(val symbol: Symbol, val scope: Scope)
+data class SymbolAndScope(val symbol: SemanticSymbol, val scope: Scope)
 
 fun sequentialLookup(identifier: String, scope: Scope, symbolTableGetter: (Scope) -> SymbolTable): SymbolAndScope? {
     var scopePointer: Scope? = scope

@@ -7,8 +7,9 @@ import com.andreapivetta.kolor.magenta
 import com.andreapivetta.kolor.red
 import com.andreapivetta.kolor.yellow
 import rusty.semantic.support.Scope
-import rusty.semantic.support.SemanticTypeNode
-import rusty.semantic.support.Symbol
+import rusty.semantic.support.SemanticType
+import rusty.semantic.support.SemanticSymbol
+import rusty.semantic.support.SemanticValue
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
 import java.io.File
@@ -23,28 +24,58 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
     val name = (this.annotation.name ?: "<anon>").cyan()
     val kind = if (this.parent == null) "scope".magenta() else "scope".magenta()
 
-    fun typeToStr(t: SemanticTypeNode?): String = when (t) {
-        is SemanticTypeNode.I32Type -> "i32"
-        is SemanticTypeNode.U32Type -> "u32"
-        is SemanticTypeNode.ISizeType -> "isize"
-        is SemanticTypeNode.USizeType -> "usize"
-        is SemanticTypeNode.CharType -> "char"
-        is SemanticTypeNode.StringType -> "str"
-        is SemanticTypeNode.CStringType -> "cstr"
-        is SemanticTypeNode.BoolType -> "bool"
-        is SemanticTypeNode.UnitType -> "()"
-        is SemanticTypeNode.ArrayType -> "[${typeToStr(t.elementType.getOrNull())}]"
-        is SemanticTypeNode.StructType -> "struct ${t.identifier}"
-        is SemanticTypeNode.EnumType -> "enum ${t.identifier}"
-        is SemanticTypeNode.ReferenceType -> {
+    fun typeToStr(t: SemanticType?): String = when (t) {
+        is SemanticType.I32Type -> "i32"
+        is SemanticType.U32Type -> "u32"
+        is SemanticType.ISizeType -> "isize"
+        is SemanticType.USizeType -> "usize"
+        is SemanticType.AnyIntType -> "anyint"
+        is SemanticType.AnySignedIntType -> "anysint"
+        is SemanticType.CharType -> "char"
+        is SemanticType.StringType -> "str"
+        is SemanticType.CStringType -> "cstr"
+        is SemanticType.BoolType -> "bool"
+        is SemanticType.UnitType -> "()"
+        is SemanticType.ArrayType -> {
+            val elem = typeToStr(t.elementType.getOrNull())
+            val len = if (t.length.isReady()) t.length.get().value.toString() else "_"
+            "[${elem}; ${len}]"
+        }
+        is SemanticType.StructType -> "struct ${t.identifier}"
+        is SemanticType.EnumType -> "enum ${t.identifier}"
+        is SemanticType.ReferenceType -> {
             if (t.isMutable.isReady()) {
                 "&mut ${typeToStr(t.type.getOrNull())}"
             } else {
                 "~"
             }
         }
-        is SemanticTypeNode.SliceType -> "slice"
         null -> "~"
+    }
+
+    fun valueToStr(v: SemanticValue): String = when (v) {
+        is SemanticValue.I32Value -> v.value.toString()
+        is SemanticValue.U32Value -> v.value.toString()
+        is SemanticValue.ISizeValue -> v.value.toString()
+        is SemanticValue.USizeValue -> v.value.toString()
+        is SemanticValue.AnyIntValue -> v.value.toString()
+        is SemanticValue.AnySignedIntValue -> v.value.toString()
+        is SemanticValue.CharValue -> "'${v.value}'"
+        is SemanticValue.StringValue -> "\"${v.value}\""
+        is SemanticValue.CStringValue -> "c\"${v.value}\""
+        is SemanticValue.BoolValue -> v.value.toString()
+        is SemanticValue.UnitValue -> "()"
+        is SemanticValue.ArrayValue -> buildString {
+            val n = if (v.elements.isNotEmpty()) v.elements.size else v.repeat.value.toInt()
+            append("#array(len=").append(n).append(")")
+        }
+        is SemanticValue.StructValue -> buildString {
+            append("#struct {")
+            append(v.fields.entries.joinToString(", ") { (k, sv) -> k.green() + ": " + valueToStr(sv) })
+            append("}")
+        }
+        is SemanticValue.EnumValue -> "#enum ${v.field}"
+        is SemanticValue.ReferenceValue -> "&" + valueToStr(v.referenced)
     }
 
     fun patternToName(p: PatternNode): String {
@@ -55,7 +86,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         }
     }
 
-    fun paramListToStr(sym: Symbol.Function): String {
+    fun paramListToStr(sym: SemanticSymbol.Function): String {
         val parts = mutableListOf<String>()
         // Self parameter (if any)
         val self = sym.selfParam.getOrNull()
@@ -87,8 +118,17 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(" [")
         append(variableConstantST.symbols.values.joinToString(", ") { sym ->
             when (sym) {
-                is Symbol.Variable -> (sym.identifier.green() + ":" + (sym.type.getOrNull()?.let { typeToStr(it) } ?: "_"))
-                is Symbol.Const -> (sym.identifier.green() + ":" + (sym.type.getOrNull()?.let { typeToStr(it) } ?: "_"))
+                is SemanticSymbol.Variable -> (sym.identifier.green() + ":" + (sym.type.getOrNull()?.let { typeToStr(it) } ?: "_"))
+                is SemanticSymbol.Const -> buildString {
+                    append(sym.identifier.green())
+                    append(":")
+                    append(sym.type.getOrNull()?.let { typeToStr(it) } ?: "_")
+                    val v = sym.value.getOrNull()
+                    if (v != null) {
+                        append(" = ")
+                        append(valueToStr(v))
+                    }
+                }
                 else -> sym.identifier.green()
             }
         })
@@ -101,7 +141,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(" [")
         append(functionST.symbols.values.joinToString(", ") {
             when (it) {
-                is Symbol.Function -> {
+                is SemanticSymbol.Function -> {
                     val name = it.identifier.green()
                     val params = paramListToStr(it)
                     if (params.isNotEmpty()) "$name($params)" else "$name()"
@@ -113,13 +153,13 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
     }
 
     val se = if (structEnumST.symbols.isEmpty()) "" else buildString {
-        fun fieldsToStr(fields: Map<String, SemanticTypeNode>): String {
+        fun fieldsToStr(fields: Map<String, rusty.core.utils.Slot<SemanticType>>): String {
             if (fields.isEmpty()) return "{}"
-            return fields.entries.joinToString(prefix = "{", postfix = "}", separator = ", ") { (n, t) ->
-                n.green() + ": " + typeToStr(t)
+            return fields.entries.joinToString(prefix = "{", postfix = "}", separator = ", ") { (n, slot) ->
+                n.green() + ": " + (slot.getOrNull()?.let { typeToStr(it) } ?: "_")
             }
         }
-        fun funcSig(f: Symbol.Function): String {
+        fun funcSig(f: SemanticSymbol.Function): String {
             val name = f.identifier.green()
             val params = paramListToStr(f)
             return if (params.isNotEmpty()) "$name($params)" else "$name()"
@@ -130,10 +170,10 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(" [")
         append(structEnumST.symbols.values.joinToString(", ") { sym ->
             when (sym) {
-                is Symbol.Struct -> buildString {
+                is SemanticSymbol.Struct -> buildString {
                     append(sym.identifier.green())
-                    val vars = if (sym.variables.isReady()) sym.variables.getOrNull() else null
-                    if (vars != null) append(" ").append(fieldsToStr(vars)) else append(" {}")
+                    append(" ")
+                    append(fieldsToStr(sym.definesType.fields))
 
                     if (sym.functions.isNotEmpty()) {
                         append(" ∘ ")
@@ -147,18 +187,53 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
                         append("consts:".yellow())
                         append(" [")
                         append(sym.constants.values.joinToString(", ") { c ->
-                            c.identifier.green() + ": " + (c.type.getOrNull()?.let { typeToStr(it) } ?: "_")
+                            buildString {
+                                append(c.identifier.green())
+                                append(": ")
+                                append(c.type.getOrNull()?.let { typeToStr(it) } ?: "_")
+                                val v = c.value.getOrNull()
+                                if (v != null) {
+                                    append(" = ")
+                                    append(valueToStr(v))
+                                }
+                            }
                         })
                         append("]")
                     }
                 }
-                is Symbol.Enum -> buildString {
+                is SemanticSymbol.Enum -> buildString {
                     append(sym.identifier.green())
-                    val elems = if (sym.elements.isReady()) sym.elements.getOrNull() else null
+                    val elems = sym.definesType.fields.getOrNull()
                     val content = elems?.joinToString(", ") { it.green() } ?: ""
                     append("{")
                     append(content)
                     append("}")
+
+                    if (sym.functions.isNotEmpty()) {
+                        append(" ∘ ")
+                        append("fns:".blue())
+                        append(" [")
+                        append(sym.functions.values.joinToString(", ") { funcSig(it) })
+                        append("]")
+                    }
+                    if (sym.constants.isNotEmpty()) {
+                        append(" ∘ ")
+                        append("consts:".yellow())
+                        append(" [")
+                        append(sym.constants.values.joinToString(", ") { c ->
+                            buildString {
+                                append(c.identifier.green())
+                                append(": ")
+                                append(c.type.getOrNull()?.let { typeToStr(it) } ?: "_")
+                                val v = c.value.getOrNull()
+                                if (v != null) {
+                                    append(" = ")
+                                    append(valueToStr(v))
+                                }
+                            }
+                        })
+                        append("]")
+                    }
                 }
                 else -> sym.identifier.green()
             }

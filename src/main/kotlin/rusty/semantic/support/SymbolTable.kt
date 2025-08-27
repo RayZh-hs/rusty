@@ -3,16 +3,16 @@ package rusty.semantic.support
 import rusty.core.CompileError
 
 class SymbolTable {
-    val symbols: MutableMap<String, Symbol> = mutableMapOf()
+    val symbols: MutableMap<String, SemanticSymbol> = mutableMapOf()
 
-    fun declare(symbol: Symbol): Symbol {
+    fun declare(symbol: SemanticSymbol): SemanticSymbol {
         if (symbols.containsKey(symbol.identifier))
             throw CompileError("Symbol '${symbol.identifier}' is already defined in the scope: $this").at(symbol.definedAt?.pointer)
         symbols[symbol.identifier] = symbol
         return symbol
     }
 
-    fun resolve(identifier: String): Symbol? {
+    fun resolve(identifier: String): SemanticSymbol? {
         return symbols[identifier]
     }
 

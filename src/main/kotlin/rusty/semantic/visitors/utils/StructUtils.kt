@@ -6,7 +6,7 @@ import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
-import rusty.semantic.support.Symbol
+import rusty.semantic.support.SemanticSymbol
 import kotlin.collections.set
 
 fun getStructIdFromType(ctx: Context, typeNode: TypeNode): String = when(typeNode) {
@@ -21,13 +21,13 @@ fun getStructIdFromType(ctx: Context, typeNode: TypeNode): String = when(typeNod
         .with(ctx).at(typeNode.pointer)
 }
 
-fun getSemanticStructFromId(ctx: Context, identifier: String, startingPoint: Scope): Symbol.Struct {
+fun getSemanticStructFromId(ctx: Context, identifier: String, startingPoint: Scope): SemanticSymbol.Struct {
     var pointer: Scope? = startingPoint
     while (pointer != null) {
         // Lookup in the current scope
         when (val lookup = pointer.structEnumST.resolve(identifier)) {
-            is Symbol.Struct -> return lookup
-            is Symbol.Enum -> throw CompileError("Expected struct identifier, found enum: $identifier")
+            is SemanticSymbol.Struct -> return lookup
+            is SemanticSymbol.Enum -> throw CompileError("Expected struct identifier, found enum: $identifier")
                 .with(ctx).at(pointer.annotation.pointer)
             null -> pointer = pointer.parent // Move to parent scope
             else -> throw IllegalStateException("Unexpected identifier: $lookup in structEnumST")
@@ -37,7 +37,7 @@ fun getSemanticStructFromId(ctx: Context, identifier: String, startingPoint: Sco
         .with(startingPoint.annotation)
 }
 
-fun Symbol.Struct.injectAssociatedItems(ctx: Context, node: AssociatedItemsNode) {
+fun SemanticSymbol.Struct.injectAssociatedItems(ctx: Context, node: AssociatedItemsNode) {
     val implFunctions = node.functionItems
     val implConstants = node.constItems
     // Check for duplicates
@@ -58,7 +58,7 @@ fun Symbol.Struct.injectAssociatedItems(ctx: Context, node: AssociatedItemsNode)
         this.functions[funcItem.identifier] = newFunctionSignature(ctx, funcItem)
     }
     implConstants.forEach { constItem ->
-        this.constants[constItem.identifier] = Symbol.Const(
+        this.constants[constItem.identifier] = SemanticSymbol.Const(
             identifier = constItem.identifier,
             definedAt = constItem,
         )

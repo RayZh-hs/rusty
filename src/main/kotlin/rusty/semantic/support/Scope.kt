@@ -21,35 +21,35 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
             ).let {
                 // TODO add all the prelude signatures
                 it.variableConstantST.declare(
-                    Symbol.Variable(
+                    SemanticSymbol.Variable(
                         "i32",
                         null,
                         mutable = Slot(false),
-                        type = Slot(SemanticTypeNode.I32Type)
+                        type = Slot(SemanticType.I32Type)
                     )
                 )
                 it.variableConstantST.declare(
-                    Symbol.Variable(
+                    SemanticSymbol.Variable(
                         "u32",
                         null,
                         mutable = Slot(false),
-                        type = Slot(SemanticTypeNode.U32Type)
+                        type = Slot(SemanticType.U32Type)
                     )
                 )
                 it.variableConstantST.declare(
-                    Symbol.Variable(
+                    SemanticSymbol.Variable(
                         "isize",
                         null,
                         mutable = Slot(false),
-                        type = Slot(SemanticTypeNode.ISizeType)
+                        type = Slot(SemanticType.ISizeType)
                     )
                 )
                 it.variableConstantST.declare(
-                    Symbol.Variable(
+                    SemanticSymbol.Variable(
                         "usize",
                         null,
                         mutable = Slot(false),
-                        type = Slot(SemanticTypeNode.USizeType)
+                        type = Slot(SemanticType.USizeType)
                     )
                 )
                 it

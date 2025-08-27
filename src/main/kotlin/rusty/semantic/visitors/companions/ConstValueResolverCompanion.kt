@@ -5,8 +5,8 @@ import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
-import rusty.semantic.support.SemanticValueNode
-import rusty.semantic.support.Symbol
+import rusty.semantic.support.SemanticValue
+import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.commonKClass
 import rusty.semantic.visitors.utils.sequentialLookup
 
@@ -14,8 +14,8 @@ import rusty.semantic.visitors.utils.sequentialLookup
 // It is called on every const expression by the core ConstValueResolver to resolve constants.
 // Later on, it is used to evaluate const expressions at compile time. (lookup and evaluate, which is its default behavior).
 class ConstValueResolverCompanion(val ctx: Context) {
-    val stepped = mutableSetOf<Symbol.Const>()
-    fun withStepTrace(symbol: Symbol.Const, block: () -> SemanticValueNode): SemanticValueNode {
+    val stepped = mutableSetOf<SemanticSymbol.Const>()
+    fun withStepTrace(symbol: SemanticSymbol.Const, block: () -> SemanticValue): SemanticValue {
         if (symbol in stepped) {
             throw CompileError("Cyclic constant definition for '${symbol}'").with(ctx)
         }
@@ -25,15 +25,15 @@ class ConstValueResolverCompanion(val ctx: Context) {
         return result
     }
 
-    fun invalidResolve(): SemanticValueNode {
+    fun invalidResolve(): SemanticValue {
         throw CompileError("Constant resolution landed in invalid state").with(ctx)
     }
 
-    fun resolveConst(identifier: String, scope: Scope): SemanticValueNode {
+    fun resolveConst(identifier: String, scope: Scope): SemanticValue {
         val symAndScope = sequentialLookup(identifier, scope, {it.variableConstantST})
             ?: throw CompileError("Constant '$identifier' not found").with(scope).with(scope)
         when (symAndScope.symbol) {
-            is Symbol.Const -> {
+            is SemanticSymbol.Const -> {
                 if (symAndScope.symbol.value.isReady())
                     return symAndScope.symbol.value.get()
                 return withStepTrace(symAndScope.symbol) {
@@ -49,7 +49,7 @@ class ConstValueResolverCompanion(val ctx: Context) {
         }
     }
 
-    fun resolveExpression(node: ExpressionNode, scope: Scope): SemanticValueNode {
+    fun resolveExpression(node: ExpressionNode, scope: Scope): SemanticValue {
         when (node) {
             is ExpressionNode.WithBlockExpressionNode.BlockExpressionNode -> {
                 // We only handle the case where the block expression contains a single trailing expression
@@ -71,12 +71,12 @@ class ConstValueResolverCompanion(val ctx: Context) {
                 val values = node.ifs.map { resolveExpression(it.then, scope) }
                 val elseValue = resolveExpression(node.elseBranch, scope)
                 val allValues = values + elseValue
-                if (conditions.commonKClass() != SemanticValueNode.BoolValue::class)
+                if (conditions.commonKClass() != SemanticValue.BoolValue::class)
                     throw CompileError("If conditions must be boolean").with(node)
                 allValues.commonKClass() ?: throw CompileError("If branches must have the same type").with(node)
                 // Evaluate the if expression at compile time
                 for (i in conditions.indices) {
-                    val cond = conditions[i] as SemanticValueNode.BoolValue
+                    val cond = conditions[i] as SemanticValue.BoolValue
                     if (cond.value)
                         return values[i]
                 }
@@ -91,25 +91,25 @@ class ConstValueResolverCompanion(val ctx: Context) {
             is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode -> {
                 return when (node) {
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode
-                        -> SemanticValueNode.I32Value(value = node.value)
+                        -> SemanticValue.I32Value(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode
-                        -> SemanticValueNode.U32Value(value = node.value)
+                        -> SemanticValue.U32Value(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode
-                        -> SemanticValueNode.ISizeValue(value = node.value)
+                        -> SemanticValue.ISizeValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode
-                        -> SemanticValueNode.USizeValue(value = node.value)
+                        -> SemanticValue.USizeValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntLiteralNode
-                        -> SemanticValueNode.AnyIntValue(value = node.value)
+                        -> SemanticValue.AnyIntValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnySignedIntLiteralNode
-                        -> SemanticValueNode.AnySignedIntValue(value = node.value)
+                        -> SemanticValue.AnySignedIntValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.BoolLiteralNode
-                        -> SemanticValueNode.BoolValue(value = node.value)
+                        -> SemanticValue.BoolValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode
-                        -> SemanticValueNode.CharValue(value = node.value)
+                        -> SemanticValue.CharValue(value = node.value)
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode
-                        -> SemanticValueNode.ReferenceValue(SemanticValueNode.StringValue(value = node.value))
+                        -> SemanticValue.ReferenceValue(SemanticValue.StringValue(value = node.value))
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode
-                        -> SemanticValueNode.ReferenceValue(SemanticValueNode.CStringValue(value = node.value))
+                        -> SemanticValue.ReferenceValue(SemanticValue.CStringValue(value = node.value))
                 }
             }
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
@@ -124,19 +124,18 @@ class ConstValueResolverCompanion(val ctx: Context) {
                         // resolve the first part of the path as a struct/enum
                         val identifier = path[0].name ?: throw CompileError("Invalid token ${path[0].token} in constant path").with(node)
                         val key = path[1].name ?: throw CompileError("Invalid token ${path[1].token} in constant path").with(node)
-                        val findStruct = sequentialLookup(identifier, scope, {it.structEnumST})
+                        val found = sequentialLookup(identifier, scope, {it.structEnumST})
                             ?: throw CompileError("Struct/Enum '$identifier' not found for path").with(node)
-                        when (findStruct.symbol) {
-                            is Symbol.Struct -> {
-                                if (!findStruct.symbol.constants.containsKey(key))
-                                    throw CompileError("Constant '$key' not found in constant keys for struct $findStruct").with(node)
-                                return resolveConst(key, findStruct.scope)
+                        when (found.symbol) {
+                            is SemanticSymbol.Struct -> {
+                                if (!(found.symbol.fields.containsKey(key)))
+                                    throw CompileError("Constant '$key' not found in constant keys for struct $found").with(node)
+                                return resolveConst(key, found.scope)
                             }
-                            is Symbol.Enum -> {
-                                if (!findStruct.symbol.elements.get().contains(key))
-                                    throw CompileError("Enum element '$key' not found in enum elements for enum $findStruct").with(node)
-//                                return SemanticValueNode.EnumValue(findStruct., key)
-                                TODO()
+                            is SemanticSymbol.Enum -> {
+                                if (!(found.symbol.fields?.contains(key) ?: throw CompileError("Enum '${found.symbol}' has undefined elements").with(node)))
+                                    throw CompileError("Enum element '$key' not found in enum elements for enum $found").with(node)
+                                return SemanticValue.EnumValue(found.symbol.definesType, key)
                             }
                             else -> throw CompileError("Identifier '$identifier' is not a struct or enum for path").with(node)
                         }
