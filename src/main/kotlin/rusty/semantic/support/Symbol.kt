@@ -52,6 +52,7 @@ sealed interface Symbol {
     data class Struct(
         override val identifier: String,
         override val definedAt: ASTNode?,
+        val semanticType: SemanticTypeNode,
 
         val variables: Slot<Map<String, SemanticTypeNode>> = Slot(),
         // a struct can be implemented multiple times, so we store its functions and constants in a mutable map instead of a slot
@@ -63,6 +64,7 @@ sealed interface Symbol {
     data class Enum(
         override val identifier: String,
         override val definedAt: ASTNode?,
+        val semanticType: SemanticTypeNode,
 
         val elements: Slot<List<String>> = Slot(),
 

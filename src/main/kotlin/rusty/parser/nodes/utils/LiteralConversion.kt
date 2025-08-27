@@ -31,7 +31,7 @@ fun literalFromInteger(tokenBearer: TokenBearer): LiteralExpressionNode {
                 "i32"   -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 "isize" -> LiteralExpressionNode.ISizeLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 else -> {
-                    LiteralExpressionNode.AnyIntegerLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
+                    LiteralExpressionNode.AnyIntLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
                 }
             }
         }

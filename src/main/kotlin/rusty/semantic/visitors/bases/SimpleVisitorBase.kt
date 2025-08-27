@@ -1,8 +1,5 @@
 package rusty.semantic.visitors.bases
 
-import rusty.core.CompileError
-import rusty.core.utils.Slot
-import rusty.core.utils.associateUniquelyBy
 import rusty.parser.nodes.CrateNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
@@ -82,7 +79,8 @@ open class SimpleVisitorBase(open val ctx: Context) : Visitor<Unit> {
     override fun visitISizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode) = Unit
     override fun visitU32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode) = Unit
     override fun visitUSizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode) = Unit
-    override fun visitAnyIntegerLiteralNode(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntegerLiteralNode) = Unit
+    override fun visitAnyIntLiteralNode(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntLiteralNode) = Unit
+    override fun visitAnySignedIntLiteralNode(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnySignedIntLiteralNode) = Unit
 
     override fun visitStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode) = Unit
     override fun visitCStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode) = Unit
