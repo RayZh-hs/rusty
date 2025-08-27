@@ -28,6 +28,7 @@ interface Visitor<R> {
     fun visitISizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode): R
     fun visitU32Literal(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode): R
     fun visitUSizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode): R
+    fun visitAnyIntegerLiteralNode(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntegerLiteralNode): R
     fun visitStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode): R
     fun visitCStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode): R
 	fun visitCharLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode): R
@@ -112,6 +113,7 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode -> visitor.visitISizeLiteral(this)
     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode -> visitor.visitU32Literal(this)
     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode -> visitor.visitUSizeLiteral(this)
+    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntegerLiteralNode -> visitor.visitAnyIntegerLiteralNode(this)
     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode -> visitor.visitStringLiteral(this)
     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode -> visitor.visitCStringLiteral(this)
 	is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode -> visitor.visitCharLiteral(this)

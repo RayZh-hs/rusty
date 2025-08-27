@@ -320,6 +320,11 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
         line(label("U32") + " " + literal(node.value.toString()))
     override fun visitUSizeLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode) =
         line(label("USize") + " " + literal(node.value.toString()))
+
+    override fun visitAnyIntegerLiteralNode(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntegerLiteralNode) {
+        line(label("AnyInt") + " " + literal(node.value.toString()))
+    }
+
     override fun visitStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode) =
         line(label("String") + " " + literal("\"${node.value}\""))
     override fun visitCStringLiteral(node: ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode) =

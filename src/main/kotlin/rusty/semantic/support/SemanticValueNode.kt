@@ -16,4 +16,6 @@ sealed class SemanticValueNode {
     data class ArrayValue(val arrayType: SemanticTypeNode.ArrayType, val elements: List<SemanticValueNode>, val repeat: SemanticValueNode.USizeValue) : SemanticValueNode()
     data class StructValue(val type: SemanticTypeNode.StructType, val fields: Map<String, SemanticValueNode>) : SemanticValueNode()
     data class EnumValue(val type: SemanticTypeNode.EnumType, val field: String) : SemanticValueNode()
+
+    data class ReferenceValue(val referenced: SemanticValueNode) : SemanticValueNode()
 }
