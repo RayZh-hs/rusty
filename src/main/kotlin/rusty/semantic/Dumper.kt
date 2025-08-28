@@ -112,11 +112,11 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         return parts.joinToString(", ")
     }
 
-    val vc = if (variableConstantST.symbols.isEmpty()) "" else buildString {
+    val vc = if (variableST.symbols.isEmpty()) "" else buildString {
         append(" ∘ ")
         append("vars:".yellow())
         append(" [")
-        append(variableConstantST.symbols.values.joinToString(", ") { sym ->
+        append(variableST.symbols.values.joinToString(", ") { sym ->
             when (sym) {
                 is SemanticSymbol.Variable -> (sym.identifier.green() + ":" + (sym.type.getOrNull()?.let { typeToStr(it) } ?: "_"))
                 is SemanticSymbol.Const -> buildString {
@@ -152,7 +152,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append("]")
     }
 
-    val se = if (structEnumST.symbols.isEmpty()) "" else buildString {
+    val se = if (typeST.symbols.isEmpty()) "" else buildString {
         fun fieldsToStr(fields: Map<String, rusty.core.utils.Slot<SemanticType>>): String {
             if (fields.isEmpty()) return "{}"
             return fields.entries.joinToString(prefix = "{", postfix = "}", separator = ", ") { (n, slot) ->
@@ -168,7 +168,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(" ∘ ")
         append("types:".red())
         append(" [")
-        append(structEnumST.symbols.values.joinToString(", ") { sym ->
+        append(typeST.symbols.values.joinToString(", ") { sym ->
             when (sym) {
                 is SemanticSymbol.Struct -> buildString {
                     append(sym.identifier.green())

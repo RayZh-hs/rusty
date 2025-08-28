@@ -39,6 +39,14 @@ sealed interface SemanticSymbol {
             get() = definesType.fields
     }
 
+    data class BuiltinType(
+        override val identifier: String,
+
+        val type: SemanticType,
+    ) : SemanticSymbol {
+        override val definedAt: ASTNode? = null
+    }
+
     data class Enum(
         override val identifier: String,
         override val definedAt: ASTNode?,

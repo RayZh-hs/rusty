@@ -13,7 +13,7 @@ class ImplementInjectorVisitor(override val ctx: Context) : ScopeAwareVisitorBas
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
         val identifier = getStructIdFromType(ctx, node.typeNode)
-        val semanticStruct = sequentialLookup(identifier, currentScope(), {it.structEnumST})
+        val semanticStruct = sequentialLookup(identifier, currentScope(), {it.typeST})
             ?: throw CompileError("Cannot find struct or enum with id $identifier to implement").with(node)
         when (semanticStruct.symbol) {
             is SemanticSymbol.Struct -> {
@@ -28,7 +28,7 @@ class ImplementInjectorVisitor(override val ctx: Context) : ScopeAwareVisitorBas
 
     override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
         val identifier = getStructIdFromType(ctx, node.typeNode)
-        val semanticStruct = sequentialLookup(identifier, currentScope(), {it.structEnumST})
+        val semanticStruct = sequentialLookup(identifier, currentScope(), {it.typeST})
             ?: throw CompileError("Cannot find struct or enum with id $identifier to implement").with(node)
         when (semanticStruct.symbol) {
             is SemanticSymbol.Struct -> {

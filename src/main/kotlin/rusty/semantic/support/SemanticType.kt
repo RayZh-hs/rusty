@@ -25,20 +25,25 @@ data class SemanticFunctionParamNode(
 )
 
 sealed class SemanticType {
-    private annotation class Primitive
-    private annotation class Internal
+    sealed class Primitive : SemanticType()
+    companion object {
+        val RefStrType = ReferenceType(Slot(StringType), Slot(false))
+        val RefCStrType = ReferenceType(Slot(CStringType), Slot(false))
+    }
 
-    @Primitive data object I32Type : SemanticType()
-    @Primitive data object U32Type : SemanticType()
-    @Primitive data object ISizeType : SemanticType()
-    @Primitive data object USizeType : SemanticType()
-    @Primitive data object AnyIntType : SemanticType()
-    @Primitive data object AnySignedIntType : SemanticType()
-    @Primitive data object CharType : SemanticType()
-    @Primitive data object StringType : SemanticType()
-    @Primitive data object CStringType : SemanticType()
-    @Primitive data object BoolType : SemanticType()
-    @Primitive data object UnitType : SemanticType()
+    data object I32Type : Primitive()
+    data object U32Type : Primitive()
+    data object ISizeType : Primitive()
+    data object USizeType : Primitive()
+    data object AnyIntType : Primitive()
+    data object AnySignedIntType : Primitive()
+    data object CharType : Primitive()
+    data object StringType : Primitive()
+    data object CStringType : Primitive()
+    data object BoolType : Primitive()
+    data object UnitType : Primitive()
+
+    data object WildcardType : SemanticType() // Used in type inference
 
     data class ArrayType(val elementType: Slot<SemanticType>, val length: Slot<SemanticValue.USizeValue>) : SemanticType()
 

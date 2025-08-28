@@ -57,7 +57,7 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
     override fun visitStructItem(node: ItemNode.StructItemNode) {
         val fields = node.fields.associate { it.identifier to Slot<SemanticType>()}
         val definesType = SemanticType.StructType(node.identifier, fields)
-        scopeCursor.structEnumST.declare(SemanticSymbol.Struct(
+        scopeCursor.typeST.declare(SemanticSymbol.Struct(
             identifier = node.identifier,
             definedAt = node,
             definesType = definesType,
@@ -66,14 +66,14 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
     override fun visitEnumItem(node: ItemNode.EnumItemNode) {
         val elements = node.variants.map { it.identifier }
         val definesType = SemanticType.EnumType(node.identifier, Slot(elements))
-        scopeCursor.structEnumST.declare(SemanticSymbol.Enum(
+        scopeCursor.typeST.declare(SemanticSymbol.Enum(
             identifier = node.identifier,
             definedAt = node,
             definesType = definesType,
         ))
     }
     override fun visitConstItem(node: ItemNode.ConstItemNode) {
-        scopeCursor.variableConstantST.declare(SemanticSymbol.Const(
+        scopeCursor.variableST.declare(SemanticSymbol.Const(
             identifier = node.identifier,
             definedAt = node,
         ))
@@ -87,7 +87,7 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
             SemanticSymbol.Const(it.identifier, node)
         }.associateUniquelyBy({it.identifier},
             exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
-        scopeCursor.structEnumST.declare(SemanticSymbol.Trait(
+        scopeCursor.typeST.declare(SemanticSymbol.Trait(
             identifier = node.identifier,
             definedAt = node,
             functions = functions,

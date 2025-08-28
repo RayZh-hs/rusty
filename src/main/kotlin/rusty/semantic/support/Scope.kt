@@ -20,36 +20,32 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                 annotation = Annotation.from(null, "Prelude")
             ).let {
                 // TODO add all the prelude signatures
-                it.variableConstantST.declare(
-                    SemanticSymbol.Variable(
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
                         "i32",
                         null,
-                        mutable = Slot(false),
-                        type = Slot(SemanticType.I32Type)
+                        type = (SemanticType.I32Type)
                     )
                 )
-                it.variableConstantST.declare(
-                    SemanticSymbol.Variable(
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
                         "u32",
                         null,
-                        mutable = Slot(false),
-                        type = Slot(SemanticType.U32Type)
+                        type = (SemanticType.U32Type)
                     )
                 )
-                it.variableConstantST.declare(
-                    SemanticSymbol.Variable(
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
                         "isize",
                         null,
-                        mutable = Slot(false),
-                        type = Slot(SemanticType.ISizeType)
+                        type = (SemanticType.ISizeType)
                     )
                 )
-                it.variableConstantST.declare(
-                    SemanticSymbol.Variable(
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
                         "usize",
                         null,
-                        mutable = Slot(false),
-                        type = Slot(SemanticType.USizeType)
+                        type = (SemanticType.USizeType)
                     )
                 )
                 it
@@ -57,12 +53,12 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
         }
     }
 
-    val variableConstantST = SymbolTable()
-    val functionST = SymbolTable()
-    val structEnumST = SymbolTable()
+    val variableST = SymbolTable()  // holds variables and constants
+    val functionST = SymbolTable()  // holds functions
+    val typeST = SymbolTable()      // holds types (structs, enums, type aliases, traits, etc.)
 
     override fun toString(): String {
-        return "Scope($annotation, @VC=$variableConstantST, @F=$functionST, @SE=$structEnumST)"
+        return "Scope($annotation, @VC=$variableST, @F=$functionST, @SE=$typeST)"
     }
 
     fun addChildScope(childPointer: CompilerPointer, childName: String? = null): Scope {
