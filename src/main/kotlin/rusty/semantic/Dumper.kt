@@ -36,6 +36,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticType.CStringType -> "cstr"
         is SemanticType.BoolType -> "bool"
         is SemanticType.UnitType -> "()"
+        is SemanticType.WildcardType -> "_"
         is SemanticType.ArrayType -> {
             val elem = typeToStr(t.elementType.getOrNull())
             val len = if (t.length.isReady()) t.length.get().value.toString() else "_"
@@ -98,7 +99,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         // Regular parameters (if resolved)
         val params = sym.funcParams.getOrNull()
         params?.forEach { p ->
-            val name = patternToName(p.pattern).green()
+            val paramName = patternToName(p.pattern).green()
             val typeStr = typeToStr(p.type.getOrNull())
             // Try to respect ref/mut if the top-level pattern is an identifier
             val top = p.pattern.patternNodes.firstOrNull()
@@ -107,7 +108,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
             } else if (top is SupportingPatternNode.IdentifierPatternNode && top.isRef) {
                 "&"
             } else ""
-            parts += "$name: ${refPrefix}$typeStr"
+            parts += "$paramName: ${refPrefix}$typeStr"
         }
         return parts.joinToString(", ")
     }
@@ -142,9 +143,9 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(functionST.symbols.values.joinToString(", ") {
             when (it) {
                 is SemanticSymbol.Function -> {
-                    val name = it.identifier.green()
+                    val funcName = it.identifier.green()
                     val params = paramListToStr(it)
-                    if (params.isNotEmpty()) "$name($params)" else "$name()"
+                    if (params.isNotEmpty()) "$funcName($params)" else "$funcName()"
                 }
                 else -> it.identifier.green()
             }
@@ -160,9 +161,9 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
             }
         }
         fun funcSig(f: SemanticSymbol.Function): String {
-            val name = f.identifier.green()
+            val sigName = f.identifier.green()
             val params = paramListToStr(f)
-            return if (params.isNotEmpty()) "$name($params)" else "$name()"
+            return if (params.isNotEmpty()) "$sigName($params)" else "$sigName()"
         }
 
         append(" ∘ ")

@@ -22,30 +22,22 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                 // TODO add all the prelude signatures
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "i32",
-                        null,
-                        type = (SemanticType.I32Type)
+                        "i32", (SemanticType.I32Type)
                     )
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "u32",
-                        null,
-                        type = (SemanticType.U32Type)
+                        "u32", (SemanticType.U32Type)
                     )
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "isize",
-                        null,
-                        type = (SemanticType.ISizeType)
+                        "isize", (SemanticType.ISizeType)
                     )
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "usize",
-                        null,
-                        type = (SemanticType.USizeType)
+                        "usize", (SemanticType.USizeType)
                     )
                 )
                 it

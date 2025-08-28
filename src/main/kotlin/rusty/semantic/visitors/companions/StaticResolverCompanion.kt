@@ -45,7 +45,7 @@ class StaticResolverCompanion(val ctx: Context) {
                     else {
                         val evaluatedResult = resolveConstExpression(definitionAST.expressionNode, scope)
                         if (!symbol.type.isReady()) {
-                            symbol.type.set(resolveTypeNode(symbol.definedAt.typeNode, scope))
+                            symbol.type.set(resolveTypeNode(definitionAST.typeNode, scope))
                         }
                         val castResult = try {
                             ExpressionAnalyzer.tryImplicitCast(evaluatedResult, symbol.type.get())
@@ -283,7 +283,7 @@ class StaticResolverCompanion(val ctx: Context) {
     }
 
     // For function patterns, we can adopt a vastly simplified approach for pattern matching and refutability checking
-    fun resolveFunctionPattern(node: PatternNode, scope: Scope): SemanticType {
+    fun resolveFunctionPattern(node: PatternNode, _scope: Scope): SemanticType {
         if (node.patternNodes.size != 1)
             throw CompileError("Function parameter patterns must be a single pattern").with(node)
         return when (val activeNode = node.patternNodes[0]) {
