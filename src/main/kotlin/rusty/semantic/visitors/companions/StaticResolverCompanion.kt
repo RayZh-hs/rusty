@@ -225,7 +225,14 @@ class StaticResolverCompanion(val ctx: Context) {
                     }
                 }
                 is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode -> {
-                    TODO()
+                    val value = resolveConstExpression(node.expr, scope)
+                    val targetType = resolveTypeNode(node.targetType, scope)
+                    val castValue = try {
+                        ExpressionAnalyzer.tryExplicitCast(value, targetType)
+                    } catch (e: CompileError) {
+                        throw CompileError("Failed to cast constant expression: ${e.message}").with(node)
+                    }
+                    castValue
                 }
                 is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> {
                     val left = resolveConstExpression(node.left, scope)

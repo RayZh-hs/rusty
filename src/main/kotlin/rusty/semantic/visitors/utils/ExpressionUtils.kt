@@ -105,6 +105,60 @@ class ExpressionAnalyzer {
             return handler(value)
         }
 
+        // Explicit cast semantics for the `as` keyword.
+        // Permits conversions across integer families (signed/unsigned/any/int sizes) and from char to integers.
+        // Other casts are rejected.
+        fun tryExplicitCast(from: SemanticValue, to: SemanticType): SemanticValue {
+            if (from.type == to) return from
+
+            fun intTo(target: SemanticType, v: Int): SemanticValue = when (target) {
+                is SemanticType.I32Type -> SemanticValue.I32Value(v)
+                is SemanticType.ISizeType -> SemanticValue.ISizeValue(v)
+                is SemanticType.U32Type -> SemanticValue.U32Value(v.toUInt())
+                is SemanticType.USizeType -> SemanticValue.USizeValue(v.toUInt())
+                is SemanticType.AnyIntType -> SemanticValue.AnyIntValue(v)
+                is SemanticType.AnySignedIntType -> SemanticValue.AnySignedIntValue(v)
+                else -> throw CompileError("Invalid explicit cast to $target")
+            }
+
+            fun uintTo(target: SemanticType, v: UInt): SemanticValue = when (target) {
+                is SemanticType.I32Type -> SemanticValue.I32Value(v.toInt())
+                is SemanticType.ISizeType -> SemanticValue.ISizeValue(v.toInt())
+                is SemanticType.U32Type -> SemanticValue.U32Value(v)
+                is SemanticType.USizeType -> SemanticValue.USizeValue(v)
+                is SemanticType.AnyIntType -> SemanticValue.AnyIntValue(v.toInt())
+                is SemanticType.AnySignedIntType -> SemanticValue.AnySignedIntValue(v.toInt())
+                else -> throw CompileError("Invalid explicit cast to $target")
+            }
+
+            return when (from) {
+                is SemanticValue.I32Value -> intTo(to, from.value)
+                is SemanticValue.ISizeValue -> intTo(to, from.value)
+                is SemanticValue.U32Value -> uintTo(to, from.value)
+                is SemanticValue.USizeValue -> uintTo(to, from.value)
+                is SemanticValue.AnyIntValue -> intTo(to, from.value)
+                is SemanticValue.AnySignedIntValue -> intTo(to, from.value)
+
+                is SemanticValue.CharValue -> when (to) {
+                    is SemanticType.I32Type, is SemanticType.ISizeType,
+                    is SemanticType.AnyIntType, is SemanticType.AnySignedIntType -> intTo(to, from.value.code)
+                    else -> throw CompileError("Cannot cast char to $to explicitly")
+                }
+
+                is SemanticValue.BoolValue -> throw CompileError("Cannot cast bool to $to explicitly")
+
+                is SemanticValue.StringValue, is SemanticValue.CStringValue -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+
+                // TODO: Support nested explicit casts (eg. [u32, 2] to [usize, 2])
+                is SemanticValue.ArrayValue,
+                is SemanticValue.StructValue,
+                is SemanticValue.EnumValue,
+                is SemanticValue.UnitValue -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+
+                is SemanticValue.ReferenceValue -> throw CompileError("Explicit casts for references are not supported: ${from.type} as $to")
+            }
+        }
+
         private fun isSignedConcrete(v: SemanticValue) = v is SemanticValue.I32Value || v is SemanticValue.ISizeValue
         private fun isUnsignedConcrete(v: SemanticValue) = v is SemanticValue.U32Value || v is SemanticValue.USizeValue
         private fun isAnySigned(v: SemanticValue) = v is SemanticValue.AnySignedIntValue
