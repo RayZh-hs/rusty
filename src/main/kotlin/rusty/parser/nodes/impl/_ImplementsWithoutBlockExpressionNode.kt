@@ -5,6 +5,7 @@ import rusty.lexer.Token
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode
 import rusty.parser.nodes.PathInExpressionNode
+import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
 import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.utils.literalFromBoolean
@@ -121,7 +122,6 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     Token.O_GEQ to ::parseLAInfixOperator, Token.O_AND to ::parseLAInfixOperator,
     Token.O_OR to ::parseLAInfixOperator, Token.O_BIT_XOR to ::parseLAInfixOperator,
     Token.O_SLFT to ::parseLAInfixOperator, Token.O_SRIT to ::parseLAInfixOperator,
-    Token.K_AS to ::parseLAInfixOperator,
 
     // Assignment Operators
     Token.O_EQ to ::parseRAInfixOperator, Token.O_PLUS_EQ to ::parseRAInfixOperator,
@@ -134,7 +134,9 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     // Postfix/Call Operators
     Token.O_LPAREN to ::parseCallExpression,
     Token.O_LSQUARE to ::parseIndexExpression,
-    Token.O_DOT to ::parseFieldOrTupleIndexExpression
+    Token.O_DOT to ::parseFieldOrTupleIndexExpression,
+    // Cast operator: left 'as' Type
+    Token.K_AS to ::parseTypeCastExpression
 )
 
 private fun parsePrecedence(ctx: Context, precedence: Int): ExpressionNode {
@@ -274,6 +276,13 @@ private fun parseRAInfixOperator(ctx: Context, left: ExpressionNode): Expression
     val precedence = getTokenPrecedence(opToken)
     val right = parsePrecedence(ctx, precedence.value - 1)
     return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right, ctx.topPointer())
+}
+
+private fun parseTypeCastExpression(ctx: Context, left: ExpressionNode): ExpressionNode {
+    // consume 'as'
+    putilsExpectToken(ctx, Token.K_AS)
+    val targetType = TypeNode.parse(ctx)
+    return WithoutBlockExpressionNode.TypeCastExpressionNode(left, targetType, ctx.topPointer())
 }
 
 private fun parseCallExpression(ctx: Context, callee: ExpressionNode): ExpressionNode {

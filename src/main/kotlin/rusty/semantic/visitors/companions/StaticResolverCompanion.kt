@@ -2,6 +2,7 @@ package rusty.semantic.visitors.companions
 
 import rusty.core.CompileError
 import rusty.core.utils.Slot
+import rusty.lexer.Token
 import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
@@ -223,8 +224,12 @@ class StaticResolverCompanion(val ctx: Context) {
                         else -> throw CompileError("Only array values can be indexed, got '${base::class}'").with(node)
                     }
                 }
+                is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode -> {
+                    TODO()
+                }
                 is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> {
                     val left = resolveConstExpression(node.left, scope)
+                    // The right side should be a const expression
                     val right = resolveConstExpression(node.right, scope)
                     ExpressionAnalyzer.tryBinaryOperate(left, right, node.op)
                 }

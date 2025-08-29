@@ -45,6 +45,7 @@ interface Visitor<R> {
 	fun visitFieldExpression(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): R
 	fun visitPathExpression(node: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode): R
 	fun visitTupleIndexing(node: ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode): R
+    fun visitTypeCastExpression(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode): R
 	fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode): R
 	fun visitPrefixOperator(node: ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode): R
 
@@ -129,6 +130,7 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
 	is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> visitor.visitFieldExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> visitor.visitPathExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode -> visitor.visitTupleIndexing(this)
+    is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode -> visitor.visitTypeCastExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> visitor.visitInfixOperator(this)
 	is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> visitor.visitPrefixOperator(this)
 	is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode -> visitor.visitReturnExpression(this)

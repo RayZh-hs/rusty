@@ -119,6 +119,10 @@ open class SimpleVisitorBase(open val ctx: Context) : Visitor<Unit> {
     override fun visitTupleIndexing(node: ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode) {
         visit(node.base)
     }
+    override fun visitTypeCastExpression(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode) {
+        visit(node.expr)
+        visit(node.targetType)
+    }
     override fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode) {
         visit(node.left)
         visit(node.right)

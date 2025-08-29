@@ -406,6 +406,15 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
             line(field("index") + ": " + number(node.index.toString()))
         }
     }
+    override fun visitTypeCastExpression(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode) {
+        line(label("TypeCast"))
+        indented {
+            line(field("expr") + ":")
+            indented { node.expr.accept(this) }
+            line(field("type") + ":")
+            indented { appendType(node.targetType) }
+        }
+    }
     override fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode) {
         line(label("Infix") + " op=" + op(node.op.toString()))
         indented {

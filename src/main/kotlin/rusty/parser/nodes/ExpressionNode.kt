@@ -124,6 +124,13 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
         data class PathExpressionNode(val pathInExpressionNode: PathInExpressionNode, override val pointer: CompilerPointer) :
             WithoutBlockExpressionNode(pointer)
 
+        // - handles [val] as [type]
+        data class TypeCastExpressionNode(
+            val expr: ExpressionNode,
+            val targetType: TypeNode,
+            override val pointer: CompilerPointer
+        ) : WithoutBlockExpressionNode(pointer)
+
         // - handles [tuple].[id] where id is an integer
         // - note: I don't know why rust had chosen a.0 as its tuple indexing grammar. The good thing is 0 cannot be an expression, so lookaheads work
         data class TupleIndexingNode(val base: ExpressionNode, val index: Int, override val pointer: CompilerPointer) :
