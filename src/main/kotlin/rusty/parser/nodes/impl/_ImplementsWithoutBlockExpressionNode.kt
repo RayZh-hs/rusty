@@ -121,6 +121,7 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     Token.O_GEQ to ::parseLAInfixOperator, Token.O_AND to ::parseLAInfixOperator,
     Token.O_OR to ::parseLAInfixOperator, Token.O_BIT_XOR to ::parseLAInfixOperator,
     Token.O_SLFT to ::parseLAInfixOperator, Token.O_SRIT to ::parseLAInfixOperator,
+    Token.K_AS to ::parseLAInfixOperator,
 
     // Assignment Operators
     Token.O_EQ to ::parseRAInfixOperator, Token.O_PLUS_EQ to ::parseRAInfixOperator,
