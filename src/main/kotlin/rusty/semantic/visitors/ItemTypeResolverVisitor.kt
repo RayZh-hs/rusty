@@ -6,6 +6,7 @@ import rusty.parser.nodes.support.FunctionParamNode
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
+import rusty.semantic.support.SemanticType
 import rusty.semantic.visitors.bases.ScopeAwareVisitorBase
 import rusty.semantic.visitors.companions.SelfResolverCompanion
 import rusty.semantic.visitors.companions.StaticResolverCompanion
@@ -24,7 +25,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
             node.functionParamsNode.selfParam?.let {
                 val selfSymbol = selfResolver.getSelf()
                     ?: throw CompileError("'self' parameter found outside of an impl block")
-                        .with(it).at(node.pointer)
+                        .with(it).with(selfResolver).at(node.pointer)
                 when (selfSymbol) {
                     is SemanticSymbol.Struct -> {
                         if (!functionSymbol.selfParam.get()!!.type.isReady())
@@ -63,10 +64,9 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                 }
             }
             node.returnTypeNode.let {
-                if (it == null)
-                    throw CompileError("Unresolved return type for function: ${node.identifier}")
-                        .with(node).at(node.pointer)
-                if (!functionSymbol.returnType.isReady()) {
+                if (it == null) // assume that no return type means unit
+                    functionSymbol.returnType.set(SemanticType.UnitType)
+                else if (!functionSymbol.returnType.isReady()) {
                     val retType = staticResolver.resolveTypeNode(it, scope)
                     functionSymbol.returnType.set(retType)
                 }
@@ -80,12 +80,14 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
 
     override fun visitFunctionItem(node: ItemNode.FunctionItemNode) {
         // For an override, manually handle the scope resolution
+        val scope = currentScope()
+        val functionSymbol = (scope.functionST.resolve(node.identifier) as? SemanticSymbol.Function)
+            ?: throw CompileError("Unresolved function: ${node.identifier}")
+                .with(node).with(scope).at(node.pointer)
         scopeMaintainer.withNextScope {
-            val scope = currentScope()
-            val functionSymbol = (scope.functionST.resolve(node.identifier) as? SemanticSymbol.Function)
-                ?: throw CompileError("Unresolved function: ${node.identifier}")
-                    .with(node.identifier).at(node.pointer)
-            resolveFunctionSymbol(functionSymbol, scope)
+            val varDefScope = currentScope()
+            resolveFunctionSymbol(functionSymbol, varDefScope)
+            super.visitFunctionInternal(node)
         }
     }
 
@@ -94,36 +96,46 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
         val resolvedSymbol = scope.typeST.resolve(node.identifier) as? SemanticSymbol.Struct
             ?: throw CompileError("Unresolved struct type: ${node.identifier}")
                 .with(node.identifier).at(node.pointer)
-        // resolve fields, functions and constants
-        resolvedSymbol.fields.forEach { (identifier, field) ->
-            if (!field.isReady()) {
-                val typeNode = node.fields.find { it.identifier == identifier }?.typeNode
-                    ?: throw CompileError("Missing type annotation for struct field: $identifier")
-                        .with(node).at(node.pointer)
-                val fieldType = staticResolver.resolveTypeNode(typeNode, scope)
-                field.set(fieldType)
-            }
-        }
-        resolvedSymbol.functions.forEach { (identifier, function) ->
-            resolveFunctionSymbol(function, scope)
-        }
-        resolvedSymbol.constants.forEach { (identifier, const) ->
-            if (!const.type.isReady()) {
-                val node = const.definedAt!!
-                val typeNode = (node as? ItemNode.ConstItemNode)?.typeNode
-                    ?: throw CompileError("Constant symbol defined at a non-constant node")
-                        .at(node.pointer)
-                val constType = staticResolver.resolveTypeNode(typeNode, scope)
-                const.type.set(constType)
-            }
-        }
+        // Within the symbol system of the struct, process all inner signatures
         selfResolver.withinSymbol(resolvedSymbol) {
+            // resolve fields, functions and constants
+            resolvedSymbol.fields.forEach { (identifier, field) ->
+                if (!field.isReady()) {
+                    val typeNode = node.fields.find { it.identifier == identifier }?.typeNode
+                        ?: throw CompileError("Missing type annotation for struct field: $identifier")
+                            .with(node).at(node.pointer)
+                    val fieldType = staticResolver.resolveTypeNode(typeNode, scope)
+                    field.set(fieldType)
+                }
+            }
+            resolvedSymbol.functions.forEach { (_, function) ->
+                resolveFunctionSymbol(function, scope)
+            }
+            resolvedSymbol.constants.forEach { (_, const) ->
+                if (!const.type.isReady()) {
+                    val definedAtNode = const.definedAt!!
+                    val typeNode = (definedAtNode as? ItemNode.ConstItemNode)?.typeNode
+                        ?: throw CompileError("Constant symbol defined at a non-constant node")
+                            .at(definedAtNode.pointer)
+                    val constType = staticResolver.resolveTypeNode(typeNode, scope)
+                    const.type.set(constType)
+                }
+            }
+            // Finally, visit the struct node to resolve any expressions within
             super.visitStructItem(node)
         }
     }
 
     override fun visitEnumItem(node: ItemNode.EnumItemNode) {
         // TODO: Enum classes should also be able to be implemented
-        super.visitEnumItem(node)
+    }
+
+    override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
+        scopeMaintainer.skipScope()
+    }
+
+    override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
+        // TODO: Trait check (trait self-contain ability)
+        scopeMaintainer.skipScope()
     }
 }

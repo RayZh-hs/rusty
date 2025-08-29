@@ -30,4 +30,10 @@ class ScopeMaintainerCompanion(ctx: Context) {
         block()
         exitScope()
     }
+
+    fun skipScope() {
+        if (curStack.isNotEmpty()) {
+            curStack.push(curStack.pop() + 1)
+        }
+    }
 }

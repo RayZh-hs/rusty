@@ -266,30 +266,20 @@ class StaticResolverCompanion(val ctx: Context) {
                 val name = seg.name
                 if (name != null) {
                     val found = sequentialLookup(name, scope) { it.typeST }
-                        ?: throw CompileError("Unknown type '$name'").with(node)
-                    when (val sym = found.symbol) {
+                        ?: throw CompileError("Unknown type '$name'")
+                            .with(node).with(scope).at(node.pointer)
+                    return when (val sym = found.symbol) {
                         is SemanticSymbol.Struct -> sym.definesType
                         is SemanticSymbol.Enum -> sym.definesType
                         is SemanticSymbol.BuiltinType -> {
                             // Check for fundamental types
-                            return sym.type
+                            sym.type
                         }
                         else -> throw CompileError("Identifier '$name' is not a type").with(node)
                     }
                 }
                 throw CompileError("Unsupported type path segment '${seg.token}'").with(node)
             }
-        }
-    }
-
-    // For function patterns, we can adopt a vastly simplified approach for pattern matching and refutability checking
-    fun resolveFunctionPattern(node: PatternNode, _scope: Scope): SemanticType {
-        if (node.patternNodes.size != 1)
-            throw CompileError("Function parameter patterns must be a single pattern").with(node)
-        return when (val activeNode = node.patternNodes[0]) {
-            is SupportingPatternNode.WildcardPatternNode -> SemanticType.WildcardType
-            is SupportingPatternNode.IdentifierPatternNode -> SemanticType.WildcardType
-            else -> throw CompileError("Unsupported pattern type '${activeNode::class}' in function parameter").with(node)
         }
     }
 }
