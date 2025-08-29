@@ -224,7 +224,7 @@ private fun parseGroupedOrTupleExpression(ctx: Context): ExpressionNode {
 private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val elements = mutableListOf<ExpressionNode>()
-    var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode(1, ctx.topPointer())
+    var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode(1.toUInt(), ctx.topPointer())
     while (ctx.peekToken() != Token.O_RSQUARE) {
         elements.add(parsePrecedence(ctx, Precedence.NONE.value))
         putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
