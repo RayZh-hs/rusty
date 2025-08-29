@@ -17,7 +17,7 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
             return Scope(
                 parent = null,
                 children = mutableListOf(),
-                annotation = Annotation.from(null, "Prelude")
+                annotation = Annotation.from(null, "~Prelude")
             ).let {
                 // TODO add all the prelude signatures
                 it.typeST.declare(
@@ -38,6 +38,16 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
                         "usize", (SemanticType.USizeType)
+                    )
+                )
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
+                        "str", (SemanticType.StringType)
+                    )
+                )
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
+                        "cstr", (SemanticType.CStringType)
                     )
                 )
                 it

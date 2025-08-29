@@ -3,6 +3,7 @@ package rusty.semantic
 import com.andreapivetta.kolor.blue
 import com.andreapivetta.kolor.cyan
 import com.andreapivetta.kolor.green
+import com.andreapivetta.kolor.greenBackground
 import com.andreapivetta.kolor.magenta
 import com.andreapivetta.kolor.red
 import com.andreapivetta.kolor.yellow
@@ -35,7 +36,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticType.StringType -> "str"
         is SemanticType.CStringType -> "cstr"
         is SemanticType.BoolType -> "bool"
-        is SemanticType.UnitType -> "()"
+        is SemanticType.UnitType -> "unit"
         is SemanticType.WildcardType -> "_"
         is SemanticType.ArrayType -> {
             val elem = typeToStr(t.elementType.getOrNull())
@@ -140,14 +141,15 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append(" ∘ ")
         append("fns:".blue())
         append(" [")
-        append(functionST.symbols.values.joinToString(", ") {
-            when (it) {
+        append(functionST.symbols.values.joinToString(", ") { func ->
+            when (func) {
                 is SemanticSymbol.Function -> {
-                    val funcName = it.identifier.green()
-                    val params = paramListToStr(it)
-                    if (params.isNotEmpty()) "$funcName($params)" else "$funcName()"
+                    val funcName = func.identifier.green()
+                    val params = paramListToStr(func)
+                    val retType = func.returnType.getOrNull()?.let { typeToStr(it) } ?: "~"
+                    if (params.isNotEmpty()) "$funcName($params) -> $retType" else "$funcName() -> $retType"
                 }
-                else -> it.identifier.green()
+                else -> func.identifier.green()
             }
         })
         append("]")
@@ -271,7 +273,7 @@ fun SemanticConstructor.Companion.dumpPhase(label: String, output: OutputType, o
 }
 
 fun SemanticConstructor.Companion.dumpScreenPhase(label: String, output: OutputType) {
-    println("[rusty] Semantic dump ($label):".cyan())
+    println("[rusty] Semantic dump ".green() + "($label):".cyan())
     print(output.scopeTree.renderTree())
     println()
 }

@@ -45,7 +45,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                         .with(it).at(node.pointer)
                 }
             }
-            node.functionParamsNode.functionParams.forEach { param ->
+            node.functionParamsNode.functionParams.forEachIndexed { idx, param ->
                 // resolve the type of the parameter
                 when (param) {
                     is FunctionParamNode.FunctionParamTypedPatternNode -> {
@@ -53,7 +53,9 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                             param.type ?: throw CompileError("Missing type annotation for function parameter")
                                 .with(param).at(node.pointer),
                             currentScope())
-
+                        val symbolCorrespondant = functionSymbol.funcParams.get()[idx]
+                        if (!symbolCorrespondant.type.isReady())
+                            symbolCorrespondant.type.set(type)
                         val iteratedPatterns = extractSymbolsFromTypedPattern(param.pattern, type, currentScope())
                         iteratedPatterns.forEach {
                             scope.variableST.declare(it)
