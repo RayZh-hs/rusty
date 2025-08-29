@@ -2,7 +2,6 @@ package rusty.parser.putils
 
 import rusty.core.CompilerPointer
 import rusty.lexer.Token
-import rusty.lexer.TokenBearer
 import rusty.parser.TokenStream
 import java.util.Stack
 
@@ -14,7 +13,6 @@ data class Context(
     val structEnabledStack: Stack<Boolean> = Stack(),
     var attemptedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
     var failedParseObjectSet: MutableSet<Pair<Int, String>> = mutableSetOf(),
-    var prattProcessingTokenBearer: TokenBearer? = null,
 ) {
     data class ParseStackItem(val pointer: CompilerPointer, val name: String)
     data class PrattStackItem(val rbp: Int, val name: String)
