@@ -1,5 +1,8 @@
 package rusty.semantic.visitors.companions
 
+import com.andreapivetta.kolor.cyan
+import com.andreapivetta.kolor.darkGray
+import com.andreapivetta.kolor.yellow
 import rusty.core.CompileError
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
@@ -14,10 +17,12 @@ class ScopeMaintainerCompanion(ctx: Context) {
             throw CompileError("No more child scopes available for $currentScope")
         }
         currentScope = currentScope.children[curStack.peek()]
+        println("Entering scope: ".cyan() + currentScope.toString().darkGray())
         curStack.push(0)
     }
 
     private fun exitScope() {
+        println("Exiting scope: ".yellow() + currentScope.toString().darkGray())
         curStack.pop()
         if (curStack.isNotEmpty()) {
             curStack.push(curStack.pop() + 1)

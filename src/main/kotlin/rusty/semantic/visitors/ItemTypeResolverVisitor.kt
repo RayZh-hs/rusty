@@ -13,8 +13,8 @@ import rusty.semantic.visitors.companions.StaticResolverCompanion
 import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
 
 class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
-    val staticResolver: StaticResolverCompanion = StaticResolverCompanion(ctx)
     val selfResolver: SelfResolverCompanion = SelfResolverCompanion()
+    val staticResolver: StaticResolverCompanion = StaticResolverCompanion(ctx, selfResolver)
 
     private fun resolveFunctionSymbol(functionSymbol: SemanticSymbol.Function, lookupScope: Scope) {
         val defNode = functionSymbol.definedAt
@@ -29,12 +29,8 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                     // Delegated to next visitor
                     // declareScope?.variableST?.declare(selfSymbol)
                 when (selfSymbol) {
-                    is SemanticSymbol.Struct, is SemanticSymbol.Enum -> {
+                    is SemanticSymbol.Struct, is SemanticSymbol.Enum, is SemanticSymbol.Trait -> {
                         functionSymbol.selfParam.get()!!.fillWithSymbol(selfSymbol)
-                        selfSymbol
-                    }
-                    is SemanticSymbol.Trait -> {
-                        // TODO: Handle trait 'self' type resolution properly
                         selfSymbol
                     }
                     else -> throw CompileError("'self' parameter found outside of a struct impl block")
@@ -136,5 +132,16 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
     override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
         // TODO: Trait check (trait self-contain ability)
         scopeMaintainer.skipScope()
+    }
+
+    override fun visitTraitItem(node: ItemNode.TraitItemNode) {
+        scopeMaintainer.withNextScope { scope ->
+            val symbol = (scope.typeST.resolve(node.identifier) as? SemanticSymbol.Trait)
+                ?: throw CompileError("Unresolved trait type: ${node.identifier}")
+                    .with(node).with(scope).at(node.pointer)
+            selfResolver.withinSymbol(symbol) {
+                super.visitTraitItemInternal(node)
+            }
+        }
     }
 }

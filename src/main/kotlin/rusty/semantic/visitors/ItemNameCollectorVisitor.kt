@@ -86,20 +86,26 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
         ))
     }
     override fun visitTraitItem(node: ItemNode.TraitItemNode) {
-        val functions = node.associatedItems.functionItems.map {
-            SemanticSymbol.Function(it.identifier, node)
-        }.associateUniquelyBy({it.identifier},
-            exception = { CompileError("Duplicate function $it in trait found").with(ctx).at(node.pointer) })
-        val constants = node.associatedItems.constItems.map {
-            SemanticSymbol.Const(it.identifier, node)
-        }.associateUniquelyBy({it.identifier},
-            exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
-        scopeCursor.typeST.declare(SemanticSymbol.Trait(
-            identifier = node.identifier,
-            definedAt = node,
-            functions = functions,
-            constants = constants,
-        ))
+        withinNewScope(node, "Trait", Scope.ScopeKind.Trait) {
+            val functions = node.associatedItems.functionItems.map {
+                visitFunctionItem(it)
+                scopeCursor.functionST.resolve(it.identifier) as SemanticSymbol.Function
+            }.associateUniquelyBy({it.identifier},
+                exception = { CompileError("Duplicate function $it in trait found").with(ctx).at(node.pointer) })
+            val constants = node.associatedItems.constItems.map {
+                visitConstItem(it)
+                scopeCursor.variableST.resolve(it.identifier) as SemanticSymbol.Const
+            }.associateUniquelyBy({it.identifier},
+                exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
+            val traitType = SemanticType.TraitType(node.identifier)
+            scopeCursor.typeST.declare(SemanticSymbol.Trait(
+                identifier = node.identifier,
+                definedAt = node,
+                functions = functions,
+                constants = constants,
+                definesType = traitType,
+            ))
+        }
     }
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {

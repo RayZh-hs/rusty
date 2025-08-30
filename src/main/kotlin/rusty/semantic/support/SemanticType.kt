@@ -24,6 +24,7 @@ data class SemanticSelfNode(
             when (symbol) {
                 is SemanticSymbol.Struct -> this.type.set(symbol.definesType)
                 is SemanticSymbol.Enum -> this.type.set(symbol.definesType)
+                is SemanticSymbol.Trait -> this.type.set(symbol.definesType)
                 else -> throw IllegalArgumentException("Self parameter must be of struct or enum type")
             }
         if (!this.symbol.isReady())
@@ -68,6 +69,10 @@ sealed class SemanticType {
     data class EnumType(
         val identifier: String,
         val fields: Slot<List<String>> = Slot(),
+    ) : SemanticType()
+
+    data class TraitType(
+        val identifier: String
     ) : SemanticType()
 
     data class ReferenceType(val type: Slot<SemanticType>, val isMutable: Slot<Boolean>) : SemanticType()

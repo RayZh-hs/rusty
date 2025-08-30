@@ -6,6 +6,7 @@ import rusty.core.utils.Slot
 class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutableListOf(), val kind: ScopeKind , val annotation: Annotation) {
     enum class ScopeKind {
         Prelude,
+        Trait,
         Crate,
         FunctionParams,
         FunctionBody,
@@ -53,6 +54,11 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                         "cstr", (SemanticType.CStringType)
                     )
                 )
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
+                        "bool", (SemanticType.BoolType)
+                    )
+                )
                 it
             }
         }
@@ -63,7 +69,7 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
     val typeST = SymbolTable()      // holds types (structs, enums, type aliases, traits, etc.)
 
     override fun toString(): String {
-        return "Scope($annotation, @VC=$variableST, @F=$functionST, @SE=$typeST)"
+        return "Scope($annotation, ${kind.name})"
     }
 
     fun addChildScope(childPointer: CompilerPointer, childName: String? = null, childKind: ScopeKind): Scope {

@@ -48,4 +48,14 @@ open class ScopeAwareVisitorBase(ctx: Context) : SimpleVisitorBase(ctx) {
             super.visitTraitImplItem(node)
         }
     }
+
+    override fun visitTraitItem(node: ItemNode.TraitItemNode) {
+        scopeMaintainer.withNextScope {
+            super.visitTraitItem(node)
+        }
+    }
+
+    fun visitTraitItemInternal(node: ItemNode.TraitItemNode) {
+        super.visitTraitItem(node)
+    }
 }

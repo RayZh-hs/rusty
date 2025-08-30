@@ -78,6 +78,7 @@ sealed interface SemanticSymbol {
         override val identifier: String,
         override val definedAt: ASTNode?,
 
+        val definesType: SemanticType.TraitType,
         val functions: Map<String, Function> = mapOf(),
         val constants: Map<String, Const> = mapOf(),
 

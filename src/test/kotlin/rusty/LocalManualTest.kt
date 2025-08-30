@@ -88,7 +88,7 @@ class LocalManualTest {
             // 4. Semantic (with per-phase dumps)
             if (mode == CompileMode.SEMANTIC) {
                 // Always show the AST first for context
-                Parser.dumpScreen(ast)
+                // Parser.dumpScreen(ast)
                 SemanticConstructor.run(astTree = ast, dumpToScreen = true)
                 return
             }

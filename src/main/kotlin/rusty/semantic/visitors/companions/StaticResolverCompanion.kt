@@ -19,7 +19,7 @@ import rusty.semantic.support.commonSemanticType
 import rusty.semantic.visitors.utils.ExpressionAnalyzer
 import rusty.semantic.visitors.utils.sequentialLookup
 
-class StaticResolverCompanion(val ctx: Context) {
+class StaticResolverCompanion(val ctx: Context, val selfResolverRef: SelfResolverCompanion) {
     val stepping = mutableSetOf<ASTNode>()
     private fun <R> withTrace(node: ASTNode?, block: () -> R): R {
         if (node in stepping) {
@@ -289,6 +289,11 @@ class StaticResolverCompanion(val ctx: Context) {
                         }
                         else -> throw CompileError("Identifier '$name' is not a type").with(node)
                     }
+                }
+                if (seg.token == Token.K_TYPE_SELF) {
+                    return selfResolverRef.getSelfType()
+                        ?: throw CompileError("'self' type found outside of an impl/trait block")
+                            .with(node).with(scope).at(node.pointer).with(selfResolverRef.selfStack)
                 }
                 throw CompileError("Unsupported type path segment '${seg.token}'").with(node)
             }

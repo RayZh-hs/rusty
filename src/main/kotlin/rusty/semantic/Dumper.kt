@@ -54,6 +54,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
                 "~"
             }
         }
+        is SemanticType.TraitType -> "trait ${t.identifier}"
         null -> "~"
     }
 
