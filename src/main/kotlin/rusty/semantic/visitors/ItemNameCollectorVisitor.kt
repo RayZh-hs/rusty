@@ -2,12 +2,15 @@ package rusty.semantic.visitors
 
 import rusty.core.CompileError
 import rusty.core.utils.Slot
+import rusty.core.utils.VolatileWithDefault
 import rusty.core.utils.associateUniquelyBy
 import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.CrateNode
+import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.utils.afterWhich
 import rusty.semantic.support.Context
+import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.visitors.bases.SimpleVisitorBase
@@ -15,9 +18,10 @@ import rusty.semantic.visitors.utils.newFunctionSignature
 
 class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ctx) {
     private var scopeCursor = ctx.scopeTree
+    private var kindAnnotator = VolatileWithDefault(Scope.ScopeKind.Normal)
 
-    private fun <R> withinNewScope(parentNode: ASTNode, childName: String? = null, action: () -> R): R {
-        val childScope = scopeCursor.addChildScope(childPointer = parentNode.pointer, childName = childName)
+    private fun <R> withinNewScope(parentNode: ASTNode, childName: String? = null, kind: Scope.ScopeKind, action: () -> R): R {
+        val childScope = scopeCursor.addChildScope(childPointer = parentNode.pointer, childName = childName, childKind = kind)
         scopeCursor = childScope
         return action().afterWhich {
             scopeCursor = scopeCursor.parent ?: ctx.scopeTree // Reset to global scope if parent is null
@@ -31,7 +35,8 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
 
     // Crate
     override fun visitCrate(node: CrateNode) {
-        withinNewScope(node, "Crate") {
+        kindAnnotator.write(Scope.ScopeKind.Crate)
+        withinNewScope(node, "Crate", kindAnnotator.readOrDefault()) {
             // Delegate traversal to base
             super.visitCrate(node)
         }
@@ -39,7 +44,7 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
 
     // Expressions with block: Build new scope (keep only scope logic; traversal via base)
     override fun visitBlockExpression(node: rusty.parser.nodes.ExpressionNode.WithBlockExpressionNode.BlockExpressionNode) {
-        withinNewScope(node, "Block") {
+        withinNewScope(node, "Block", kindAnnotator.readOrDefault()) {
             super.visitBlockExpression(node)
         }
     }
@@ -50,7 +55,9 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
         val signature = newFunctionSignature(ctx, node)
         scopeCursor.functionST.declare(signature)
         // Enter a child scope to hold parameters/body
-        withinNewScope(node, "FunctionParam") {
+        withinNewScope(node, "FunctionParam", Scope.ScopeKind.FunctionParams) {
+            if (node.withBlockExpressionNode != null)
+                kindAnnotator.write(Scope.ScopeKind.FunctionBody)
             super.visitFunctionItem(node)
         }
     }
@@ -96,15 +103,26 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
     }
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
-        withinNewScope(node, "Impl") {
+        withinNewScope(node, "Impl", Scope.ScopeKind.Implement) {
             // Delegate traversal to base
             super.visitInherentImplItem(node)
         }
     }
     override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
-        withinNewScope(node, "Impl") {
+        withinNewScope(node, "Impl", Scope.ScopeKind.Implement) {
             // Delegate traversal to base
             super.visitTraitImplItem(node)
         }
+    }
+
+    override fun visitWhileBlockExpression(node: ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode) {
+        visit(node.condition)
+        kindAnnotator.write(Scope.ScopeKind.Repeat)
+        visit(node.expression)
+    }
+
+    override fun visitLoopBlockExpression(node: ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode) {
+        kindAnnotator.write(Scope.ScopeKind.Repeat)
+        visit(node.expression)
     }
 }

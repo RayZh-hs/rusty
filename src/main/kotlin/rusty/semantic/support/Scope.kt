@@ -3,21 +3,24 @@ package rusty.semantic.support
 import rusty.core.CompilerPointer
 import rusty.core.utils.Slot
 
-class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutableListOf(), val annotation: Annotation) {
-    companion object {
-        fun from(parent: Scope?, name: String?, pointer: CompilerPointer?): Scope {
-            return Scope(
-                parent = parent,
-                children = mutableListOf(),
-                annotation = Annotation.from(pointer, name)
-            )
-        }
+class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutableListOf(), val kind: ScopeKind , val annotation: Annotation) {
+    enum class ScopeKind {
+        Prelude,
+        Crate,
+        FunctionParams,
+        FunctionBody,
+        Implement,
+        Repeat,
+        Normal,
+    }
 
+    companion object {
         fun ofPrelude(): Scope {
             return Scope(
                 parent = null,
                 children = mutableListOf(),
-                annotation = Annotation.from(null, "~Prelude")
+                annotation = Annotation.from(null, "~Prelude"),
+                kind = ScopeKind.Prelude,
             ).let {
                 // TODO add all the prelude signatures
                 it.typeST.declare(
@@ -63,8 +66,8 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
         return "Scope($annotation, @VC=$variableST, @F=$functionST, @SE=$typeST)"
     }
 
-    fun addChildScope(childPointer: CompilerPointer, childName: String? = null): Scope {
-        val childScope = Scope(parent = this, annotation = Annotation.from(childPointer, childName))
+    fun addChildScope(childPointer: CompilerPointer, childName: String? = null, childKind: ScopeKind): Scope {
+        val childScope = Scope(parent = this, annotation = Annotation.from(childPointer, childName), kind = childKind)
         assert(children.add(childScope))
         return childScope
     }

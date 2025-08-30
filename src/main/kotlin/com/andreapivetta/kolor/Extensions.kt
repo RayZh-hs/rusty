@@ -21,6 +21,8 @@ fun String.cyan() = Kolor.foreground(this, Color.CYAN)
 
 fun String.lightGray() = Kolor.foreground(this, Color.LIGHT_GRAY)
 
+fun String.darkGray() = Kolor.foreground(this, Color.DARK_GRAY)
+
 fun String.lightRed() = Kolor.foreground(this, Color.LIGHT_RED)
 
 fun String.lightGreen() = Kolor.foreground(this, Color.LIGHT_GREEN)
@@ -50,6 +52,8 @@ fun String.magentaBackground() = Kolor.background(this, Color.MAGENTA)
 fun String.cyanBackground() = Kolor.background(this, Color.CYAN)
 
 fun String.lightGrayBackground() = Kolor.background(this, Color.LIGHT_GRAY)
+
+fun String.darkGrayBackground() = Kolor.background(this, Color.DARK_GRAY)
 
 fun String.lightRedBackground() = Kolor.background(this, Color.LIGHT_RED)
 

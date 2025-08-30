@@ -2,8 +2,10 @@ package rusty.semantic
 
 import com.andreapivetta.kolor.blue
 import com.andreapivetta.kolor.cyan
+import com.andreapivetta.kolor.darkGray
 import com.andreapivetta.kolor.green
 import com.andreapivetta.kolor.greenBackground
+import com.andreapivetta.kolor.lightGray
 import com.andreapivetta.kolor.magenta
 import com.andreapivetta.kolor.red
 import com.andreapivetta.kolor.yellow
@@ -22,8 +24,8 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
     val connector = if (isLast) "└─" else "├─"
     val nextPrefix = prefix + if (isLast) "  " else "│ "
 
-    val name = (this.annotation.name ?: "<anon>").cyan()
-    val kind = if (this.parent == null) "scope".magenta() else "scope".magenta()
+    val showKind = this.annotation.name == "Block"
+    val name = "scope ".magenta() + (this.annotation.name ?: "<anon>").cyan() + if (showKind) " (${this.kind.name})".darkGray() else ""
 
     fun typeToStr(t: SemanticType?): String = when (t) {
         is SemanticType.I32Type -> "i32"
@@ -245,7 +247,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         append("]")
     }
 
-    val header = "$prefix$connector $kind $name$vc$fn$se\n"
+    val header = "$prefix$connector $name$vc$fn$se\n"
 
     return buildString {
         append(header)
