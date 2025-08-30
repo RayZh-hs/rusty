@@ -1,6 +1,7 @@
 package rusty.semantic.visitors
 
 import rusty.core.CompileError
+import rusty.core.utils.Slot
 import rusty.parser.nodes.ItemNode
 import rusty.semantic.support.Context
 import rusty.semantic.support.SemanticSymbol
@@ -15,7 +16,13 @@ class FunctionParamsDeclareVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                 .with(node).with(scope).at(node.pointer)
         scopeMaintainer.withNextScope { definitionScope ->
             symbol.selfParam.getOrNull()?.let {
-                definitionScope.variableST.declare(it.symbol.get())
+                val selfSymbol = SemanticSymbol.Variable(
+                    identifier = "self",
+                    type = Slot(it.type.get()),
+                    mutable = Slot(it.isMut),
+                    definedAt = node
+                )
+                definitionScope.variableST.declare(selfSymbol)
             }
             symbol.funcParams.getOrNull()?.forEach { param ->
                 val iteratedPatterns = extractSymbolsFromTypedPattern(param.pattern, param.type.get(), currentScope())
