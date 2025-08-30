@@ -16,7 +16,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
     val staticResolver: StaticResolverCompanion = StaticResolverCompanion(ctx)
     val selfResolver: SelfResolverCompanion = SelfResolverCompanion()
 
-    private fun resolveFunctionSymbol(functionSymbol: SemanticSymbol.Function, scope: Scope) {
+    private fun resolveFunctionSymbol(functionSymbol: SemanticSymbol.Function, lookupScope: Scope) {
         val defNode = functionSymbol.definedAt
         if (defNode != null) {
             val node = defNode as? ItemNode.FunctionItemNode
@@ -26,15 +26,11 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                 val selfSymbol = selfResolver.getSelf()
                     ?: throw CompileError("'self' parameter found outside of an impl block")
                         .with(it).with(selfResolver).at(node.pointer)
+                    // Delegated to next visitor
+                    // declareScope?.variableST?.declare(selfSymbol)
                 when (selfSymbol) {
-                    is SemanticSymbol.Struct -> {
-                        if (!functionSymbol.selfParam.get()!!.type.isReady())
-                            functionSymbol.selfParam.get()!!.type.set(selfSymbol.definesType)
-                        selfSymbol
-                    }
-                    is SemanticSymbol.Enum -> {
-                        if (!functionSymbol.selfParam.get()!!.type.isReady())
-                            functionSymbol.selfParam.get()!!.type.set(selfSymbol.definesType)
+                    is SemanticSymbol.Struct, is SemanticSymbol.Enum -> {
+                        functionSymbol.selfParam.get()!!.fillWithSymbol(selfSymbol)
                         selfSymbol
                     }
                     is SemanticSymbol.Trait -> {
@@ -56,10 +52,11 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                         val symbolCorrespondant = functionSymbol.funcParams.get()[idx]
                         if (!symbolCorrespondant.type.isReady())
                             symbolCorrespondant.type.set(type)
-                        val iteratedPatterns = extractSymbolsFromTypedPattern(param.pattern, type, currentScope())
-                        iteratedPatterns.forEach {
-                            scope.variableST.declare(it)
-                        }
+//                        val iteratedPatterns = extractSymbolsFromTypedPattern(param.pattern, type, currentScope())
+//                        iteratedPatterns.forEach {
+//                            // Moved to next visitor
+//                            // declareScope?.variableST?.declare(it)
+//                        }
                     }
                     else -> throw CompileError("Unsupported function parameter pattern")
                         .with(param).at(node.pointer)
@@ -69,7 +66,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                 if (it == null) // assume that no return type means unit
                     functionSymbol.returnType.set(SemanticType.UnitType)
                 else if (!functionSymbol.returnType.isReady()) {
-                    val retType = staticResolver.resolveTypeNode(it, scope)
+                    val retType = staticResolver.resolveTypeNode(it, lookupScope)
                     functionSymbol.returnType.set(retType)
                 }
             }

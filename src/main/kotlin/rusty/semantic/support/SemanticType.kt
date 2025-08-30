@@ -8,6 +8,7 @@ data class SemanticSelfNode(
     val isMut: Boolean,
     val isRef: Boolean,
     val type: Slot<SemanticType> = Slot(),
+    val symbol: Slot<SemanticSymbol> = Slot(),
 ) {
     companion object {
         fun from(node: SelfParamNode): SemanticSelfNode {
@@ -16,6 +17,17 @@ data class SemanticSelfNode(
                 isRef = node.isReference,
             )
         }
+    }
+
+    fun fillWithSymbol(symbol: SemanticSymbol) {
+        if (!this.type.isReady())
+            when (symbol) {
+                is SemanticSymbol.Struct -> this.type.set(symbol.definesType)
+                is SemanticSymbol.Enum -> this.type.set(symbol.definesType)
+                else -> throw IllegalArgumentException("Self parameter must be of struct or enum type")
+            }
+        if (!this.symbol.isReady())
+            this.symbol.set(symbol)
     }
 }
 
