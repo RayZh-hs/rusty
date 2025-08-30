@@ -165,7 +165,8 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         fun funcSig(f: SemanticSymbol.Function): String {
             val sigName = f.identifier.green()
             val params = paramListToStr(f)
-            return if (params.isNotEmpty()) "$sigName($params)" else "$sigName()"
+            val retType = f.returnType.getOrNull()?.let { typeToStr(it) } ?: "~"
+            return if (params.isNotEmpty()) "$sigName($params) -> $retType" else "$sigName() -> $retType"
         }
 
         append(" ∘ ")

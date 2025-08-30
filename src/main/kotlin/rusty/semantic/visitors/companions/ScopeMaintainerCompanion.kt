@@ -25,9 +25,9 @@ class ScopeMaintainerCompanion(ctx: Context) {
         currentScope = currentScope.parent!!
     }
 
-    fun withNextScope(block: () -> Unit) {
+    fun withNextScope(block: (Scope) -> Unit) {
         enterScope()
-        block()
+        block(currentScope)
         exitScope()
     }
 

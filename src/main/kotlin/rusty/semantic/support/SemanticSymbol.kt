@@ -4,6 +4,11 @@ import rusty.core.utils.Slot
 import rusty.parser.nodes.ASTNode
 
 sealed interface SemanticSymbol {
+    sealed interface AssociativeItem {
+        val functions: MutableMap<String, Function>
+        val constants: MutableMap<String, Const>
+    }
+
     val identifier: String
     val definedAt: ASTNode? // a null definition means the symbol is defined in the prelude
 
@@ -31,10 +36,10 @@ sealed interface SemanticSymbol {
         override val definedAt: ASTNode?,
 
         val definesType: SemanticType.StructType,
-        val functions: MutableMap<String, Function> = mutableMapOf(),
-        val constants: MutableMap<String, Const> = mutableMapOf(),
+        override val functions: MutableMap<String, Function> = mutableMapOf(),
+        override val constants: MutableMap<String, Const> = mutableMapOf(),
 
-        ) : SemanticSymbol {
+        ) : SemanticSymbol, AssociativeItem {
         val fields: Map<String, Slot<SemanticType>>
             get() = definesType.fields
     }
@@ -52,10 +57,10 @@ sealed interface SemanticSymbol {
         override val definedAt: ASTNode?,
 
         val definesType: SemanticType.EnumType,
-        val functions: MutableMap<String, Function> = mutableMapOf(),
-        val constants: MutableMap<String, Const> = mutableMapOf(),
+        override val functions: MutableMap<String, Function> = mutableMapOf(),
+        override val constants: MutableMap<String, Const> = mutableMapOf(),
 
-        ) : SemanticSymbol {
+        ) : SemanticSymbol, AssociativeItem {
         val fields: List<String>?
             get() = definesType.fields.getOrNull()
     }
