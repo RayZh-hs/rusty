@@ -59,6 +59,36 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                         "bool", (SemanticType.BoolType)
                     )
                 )
+                it.typeST.declare(
+                    SemanticSymbol.Struct(
+                        identifier = "String",
+                        definedAt = null,
+                        definesType = SemanticType.StructType(
+                            identifier = "String",
+                            fields = mapOf()
+                        ),
+                        functions = mutableMapOf<String, SemanticSymbol.Function>(
+                            "as_str" to SemanticSymbol.Function(
+                                identifier = "as_str",
+                                definedAt = null,
+                                selfParam = Slot(SemanticSelfNode(isMut = false, isRef = true)),
+                                funcParams = Slot(listOf()),
+                            ),
+                            "as_mut_str" to SemanticSymbol.Function(
+                                identifier = "as_mut_str",
+                                definedAt = null,
+                                selfParam = Slot(SemanticSelfNode(isMut = true, isRef = true)),
+                                funcParams = Slot(listOf()),
+                            ),
+                        ),
+                        constants = mutableMapOf<String, SemanticSymbol.Const>()
+                    ).also { sym ->
+                        sym.functions["as_str"]?.selfParam?.get()?.type?.set(sym.definesType)
+                        sym.functions["as_str"]?.selfParam?.get()?.symbol?.set(sym)
+                        sym.functions["as_mut_str"]?.selfParam?.get()?.type?.set(sym.definesType)
+                        sym.functions["as_mut_str"]?.selfParam?.get()?.symbol?.set(sym)
+                    }
+                )
                 it
             }
         }

@@ -12,6 +12,11 @@ class SymbolTable {
         return symbol
     }
 
+    fun override(symbol: SemanticSymbol): SemanticSymbol {
+        symbols[symbol.identifier] = symbol
+        return symbol
+    }
+
     fun resolve(identifier: String): SemanticSymbol? {
         return symbols[identifier]
     }

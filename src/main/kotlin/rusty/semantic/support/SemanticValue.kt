@@ -55,6 +55,7 @@ fun List<SemanticValue>.commonKClass(): KClass<out SemanticValue>? {
     return if (all { it::class == firstClass }) firstClass else null
 }
 
+@Deprecated("Use PTI (ProgressiveTypeInferrer) instead")
 fun List<SemanticValue>.commonSemanticType(): SemanticType? {
     if (isEmpty()) return null
 

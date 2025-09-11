@@ -40,6 +40,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticType.BoolType -> "bool"
         is SemanticType.UnitType -> "unit"
         is SemanticType.WildcardType -> "_"
+        is SemanticType.NeverType -> "!"
         is SemanticType.ArrayType -> {
             val elem = typeToStr(t.elementType.getOrNull())
             val len = if (t.length.isReady()) t.length.get().value.toString() else "_"
@@ -55,6 +56,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
             }
         }
         is SemanticType.TraitType -> "trait ${t.identifier}"
+        is SemanticType.FunctionHeader -> "func-header ${t.identifier}(${t.paramTypes.joinToString(", ") { typeToStr(it) }}) -> ${typeToStr(t.returnType)}"
         null -> "~"
     }
 

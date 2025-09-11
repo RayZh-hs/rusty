@@ -4,6 +4,7 @@ import com.andreapivetta.kolor.cyan
 import com.andreapivetta.kolor.darkGray
 import com.andreapivetta.kolor.yellow
 import rusty.core.CompileError
+import rusty.parser.nodes.utils.afterWhich
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
 import java.util.Stack
@@ -30,10 +31,11 @@ class ScopeMaintainerCompanion(ctx: Context) {
         currentScope = currentScope.parent!!
     }
 
-    fun withNextScope(block: (Scope) -> Unit) {
+    fun <R> withNextScope(block: (Scope) -> R): R {
         enterScope()
-        block(currentScope)
-        exitScope()
+        return block(currentScope).afterWhich {
+            exitScope()
+        }
     }
 
     fun skipScope() {

@@ -55,6 +55,7 @@ sealed class SemanticType {
     data object CStringType : Primitive()
     data object BoolType : Primitive()
     data object UnitType : Primitive()
+    data object NeverType : SemanticType() // Used in type inference
 
     data object WildcardType : SemanticType() // Used in type inference
 
@@ -76,4 +77,5 @@ sealed class SemanticType {
     ) : SemanticType()
 
     data class ReferenceType(val type: Slot<SemanticType>, val isMutable: Slot<Boolean>) : SemanticType()
+    data class FunctionHeader(val identifier: String, val selfParamType: SemanticType?, val paramTypes: List<SemanticType>, val returnType: SemanticType) : SemanticType()
 }

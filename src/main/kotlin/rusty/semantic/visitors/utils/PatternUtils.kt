@@ -40,9 +40,9 @@ fun isPatternIrrefutable(pattern: SupportingPatternNode, scope: Scope): Boolean 
 
 fun isPatternRefutable(pattern: SupportingPatternNode, scope: Scope): Boolean = !isPatternIrrefutable(pattern, scope)
 
-fun extractSymbolsFromTypedPattern(pattern: PatternNode, semanticType: SemanticType, scope: Scope): List<SemanticSymbol> {
+fun extractSymbolsFromTypedPattern(pattern: PatternNode, semanticType: SemanticType, scope: Scope): List<SemanticSymbol.Variable> {
     val supportingPattern = destructPattern(pattern)
-    fun extract(p: SupportingPatternNode, ty: SemanticType): List<SemanticSymbol> {
+    fun extract(p: SupportingPatternNode, ty: SemanticType): List<SemanticSymbol.Variable> {
         return when (p) {
             is SupportingPatternNode.WildcardPatternNode -> emptyList()
             is SupportingPatternNode.LiteralPatternNode -> emptyList()

@@ -30,3 +30,5 @@ class Slot <T> {
         this.value = value
     }
 }
+
+fun <T> T.toSlot() = Slot(this)

@@ -26,3 +26,6 @@ fun newFunctionSignature(ctx: Context, node: ItemNode.FunctionItemNode): Semanti
         funcParams = Slot(funcParams),
     )
 }
+
+fun SemanticSymbol.Function.isClassMethod() = this.selfParam.get() == null
+fun SemanticSymbol.Function.isObjectMethod() = this.selfParam.get() != null
