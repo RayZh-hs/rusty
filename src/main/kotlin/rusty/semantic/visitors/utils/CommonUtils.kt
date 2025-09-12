@@ -80,8 +80,8 @@ class ProgressiveTypeInferrer(start: SemanticType = SemanticType.NeverType) {
             // Scalars that only unify with themselves
             is SemanticType.BoolType,
             is SemanticType.CharType,
-            is SemanticType.StringType,
-            is SemanticType.CStringType,
+            is SemanticType.StrType,
+            is SemanticType.CStrType,
             is SemanticType.UnitType -> {
                 if (cur::class != newType::class)
                     throw CompileError("Cannot infer common type between $cur and $newType")

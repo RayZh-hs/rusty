@@ -30,10 +30,10 @@ sealed class SemanticValue {
         override val type: SemanticType get() = SemanticType.CharType
     }
     @Primitive data class StringValue(val value: String) : SemanticValue() {
-        override val type: SemanticType get() = SemanticType.StringType
+        override val type: SemanticType get() = SemanticType.StrType
     }
     @Primitive data class CStringValue(val value: String) : SemanticValue() {
-        override val type: SemanticType get() = SemanticType.CStringType
+        override val type: SemanticType get() = SemanticType.CStrType
     }
     @Primitive data class BoolValue(val value: Boolean) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.BoolType
@@ -68,8 +68,8 @@ fun List<SemanticValue>.commonSemanticType(): SemanticType? {
         SemanticValue.AnyIntValue::class -> return SemanticType.AnyIntType
         SemanticValue.AnySignedIntValue::class -> return SemanticType.AnySignedIntType
         SemanticValue.CharValue::class -> return SemanticType.CharType
-        SemanticValue.StringValue::class -> return SemanticType.StringType
-        SemanticValue.CStringValue::class -> return SemanticType.CStringType
+        SemanticValue.StringValue::class -> return SemanticType.StrType
+        SemanticValue.CStringValue::class -> return SemanticType.CStrType
         SemanticValue.BoolValue::class -> return SemanticType.BoolType
         SemanticValue.UnitValue::class -> return SemanticType.UnitType
 

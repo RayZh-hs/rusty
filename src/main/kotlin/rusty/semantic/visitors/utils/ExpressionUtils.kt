@@ -1,11 +1,10 @@
 package rusty.semantic.visitors.utils
 
 import rusty.core.CompileError
+import rusty.core.utils.Slot
 import rusty.lexer.Token
-import rusty.parser.nodes.ExpressionNode
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
-import kotlin.reflect.KClass
 
 class ExpressionAnalyzer {
     companion object {
@@ -153,6 +152,13 @@ class ExpressionAnalyzer {
                     else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
                 }
 
+                is SemanticType.ReferenceType -> {
+                    // remove one layer of reference and try again
+                    val inner = from.type.getOrNull()
+                        ?: throw CompileError("Unresolved reference inner type: $from")
+                    tryImplicitCast(inner, to)
+                }
+
                 else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
             }
         }
@@ -237,6 +243,11 @@ class ExpressionAnalyzer {
                     is SemanticType.AnySignedIntType -> value
 
                     else -> throw CompileError("Unary ! not supported for $value")
+                }
+
+                Token.O_AND -> {
+                    // &x means the borrow of x, acts like a reference to x
+                    SemanticType.ReferenceType(type = Slot(value), isMutable = Slot(false))
                 }
 
                 else -> throw CompileError("Unsupported unary operator: $op on $value")
@@ -383,7 +394,7 @@ class ExpressionAnalyzer {
                 is SemanticType.BoolType -> throw CompileError("Cannot cast bool to $to explicitly")
 
                 // Strings cannot be explicitly cast elsewhere
-                is SemanticType.StringType, is SemanticType.CStringType -> throw CompileError("Cannot cast $from to $to explicitly")
+                is SemanticType.StrType, is SemanticType.CStrType -> throw CompileError("Cannot cast $from to $to explicitly")
 
                 // Arrays: element-wise explicit cast if lengths are compatible
                 is SemanticType.ArrayType -> when (to) {
@@ -457,18 +468,18 @@ class ExpressionAnalyzer {
                 }
             }
 
-            val (base, mut) = unwrapRef(from)
+            val (base, _) = unwrapRef(from)
 
             return when (methodName) {
                 // u32/usize.to_string() -> String
                 "to_string" -> when (base) {
-                    is SemanticType.U32Type, is SemanticType.USizeType -> SemanticType.StringType
+                    is SemanticType.U32Type, is SemanticType.USizeType -> SemanticType.StrType
                     else -> null
                 }
 
                 // String.as_str(&self) -> &str
                 "as_str" -> when (base) {
-                    is SemanticType.StringType -> SemanticType.RefStrType
+                    is SemanticType.StrType -> SemanticType.RefStrType
                     else -> null
                 }
 
@@ -477,8 +488,8 @@ class ExpressionAnalyzer {
                     is SemanticType.ReferenceType -> {
                         val inner = from.type.getOrNull() ?: return null
                         val isMut = from.isMutable.getOrNull() ?: return null
-                        if (inner is SemanticType.StringType && isMut) SemanticType.ReferenceType(
-                            type = rusty.core.utils.Slot(SemanticType.StringType),
+                        if (inner is SemanticType.StrType && isMut) SemanticType.ReferenceType(
+                            type = rusty.core.utils.Slot(SemanticType.StrType),
                             isMutable = rusty.core.utils.Slot(true)
                         ) else null
                     }
@@ -488,7 +499,7 @@ class ExpressionAnalyzer {
                 // len() -> usize for arrays and strings and their references
                 "len" -> when (base) {
                     is SemanticType.ArrayType -> SemanticType.USizeType
-                    is SemanticType.StringType -> SemanticType.USizeType
+                    is SemanticType.StrType -> SemanticType.USizeType
                     else -> null
                 }
 
@@ -593,8 +604,8 @@ class ExpressionAnalyzer {
             // char == char
             if (left is SemanticType.CharType && right is SemanticType.CharType) return SemanticType.BoolType
             // string == string (both str and cstr separately)
-            if (left is SemanticType.StringType && right is SemanticType.StringType) return SemanticType.BoolType
-            if (left is SemanticType.CStringType && right is SemanticType.CStringType) return SemanticType.BoolType
+            if (left is SemanticType.StrType && right is SemanticType.StrType) return SemanticType.BoolType
+            if (left is SemanticType.CStrType && right is SemanticType.CStrType) return SemanticType.BoolType
 
             // Integer families
             return when (left) {

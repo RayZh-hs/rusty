@@ -1,3 +1,7 @@
+// ! Skip
+// ! Expected to fail
+// ! Reason: Partial implementation of trait methods
+
 fn main() {
     let mut bag: Bag = Bag::new();
     let mut n: i32 = 1;

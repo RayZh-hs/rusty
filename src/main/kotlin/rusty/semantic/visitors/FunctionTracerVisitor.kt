@@ -337,7 +337,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode,
             is ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode
                 -> throw CompileError("Tuples have been removed from the language")
-                    .with(node).at(node.pointer)
+                .with(node).at(node.pointer)
         }
     }
 
@@ -379,16 +379,23 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
     private fun resolveFieldAccess(node: ExpressionNode, recursiveResolveFunc: (ExpressionNode) -> SemanticType): SemanticType {
         if (node !is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode)
             throw IllegalStateException("Expected field access expression, got: $node")
-        return when (val baseType = resolveExpression(node.base)) {
+        // For L-value checks: recursiveResolveFunc will handle mutability at the base expression (single struct object or reference)
+        val baseType = recursiveResolveFunc(node.base)
+        return resolveFieldAccessForType(baseType, node.field, node, recursiveResolveFunc)
+    }
+
+    private fun resolveFieldAccessForType(baseType: SemanticType, field: String, node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode, recursiveResolveFunc: (ExpressionNode) -> SemanticType): SemanticType {
+        return when (baseType) {
             is SemanticType.StructType -> {
                 val symbolAndScope = sequentialLookup(baseType.identifier, currentScope(), {it.typeST})
                     ?: throw CompileError("Unresolved struct type: ${baseType.identifier}")
                         .with(node).at(node.pointer)
                 val symbol = symbolAndScope.symbol as SemanticSymbol.Struct
-                if (symbol.fields.contains(node.field)) {
-                    symbol.fields[node.field]!!
-                } else if (symbol.functions.contains(node.field)) {
-                    val funcSymbol = symbol.functions[node.field]!!
+                if (symbol.fields.contains(field)) {
+                    symbol.fields[field]!!.get()
+                } else if (symbol.functions.contains(field)) {
+                    // this should be a function header
+                    val funcSymbol = symbol.functions[field]!!
                     if (funcSymbol.isClassMethod())
                         throw CompileError("Cannot call class method '${funcSymbol.identifier}' on instance")
                             .with(node).at(node.pointer)
@@ -403,14 +410,25 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         }
                     }
                     funcSymbol.getFunctionHeader()
+                } else {
+                    throw CompileError("Unresolved field '${field}' in struct '${baseType.identifier}'")
+                        .with(node).at(node.pointer)
                 }
-                throw CompileError("Unresolved field '${node.field}' in struct '${baseType.identifier}'")
-                    .with(node).at(node.pointer)
             }
 
             is SemanticType.ReferenceType -> {
-                // (ref X).field has the same type as X.field
-                recursiveResolveFunc(node.base)
+                // (&X).field has the same type as &(X.field)
+                val resolved = resolveFieldAccessForType(baseType.type.get(), field, node, recursiveResolveFunc)
+                when (resolved) {
+                    // (&X).func has the same type as X.func
+                    is SemanticType.FunctionHeader -> resolved
+
+                    // otherwise, return a reference to the field
+                    else -> SemanticType.ReferenceType(
+                        type = resolved.toSlot(),
+                        isMutable = baseType.isMutable,
+                    )
+                }
             }
 
             // TODO: add support for builtin function calls
@@ -442,9 +460,19 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                             else -> {
                                 // first try interpreting as function header
                                 val func = (sequentialLookup(segment.name, currentScope(), { it.functionST }))
-                                    ?: throw CompileError("Unresolved variable, constant, or function: ${segment.name}")
+                                if (func != null)
+                                    return (func.symbol as SemanticSymbol.Function).getFunctionHeader()
+                                // then try interpreting as struct/enum/trait type
+                                val typeSym = (sequentialLookup(segment.name, currentScope(), { it.typeST }))
+                                    ?: throw CompileError("Unresolved variable, constant, function, or type: ${segment.name}")
                                         .with(node).at(node.pointer)
-                                return (func.symbol as SemanticSymbol.Function).getFunctionHeader()
+                                when (val typeSymbol = typeSym.symbol) {
+                                    is SemanticSymbol.Struct -> typeSymbol.definesType
+                                    is SemanticSymbol.Enum -> typeSymbol.definesType
+                                    is SemanticSymbol.Trait -> typeSymbol.definesType
+                                    else -> throw CompileError("Symbol is not a variable, constant, function, or type: ${segment.name}")
+                                        .with(node).at(node.pointer)
+                                }
                             }
                         }
                     }

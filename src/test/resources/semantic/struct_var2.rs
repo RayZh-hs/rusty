@@ -8,8 +8,8 @@ fn bar(x: &Foo) {
 }
 
 fn main() {
-    let foo = Foo { a: 1, b: 2 };
-    bar(foo);
+    let foo: Foo = Foo { a: 1, b: 2 };
+    bar(&foo);
 
     impl Foo {
         fn sum(&self) -> i32 {

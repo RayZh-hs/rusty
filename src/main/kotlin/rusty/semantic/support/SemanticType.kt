@@ -40,8 +40,15 @@ data class SemanticFunctionParamNode(
 sealed class SemanticType {
     sealed class Primitive : SemanticType()
     companion object {
-        val RefStrType = ReferenceType(Slot(StringType), Slot(false))
-        val RefCStrType = ReferenceType(Slot(CStringType), Slot(false))
+        val RefStrType = ReferenceType(Slot(StrType), Slot(false))
+        val RefCStrType = ReferenceType(Slot(CStrType), Slot(false))
+        val RefMutStrType = ReferenceType(Slot(StrType), Slot(true))
+        val RefMutCStrType = ReferenceType(Slot(CStrType), Slot(true))
+
+        val StringStructType = StructType(
+            identifier = "String",
+            fields = mapOf()
+        )
     }
 
     data object I32Type : Primitive()
@@ -51,8 +58,8 @@ sealed class SemanticType {
     data object AnyIntType : Primitive()
     data object AnySignedIntType : Primitive()
     data object CharType : Primitive()
-    data object StringType : Primitive()
-    data object CStringType : Primitive()
+    data object StrType : Primitive()
+    data object CStrType : Primitive()
     data object BoolType : Primitive()
     data object UnitType : Primitive()
     data object NeverType : SemanticType() // Used in type inference

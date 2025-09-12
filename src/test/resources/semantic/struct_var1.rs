@@ -4,12 +4,12 @@ struct Foo {
 }
 
 fn bar(x: &Foo) {
-    let a = x.a;
-    let b = x.b;
+    let a: i32 = x.a;
+    let b: i32 = x.b;
     printInt(a + b);
 }
 
 fn main() {
-    let foo = Foo { a: 1, b: 2 };
-    bar(foo);
+    let foo: Foo = Foo { a: 1, b: 2 };
+    bar(&foo);
 }

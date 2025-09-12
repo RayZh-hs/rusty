@@ -4,8 +4,6 @@ import com.andreapivetta.kolor.blue
 import com.andreapivetta.kolor.cyan
 import com.andreapivetta.kolor.darkGray
 import com.andreapivetta.kolor.green
-import com.andreapivetta.kolor.greenBackground
-import com.andreapivetta.kolor.lightGray
 import com.andreapivetta.kolor.magenta
 import com.andreapivetta.kolor.red
 import com.andreapivetta.kolor.yellow
@@ -35,8 +33,8 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticType.AnyIntType -> "anyint"
         is SemanticType.AnySignedIntType -> "anysint"
         is SemanticType.CharType -> "char"
-        is SemanticType.StringType -> "str"
-        is SemanticType.CStringType -> "cstr"
+        is SemanticType.StrType -> "str"
+        is SemanticType.CStrType -> "cstr"
         is SemanticType.BoolType -> "bool"
         is SemanticType.UnitType -> "unit"
         is SemanticType.WildcardType -> "_"

@@ -1,5 +1,7 @@
 package rusty.core
 
+import com.andreapivetta.kolor.cyan
+
 class CompileError(message: String) : Exception() {
     private var mutableMessage: String = message
     companion object {
@@ -32,7 +34,11 @@ class CompileError(message: String) : Exception() {
             }
             mutableMessage += "\nCompile Error occurred at position: ${ptr.line}:${ptr.column}\n    $lineContent\n    $caretLine"
         } else {
-            mutableMessage += "\nCompile Error occurred at position ${ptr.line}:${ptr.column} for unknown source"
+            mutableMessage += when(ptr) {
+                CompilerPointer.forPrelude -> "\nCompile Error occurred at " + "~Prelude".cyan()
+                CompilerPointer.forUnknown -> "\nCompile Error occurred at " + "~Unknown".cyan()
+                else -> "\nCompile Error occurred at position ${ptr.line}:${ptr.column}"
+            }
         }
         return this
     }

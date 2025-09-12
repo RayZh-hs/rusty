@@ -2,6 +2,7 @@ package rusty.semantic.support
 
 import rusty.core.CompilerPointer
 import rusty.core.utils.Slot
+import rusty.semantic.visitors.utils.funcParamsFromMap
 
 class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutableListOf(), val kind: ScopeKind , val annotation: Annotation) {
     enum class ScopeKind {
@@ -46,12 +47,12 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "str", (SemanticType.StringType)
+                        "str", (SemanticType.StrType)
                     )
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
-                        "cstr", (SemanticType.CStringType)
+                        "cstr", (SemanticType.CStrType)
                     )
                 )
                 it.typeST.declare(
@@ -63,23 +64,29 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                     SemanticSymbol.Struct(
                         identifier = "String",
                         definedAt = null,
-                        definesType = SemanticType.StructType(
-                            identifier = "String",
-                            fields = mapOf()
-                        ),
+                        definesType = SemanticType.StringStructType,
                         functions = mutableMapOf<String, SemanticSymbol.Function>(
                             "as_str" to SemanticSymbol.Function(
                                 identifier = "as_str",
                                 definedAt = null,
                                 selfParam = Slot(SemanticSelfNode(isMut = false, isRef = true)),
                                 funcParams = Slot(listOf()),
+                                returnType = Slot(SemanticType.RefStrType)
                             ),
                             "as_mut_str" to SemanticSymbol.Function(
                                 identifier = "as_mut_str",
                                 definedAt = null,
                                 selfParam = Slot(SemanticSelfNode(isMut = true, isRef = true)),
                                 funcParams = Slot(listOf()),
+                                returnType = Slot(SemanticType.RefMutStrType)
                             ),
+                            "len" to SemanticSymbol.Function(
+                                identifier = "len",
+                                definedAt = null,
+                                selfParam = Slot(SemanticSelfNode(isMut = false, isRef = true)),
+                                funcParams = Slot(listOf()),
+                                returnType = Slot(SemanticType.USizeType)
+                            )
                         ),
                         constants = mutableMapOf<String, SemanticSymbol.Const>()
                     ).also { sym ->
@@ -88,6 +95,78 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                         sym.functions["as_mut_str"]?.selfParam?.get()?.type?.set(sym.definesType)
                         sym.functions["as_mut_str"]?.selfParam?.get()?.symbol?.set(sym)
                     }
+                )
+
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "print", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(funcParamsFromMap(
+                            mapOf("s" to SemanticType.RefStrType),
+                            pointer = CompilerPointer.forPrelude
+                        )),
+                        returnType = Slot(SemanticType.UnitType)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "println", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(funcParamsFromMap(
+                            mapOf("s" to SemanticType.RefStrType),
+                            pointer = CompilerPointer.forPrelude
+                        )),
+                        returnType = Slot(SemanticType.UnitType)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "printInt", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(funcParamsFromMap(
+                            mapOf("n" to SemanticType.I32Type),
+                            pointer = CompilerPointer.forPrelude
+                        )),
+                        returnType = Slot(SemanticType.UnitType)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "printlnInt", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(funcParamsFromMap(
+                            mapOf("n" to SemanticType.I32Type),
+                            pointer = CompilerPointer.forPrelude
+                        )),
+                        returnType = Slot(SemanticType.UnitType)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "getString", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(listOf()),
+                        returnType = Slot(SemanticType.StringStructType)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "getInt", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(listOf()),
+                        returnType = Slot(SemanticType.I32Type)
+                    )
+                )
+                it.functionST.declare(
+                    SemanticSymbol.Function(
+                        "exit", null,
+                        selfParam = Slot(null),
+                        funcParams = Slot(funcParamsFromMap(
+                            mapOf("code" to SemanticType.I32Type),
+                            pointer = CompilerPointer.forPrelude
+                        )),
+                        returnType = Slot(SemanticType.UnitType)
+                    )
                 )
                 it
             }

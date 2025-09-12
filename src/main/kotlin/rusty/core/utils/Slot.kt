@@ -31,6 +31,18 @@ class Slot<T> {
         if (this.value !== UNSET) throw IllegalStateException("Slot is already set")
         this.value = value
     }
+
+    override fun toString(): String {
+        return if (isReady()) "Slot(${get()})" else "Slot(UNSET)"
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Slot<*>) return false
+        if (this.isReady() != other.isReady()) return false
+        if (!this.isReady()) return true // both are unset
+        return this.get() == other.get()
+    }
 }
 
 fun <T> T.toSlot() = Slot<T>().apply { set(this@toSlot) }
