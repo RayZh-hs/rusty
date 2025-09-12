@@ -456,6 +456,24 @@ class ExpressionAnalyzer {
             }
         }
 
+        fun canImplicitlyCast(from: SemanticType, to: SemanticType): Boolean {
+            try {
+                tryImplicitCast(from, to)
+                return true
+            } catch (e: CompileError) {
+                return false
+            }
+        }
+
+        fun canExplicitlyCast(from: SemanticType, to: SemanticType): Boolean {
+            try {
+                tryExplicitCast(from, to)
+                return true
+            } catch (e: CompileError) {
+                return false
+            }
+        }
+
         fun resolveBuiltinMethodCall(from: SemanticType, methodName: String, params: List<SemanticType>): SemanticType? {
             // All builtin methods here take no extra parameters.
             if (params.isNotEmpty()) throw CompileError("Builtin method '$methodName' expects no parameters; got $params")
