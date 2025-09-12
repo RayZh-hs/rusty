@@ -15,7 +15,6 @@ import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
 import rusty.semantic.visitors.bases.SimpleVisitorBase
-import rusty.semantic.visitors.companions.ScopeMaintainerCompanion
 import rusty.semantic.visitors.companions.ScopedVariableMaintainerCompanion
 import rusty.semantic.visitors.companions.SelfResolverCompanion
 import rusty.semantic.visitors.companions.StaticResolverCompanion
@@ -67,12 +66,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
         val funSymbol = currentScope().functionST.resolve(node.identifier) as? SemanticSymbol.Function
             ?: throw CompileError("Unresolved function symbol: ${node.identifier}").with(node).at(node.pointer)
         scopedVarMaintainer.withNextScope {
-            for (param in funSymbol.funcParams.get()) {
-                val symbols = extractSymbolsFromTypedPattern(param.pattern, SemanticType.WildcardType, currentScope())
-                for (sym in symbols) {
-                    scopedVarMaintainer.declare(sym)
-                }
-            }
+            // Parameters (and optional self) are already declared with concrete types in phase-4
             if (node.withBlockExpressionNode != null) {
                 val retType = funSymbol.returnType.get()
                 funcReturnResolvers.push(ProgressiveTypeInferrer(retType)).afterWhich {
@@ -359,6 +353,15 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                             null -> SemanticType.WildcardType
                             else -> resolveType(stmt.typeNode)
                         }
+                        if (stmt.expressionNode != null) {
+                            val exprType = resolveExpression(stmt.expressionNode)
+                            try {
+                                ExpressionAnalyzer.tryImplicitCast(exprType, expectedType)
+                            } catch (e: CompileError) {
+                                throw CompileError("Let binding expression type $exprType does not match expected type $expectedType")
+                                    .with(stmt.expressionNode).at(stmt.expressionNode.pointer).with(e)
+                            }
+                        }
                         val symbols = extractSymbolsFromTypedPattern(
                             stmt.patternNode, expectedType, currentScope())
                         for (sym in symbols) {
@@ -436,8 +439,13 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         when (val symbol = scopedVarMaintainer.resolve(segment.name!!)) {
                             is SemanticSymbol.Variable -> symbol.type.get()
                             is SemanticSymbol.Const -> symbol.type.get()
-                            else -> throw CompileError("Unresolved symbol: ${segment.name}")
-                                .with(node).at(node.pointer)
+                            else -> {
+                                // first try interpreting as function header
+                                val func = (sequentialLookup(segment.name, currentScope(), { it.functionST }))
+                                    ?: throw CompileError("Unresolved variable, constant, or function: ${segment.name}")
+                                        .with(node).at(node.pointer)
+                                return (func.symbol as SemanticSymbol.Function).getFunctionHeader()
+                            }
                         }
                     }
 
