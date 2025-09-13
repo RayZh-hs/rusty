@@ -86,6 +86,7 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
         ))
     }
     override fun visitTraitItem(node: ItemNode.TraitItemNode) {
+        val outerScope = scopeCursor
         withinNewScope(node, "Trait", Scope.ScopeKind.Trait) {
             val functions = node.associatedItems.functionItems.map {
                 visitFunctionItem(it)
@@ -97,8 +98,8 @@ class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ct
                 scopeCursor.variableST.resolve(it.identifier) as SemanticSymbol.Const
             }.associateUniquelyBy({it.identifier},
                 exception = { CompileError("Duplicate constant $it in trait found").with(ctx).at(node.pointer) })
-            val traitType = SemanticType.TraitType(node.identifier)
-            scopeCursor.typeST.declare(SemanticSymbol.Trait(
+            val traitType = SemanticType.TraitType(node.identifier, scopeCursor)
+            outerScope.typeST.declare(SemanticSymbol.Trait(
                 identifier = node.identifier,
                 definedAt = node,
                 functions = functions,

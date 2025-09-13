@@ -80,7 +80,8 @@ sealed class SemanticType {
     ) : SemanticType()
 
     data class TraitType(
-        val identifier: String
+        val identifier: String,
+        val scope: Scope,
     ) : SemanticType()
 
     data class ReferenceType(val type: Slot<SemanticType>, val isMutable: Slot<Boolean>) : SemanticType()

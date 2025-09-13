@@ -7,6 +7,7 @@ import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import kotlin.collections.set
 
+@Deprecated("Use the other overload that takes a list of symbols instead")
 fun SemanticSymbol.AssociativeItem.injectAssociatedItems(ctx: Context, implScope: Scope) {
     val implFunctions = implScope.functionST.symbols.mapValues { (_, symbol) ->
         symbol as? SemanticSymbol.Function
@@ -32,4 +33,31 @@ fun SemanticSymbol.AssociativeItem.injectAssociatedItems(ctx: Context, implScope
     // Inject into the symbol
     this.functions += implFunctions.toMap()
     this.constants += implConstants.toMap()
+}
+
+fun SemanticSymbol.AssociativeItem.injectAssociatedItems(symbols: List<SemanticSymbol>) {
+    for (sym in symbols) {
+        when (sym) {
+            is SemanticSymbol.Function -> {
+                if (this.functions.containsKey(sym.identifier)) {
+                    throw CompileError("Duplicate function ${sym.identifier} in impl for struct $this")
+                        .at(sym.definedAt?.pointer)
+                }
+                this.functions[sym.identifier] = sym
+            }
+
+            is SemanticSymbol.Const -> {
+                if (this.constants.containsKey(sym.identifier)) {
+                    throw CompileError("Duplicate constant ${sym.identifier} in impl for struct $this")
+                        .at(sym.definedAt?.pointer)
+                }
+                this.constants[sym.identifier] = sym
+            }
+
+            else -> {
+                throw CompileError("Expected function or constant symbol, found $sym")
+                    .at(sym.definedAt?.pointer)
+            }
+        }
+    }
 }

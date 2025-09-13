@@ -136,7 +136,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
 
     override fun visitTraitItem(node: ItemNode.TraitItemNode) {
         scopeMaintainer.withNextScope { scope ->
-            val symbol = (scope.typeST.resolve(node.identifier) as? SemanticSymbol.Trait)
+            val symbol = (scope.parent?.typeST?.resolve(node.identifier) as? SemanticSymbol.Trait)
                 ?: throw CompileError("Unresolved trait type: ${node.identifier}")
                     .with(node).with(scope).at(node.pointer)
             selfResolver.withinSymbol(symbol) {
