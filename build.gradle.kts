@@ -33,6 +33,19 @@ testing {
     }
 }
 
+// On-demand official tests use the standard test sourceSet but are tagged
+tasks.register<Test>("officialTest") {
+    description = "Run official semantic tests (on-demand)."
+    group = "verification"
+    // Reuse compiled test classes and classpath
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("official")
+    }
+    shouldRunAfter(tasks.test)
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {
@@ -41,6 +54,10 @@ tasks.test {
         if (localFile != null) {
             showStandardStreams = true
         }
+    }
+    // Do not run @Tag("official") tests by default; run via :officialTest
+    useJUnitPlatform {
+        excludeTags("official")
     }
     doFirst {
         val localFile = System.getProperty("localTestFile")
