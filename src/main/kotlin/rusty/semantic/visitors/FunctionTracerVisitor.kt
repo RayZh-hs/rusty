@@ -374,7 +374,20 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
             // handle trailing expression
             when (node.trailingExpression) {
-                null -> SemanticType.UnitType
+                null -> {
+                    fun isReturnStatement(stmt: StatementNode): Boolean {
+                        if (stmt !is StatementNode.ExpressionStatementNode)
+                            return false
+                        val expr = stmt.expression
+                        return expr is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode
+                    }
+
+                    // special case: if the last statement is a return, then the block type is never type
+                    if (node.statements.isNotEmpty() && isReturnStatement(node.statements.last()))
+                        SemanticType.NeverType
+                    else
+                        SemanticType.UnitType
+                }
                 else -> resolveExpression(node.trailingExpression)
             }
         }

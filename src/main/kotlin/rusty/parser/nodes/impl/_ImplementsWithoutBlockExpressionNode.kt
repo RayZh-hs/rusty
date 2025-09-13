@@ -240,7 +240,7 @@ private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
 private fun parseReturnExpression(ctx: Context): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.K_RETURN)
     val expr = when (ctx.peekToken()) {
-        Token.O_SEMICOLON -> null
+        Token.O_SEMICOLON, Token.O_RCURL -> null
         else -> parsePrecedence(ctx, Precedence.NONE.value)
     }
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode(expr, ctx.topPointer())
