@@ -404,6 +404,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
     }
 
     private fun resolveFieldAccessForType(baseType: SemanticType, field: String, node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode, recursiveResolveFunc: (ExpressionNode) -> SemanticType): SemanticType {
+        val builtinResult = ExpressionAnalyzer.resolveBuiltinMethod(baseType, field)
+        if (builtinResult != null) return builtinResult
         return when (baseType) {
             is SemanticType.StructType -> {
                 val symbolAndScope = sequentialLookup(baseType.identifier, currentScope(), {it.typeST})
@@ -436,13 +438,14 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
 
             is SemanticType.ReferenceType -> {
-                // (&X).field has the same type as &(X.field)
                 val resolved = resolveFieldAccessForType(baseType.type.get(), field, node, recursiveResolveFunc)
                 when (resolved) {
                     // (&X).func has the same type as X.func
-                    is SemanticType.FunctionHeader -> resolved
+                    is SemanticType.FunctionHeader -> {
+                        resolved
+                    }
 
-                    // otherwise, return a reference to the field
+                    // (&X).field has the same type as &(X.field)
                     else -> SemanticType.ReferenceType(
                         type = resolved.toSlot(),
                         isMutable = baseType.isMutable,

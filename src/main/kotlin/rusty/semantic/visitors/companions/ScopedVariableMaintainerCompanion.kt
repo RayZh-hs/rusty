@@ -4,7 +4,9 @@ import rusty.parser.nodes.utils.afterWhich
 import rusty.semantic.support.Context
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
+import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SymbolTable
+import rusty.semantic.visitors.utils.sequentialLookup
 import java.util.Stack
 
 // All variables and constants will be automatically pushed into the scope stack
@@ -41,6 +43,10 @@ class ScopedVariableMaintainerCompanion(ctx: Context) {
                 break   // this ensures that functions form no closures
             cursor = cursor.parent ?: break
         }
+        // if not found, look for constants in the whole scope chain
+        val resolved = sequentialLookup(identifier, currentScope(), {it.variableST})
+        if (resolved != null && resolved.symbol is SemanticSymbol.Const)
+            return resolved.symbol
         return null
     }
 

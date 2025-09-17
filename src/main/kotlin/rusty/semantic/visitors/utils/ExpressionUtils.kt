@@ -3,6 +3,7 @@ package rusty.semantic.visitors.utils
 import rusty.core.CompileError
 import rusty.core.utils.Slot
 import rusty.lexer.Token
+import rusty.parser.nodes.TypeNode
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
 
@@ -255,9 +256,6 @@ class ExpressionAnalyzer {
         }
 
         // Explicit cast semantics for the `as` keyword.
-        // Permits conversions across integer families (signed/unsigned/any/int sizes), from char to integers,
-        // arrays with element-wise casts (length must match), and structs/enums (same identifier only).
-        // Other casts are rejected.
         fun tryExplicitCast(from: SemanticValue, to: SemanticType): SemanticValue {
             if (from.type == to) return from
 
@@ -474,54 +472,36 @@ class ExpressionAnalyzer {
             }
         }
 
-        fun resolveBuiltinMethodCall(from: SemanticType, methodName: String, params: List<SemanticType>): SemanticType? {
-            // All builtin methods here take no extra parameters.
-            if (params.isNotEmpty()) throw CompileError("Builtin method '$methodName' expects no parameters; got $params")
-
-            // Helper to unwrap one layer of reference, returning inner type and mutability.
-            fun unwrapRef(t: SemanticType): Pair<SemanticType, Boolean?> {
-                return when (t) {
-                    is SemanticType.ReferenceType -> Pair(t.type.getOrNull() ?: return Pair(t, null), t.isMutable.getOrNull())
-                    else -> Pair(t, null)
+        fun resolveBuiltinMethod(base: SemanticType, field: String): SemanticType.FunctionHeader? {
+            when (field) {
+                "to_string" -> {
+                    return if (canImplicitlyCast(base, SemanticType.U32Type) || canImplicitlyCast(base, SemanticType.U32Type)) {
+                        SemanticType.FunctionHeader(
+                            identifier = "to_string",
+                            selfParamType = SemanticType.ReferenceType(Slot(base), isMutable = Slot(false)),
+                            paramTypes = emptyList(),
+                            returnType = SemanticType.StringStructType,
+                        )
+                    } else null
                 }
-            }
-
-            val (base, _) = unwrapRef(from)
-
-            return when (methodName) {
-                // u32/usize.to_string() -> String
-                "to_string" -> when (base) {
-                    is SemanticType.U32Type, is SemanticType.USizeType -> SemanticType.StrType
-                    else -> null
-                }
-
-                // String.as_str(&self) -> &str
-                "as_str" -> when (base) {
-                    is SemanticType.StrType -> SemanticType.RefStrType
-                    else -> null
-                }
-
-                // String.as_mut_str(&mut self) -> &mut str
-                "as_mut_str" -> when (from) {
-                    is SemanticType.ReferenceType -> {
-                        val inner = from.type.getOrNull() ?: return null
-                        val isMut = from.isMutable.getOrNull() ?: return null
-                        if (inner is SemanticType.StrType && isMut) SemanticType.ReferenceType(
-                            type = rusty.core.utils.Slot(SemanticType.StrType),
-                            isMutable = rusty.core.utils.Slot(true)
-                        ) else null
+                "len" -> {
+                    val derefBase = if (base is SemanticType.ReferenceType) {
+                        base.type.getOrNull() ?: return null
+                    } else base
+                    return when(derefBase) {
+                        is SemanticType.ArrayType, SemanticType.StrType, SemanticType.StringStructType -> {
+                            SemanticType.FunctionHeader(
+                                identifier = "len",
+                                selfParamType = SemanticType.ReferenceType(Slot(base), isMutable = Slot(false)),
+                                paramTypes = emptyList(),
+                                returnType = SemanticType.USizeType,
+                            )
+                        }
+                        else -> null
                     }
-                    else -> null
                 }
 
-                // len() -> usize for arrays and strings and their references
-                "len" -> when (base) {
-                    is SemanticType.ArrayType -> SemanticType.USizeType
-                    is SemanticType.StrType -> SemanticType.USizeType
-                    else -> null
-                }
-
-                else -> null
+                else -> return null
             }
         }
 
