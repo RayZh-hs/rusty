@@ -147,6 +147,12 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
         data class PrefixOperatorNode(val op: Token, val expr: ExpressionNode, override val pointer: CompilerPointer) :
             WithoutBlockExpressionNode(pointer)
 
+        data class ReferenceExpressionNode(val isMut: Boolean, val expr: ExpressionNode, override val pointer: CompilerPointer) :
+            WithoutBlockExpressionNode(pointer)
+
+        data class DereferenceExpressionNode(val expr: ExpressionNode, override val pointer: CompilerPointer) :
+            WithoutBlockExpressionNode(pointer)
+
         // Control Flow Expression Node
         sealed class ControlFlowExpressionNode(pointer: CompilerPointer) : WithoutBlockExpressionNode(pointer) {
             data class ReturnExpressionNode(val expr: ExpressionNode?, override val pointer: CompilerPointer) :

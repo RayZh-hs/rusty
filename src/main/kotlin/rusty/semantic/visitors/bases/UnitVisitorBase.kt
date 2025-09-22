@@ -14,6 +14,7 @@ import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.utils.Visitor
 import rusty.semantic.support.Context
 
+@Suppress("unused")
 open class UnitVisitorBase(open val ctx: Context) : Visitor<Unit> {
 
     open fun run() {
@@ -55,6 +56,9 @@ open class UnitVisitorBase(open val ctx: Context) : Visitor<Unit> {
     override fun visitTypeCastExpression(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode) = Unit
     override fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode) = Unit
     override fun visitPrefixOperator(node: ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode) = Unit
+    override fun visitReferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode) = Unit
+    override fun visitDereferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode) = Unit
+
     override fun visitReturnExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode) = Unit
     override fun visitBreakExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.BreakExpressionNode) = Unit
     override fun visitContinueExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ContinueExpressionNode) = Unit

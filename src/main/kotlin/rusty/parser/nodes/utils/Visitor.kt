@@ -48,6 +48,8 @@ interface Visitor<R> {
     fun visitTypeCastExpression(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode): R
 	fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode): R
 	fun visitPrefixOperator(node: ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode): R
+    fun visitReferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode): R
+    fun visitDereferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode): R
 
 	// Control flow expressions
 	fun visitReturnExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode): R
@@ -133,6 +135,8 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
     is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode -> visitor.visitTypeCastExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> visitor.visitInfixOperator(this)
 	is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> visitor.visitPrefixOperator(this)
+    is ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode -> visitor.visitReferenceExpression(this)
+    is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> visitor.visitDereferenceExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode -> visitor.visitReturnExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.BreakExpressionNode -> visitor.visitBreakExpression(this)
 	is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ContinueExpressionNode -> visitor.visitContinueExpression(this)

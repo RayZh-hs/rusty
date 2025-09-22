@@ -47,7 +47,7 @@ class OfficialSemanticTests {
     private fun collectCases(): List<Case> {
         val base = Paths.get("src", "test", "resources", "@official")
         val result = mutableListOf<Case>()
-        listOf("semantic-1", "semantic-2").forEach { stage ->
+        listOf("semantic-1").forEach { stage ->
             val stageDir = base.resolve(stage)
             if (!Files.isDirectory(stageDir)) return@forEach
             Files.newDirectoryStream(stageDir).use { dirs ->

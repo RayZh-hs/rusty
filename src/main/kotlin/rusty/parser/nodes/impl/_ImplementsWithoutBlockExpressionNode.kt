@@ -193,9 +193,21 @@ private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNod
 }
 
 private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
-    val operator = ctx.stream.read().token
-    val right = parsePrecedence(ctx, Precedence.PREFIX.value)
-    return WithoutBlockExpressionNode.PrefixOperatorNode(operator, right, ctx.topPointer())
+    when (val operator = ctx.stream.read().token) {
+        Token.O_AND -> {
+            val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
+            val right = parsePrecedence(ctx, Precedence.PREFIX.value)
+            return WithoutBlockExpressionNode.ReferenceExpressionNode(isMut, right, ctx.topPointer())
+        }
+        Token.O_STAR -> {
+            val right = parsePrecedence(ctx, Precedence.PREFIX.value)
+            return WithoutBlockExpressionNode.DereferenceExpressionNode(right, ctx.topPointer())
+        }
+        else -> {
+            val right = parsePrecedence(ctx, Precedence.PREFIX.value)
+            return WithoutBlockExpressionNode.PrefixOperatorNode(operator, right, ctx.topPointer())
+        }
+    }
 }
 
 private fun parseGroupedOrTupleExpression(ctx: Context): ExpressionNode {

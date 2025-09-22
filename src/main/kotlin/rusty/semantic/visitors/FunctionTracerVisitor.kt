@@ -309,6 +309,20 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         .with(node).at(node.pointer).with(it)
                 }
             }
+            is ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode -> {
+                val exprType = resolveExpression(node.expr)
+                return SemanticType.ReferenceType(
+                    type = exprType.toSlot(),
+                    isMutable = node.isMut.toSlot(),
+                )
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
+                val exprType = resolveExpression(node.expr)
+                if (exprType !is SemanticType.ReferenceType)
+                    throw CompileError("Cannot dereference non-reference type: $exprType")
+                        .with(node).at(node.pointer)
+                return exprType.type.get()
+            }
             is ExpressionNode.WithoutBlockExpressionNode.StructExpressionNode -> {
                 val structType = resolvePathInExpressionNode(node.pathInExpressionNode)
                 if (structType !is SemanticType.StructType)

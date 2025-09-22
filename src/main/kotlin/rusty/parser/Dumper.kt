@@ -431,6 +431,23 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
             indented { node.expr.accept(this) }
         }
     }
+
+    override fun visitReferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode) {
+        line(label("Ref") + " mut=" + field(node.isMut.toString()))
+        indented {
+            line(field("expr") + ":")
+            indented { node.expr.accept(this) }
+        }
+    }
+
+    override fun visitDereferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode) {
+        line(label("Deref"))
+        indented {
+            line(field("expr") + ":")
+            indented { node.expr.accept(this) }
+        }
+    }
+
     override fun visitReturnExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode) {
         line(keyword("return"))
         node.expr?.let {

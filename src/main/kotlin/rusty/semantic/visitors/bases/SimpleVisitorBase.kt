@@ -131,6 +131,14 @@ open class SimpleVisitorBase(open val ctx: Context) : Visitor<Unit> {
         visit(node.expr)
     }
 
+    override fun visitReferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode) {
+        visit(node.expr)
+    }
+
+    override fun visitDereferenceExpression(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode) {
+        visit(node.expr)
+    }
+
     // Control flow expressions
     override fun visitReturnExpression(node: ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode) {
         node.expr?.let { visit(it) }
