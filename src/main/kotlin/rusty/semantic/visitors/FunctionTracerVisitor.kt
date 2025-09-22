@@ -87,7 +87,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
         }
     }
 
-    fun resolveLeftValueExpression(node: ExpressionNode): SemanticType {
+    fun resolveLeftValueExpression(node: ExpressionNode, skipIdMut: Boolean = false): SemanticType {
         return when(node) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
                 // lookup where this path comes from
@@ -102,10 +102,11 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         val symbol = scopedVarMaintainer.resolveVariable(segment.name!!)
                             ?: throw CompileError("Unresolved variable: ${segment.name}")
                                 .with(node).at(node.pointer)
-                        if (!symbol.mutable.get())
+                        val type = symbol.type.get()
+                        if (!symbol.mutable.get() && !skipIdMut)
                             throw CompileError("Cannot assign to immutable variable: ${segment.name}")
                                 .with(node).at(node.pointer)
-                        symbol.type.get()
+                        type
                     }
 
                     Token.K_SELF -> {
@@ -134,11 +135,19 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 } catch (e: CompileError) {
                     throw e.with(node).at(node.pointer)
                 }
-                when (val baseType = resolveLeftValueExpression(node.base)) {
-                    is SemanticType.ArrayType -> baseType.elementType.get()
-                    is SemanticType.ReferenceType -> resolveLeftValueExpression(node.base)
-
-                    else -> throw CompileError("Type '${baseType}' does not support indexing").with(node).at(node.pointer)
+                val baseType = resolveLeftValueExpression(node.base, skipIdMut = true)
+                // perform auto-dereference
+                var derefBaseType = baseType
+                while (derefBaseType is SemanticType.ReferenceType) {
+                    if (!derefBaseType.isMutable.get())
+                        throw CompileError("Cannot assign to element of immutable reference type: $baseType")
+                            .with(node).at(node.pointer)
+                    derefBaseType = derefBaseType.type.get()
+                }
+                when (derefBaseType) {
+                    is SemanticType.ArrayType -> derefBaseType.elementType.get()
+                    else -> throw CompileError("Type '$baseType' does not support indexing")
+                        .with(node).at(node.pointer)
                 }
             }
 
