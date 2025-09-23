@@ -314,6 +314,7 @@ private fun parseCallExpression(ctx: Context, callee: ExpressionNode): Expressio
         args.add(parsePrecedence(ctx, Precedence.NONE.value))
         while (ctx.peekToken() == Token.O_COMMA) {
             ctx.stream.read() // consume comma
+            if (ctx.peekToken() == Token.O_RPAREN) break
             args.add(parsePrecedence(ctx, Precedence.NONE.value))
         }
     }

@@ -84,7 +84,21 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
         }
     }
 
-    fun resolveLeftValueExpression(node: ExpressionNode, skipIdMut: Boolean = false): SemanticType {
+    fun resolveLeftValueExpression(node: ExpressionNode, autoDeref: Boolean = false): SemanticType {
+        // returns (dereferenced type, has dereferenced)
+        fun mutDerefType(type: SemanticType): Pair<SemanticType, Boolean> {
+            var currentType = type
+            var hasDeref = false
+            while (currentType is SemanticType.ReferenceType) {
+                if (!currentType.isMutable.get())
+                    throw CompileError("Cannot assign to dereferenced immutable reference type: $type")
+                        .with(node).at(node.pointer)
+                currentType = currentType.type.get()
+                hasDeref = true
+            }
+            return Pair(currentType, hasDeref)
+        }
+
         return when(node) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
                 // lookup where this path comes from
@@ -100,7 +114,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                             ?: throw CompileError("Unresolved variable: ${segment.name}")
                                 .with(node).at(node.pointer)
                         val type = symbol.type.get()
-                        if (!symbol.mutable.get() && !skipIdMut)
+                        if (!symbol.mutable.get() && !autoDeref)
                             throw CompileError("Cannot assign to immutable variable: ${segment.name}")
                                 .with(node).at(node.pointer)
                         type
@@ -110,7 +124,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         val symbol = scopedVarMaintainer.resolveVariable("self")
                             ?: throw CompileError("Unresolved self instance")
                                 .with(node).at(node.pointer)
-                        if (!symbol.mutable.get())
+                        if (!symbol.mutable.get() && !autoDeref)
                             throw CompileError("Cannot assign to immutable self instance")
                                 .with(node).at(node.pointer)
                         symbol.type.get()
@@ -122,7 +136,9 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
 
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode ->
-                resolveFieldAccess(node, ::resolveLeftValueExpression)
+                resolveFieldAccess(node, {  expr ->
+                    resolveLeftValueExpression(expr, autoDeref = true)
+                })
 
             is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> {
                 // validate that the index is usize
@@ -132,28 +148,15 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 } catch (e: CompileError) {
                     throw e.with(node).at(node.pointer)
                 }
-                val baseType = resolveLeftValueExpression(node.base, skipIdMut = true)
-                when (baseType) {
+                val baseType = resolveLeftValueExpression(node.base, autoDeref = true)
+                val (derefBaseType, isReference) = mutDerefType(baseType)
+                when (derefBaseType) {
                     is SemanticType.ArrayType -> {
-                        // need to check mutability of the array itself
-                        resolveLeftValueExpression(node.base, skipIdMut = false)
-                        return baseType.elementType.get()
-                    }
-
-                    is SemanticType.ReferenceType -> {
-                        // perform auto-dereference
-                        var derefBaseType = baseType
-                        while (derefBaseType is SemanticType.ReferenceType) {
-                            if (!derefBaseType.isMutable.get())
-                                throw CompileError("Cannot assign to element of immutable reference type: $baseType")
-                                    .with(node).at(node.pointer)
-                            derefBaseType = derefBaseType.type.get()
+                        if (!isReference) {
+                            // need to check mutability of the array itself
+                            resolveLeftValueExpression(node.base, autoDeref = false)
                         }
-                        when (derefBaseType) {
-                            is SemanticType.ArrayType -> derefBaseType.elementType.get()
-                            else -> throw CompileError("Type '$baseType' does not support indexing")
-                                .with(node).at(node.pointer)
-                        }
+                        return derefBaseType.elementType.get()
                     }
 
                     else -> throw CompileError("Type '$baseType' does not support indexing")
@@ -162,7 +165,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
 
             is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
-                val exprType = resolveLeftValueExpression(node.expr, skipIdMut = true)
+                val exprType = resolveLeftValueExpression(node.expr, autoDeref = true)
                 if (exprType !is SemanticType.ReferenceType)
                     throw CompileError("Cannot dereference non-reference type: $exprType")
                         .with(node).at(node.pointer)
