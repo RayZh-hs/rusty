@@ -3,10 +3,10 @@ struct b {
 }
 
 fn main() {
-    if true && {
+    if (true && {
         let p = b { x: true };
         p.x
-    } {
+    }) {
         print("true")
     }
 }
