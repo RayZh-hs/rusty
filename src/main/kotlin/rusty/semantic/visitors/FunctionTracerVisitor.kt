@@ -200,7 +200,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
             is ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode -> {
                 funcRepeatResolvers.push(ProgressiveTypeInferrer(SemanticType.WildcardType)).afterWhich {
-                    resolveBlockExpression(node.expression)
+                    resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
                 }
                 return funcRepeatResolvers.pop().type.let {
                     if (it == SemanticType.WildcardType) SemanticType.UnitType else it
@@ -209,7 +209,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             is ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode -> {
                 node.condition.expression.ensureIsOfType(SemanticType.BoolType, "While loop condition")
                 funcRepeatResolvers.push(ProgressiveTypeInferrer(SemanticType.WildcardType)).afterWhich {
-                    resolveBlockExpression(node.expression)
+                    resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
                 }
                 return funcRepeatResolvers.pop().type.let {
                     if (it == SemanticType.WildcardType) SemanticType.UnitType else it
@@ -301,11 +301,12 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 }
                 val shouldRet = funcRepeatResolvers.peek()
                 shouldRet.register(breakType)
-                return if (node.expr == null) {
-                    SemanticType.NeverType
-                } else {
-                    resolveExpression(node.expr)
-                }
+//                return if (node.expr == null) {
+//                    SemanticType.NeverType
+//                } else {
+//                    resolveExpression(node.expr)
+//                }
+                return SemanticType.NeverType
             }
             is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ContinueExpressionNode -> {
                 if (funcRepeatResolvers.isEmpty())
@@ -388,7 +389,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
         }
     }
 
-    fun resolveBlockExpression(node: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode): SemanticType {
+    // ignoreFinalVerdict is used for loops, where breaks contribute to the block type
+    fun resolveBlockExpression(node: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode, ignoreFinalVerdict: Boolean = false): SemanticType {
         return scopedVarMaintainer.withNextScope {
             // iterate through all statements
             for (stmt in node.statements) {
@@ -432,7 +434,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     if (node.statements.isNotEmpty() && isReturnStatement(node.statements.last()))
                         SemanticType.NeverType
                     else
-                        SemanticType.UnitType
+                        if (ignoreFinalVerdict) SemanticType.WildcardType
+                        else SemanticType.UnitType
                 }
                 else -> resolveExpression(node.trailingExpression)
             }
