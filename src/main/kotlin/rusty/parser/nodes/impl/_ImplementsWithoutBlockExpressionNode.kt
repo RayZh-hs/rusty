@@ -91,6 +91,7 @@ private val nudParselets: Map<Token, NudParselet> = mapOf(
     Token.O_MINUS to ::parsePrefixOperator,
     Token.O_NOT to ::parsePrefixOperator,
     Token.O_AND to ::parsePrefixOperator, // For borrows like &foo
+    Token.O_STAR to ::parsePrefixOperator, // For dereference like *foo
 
     // Grouped, Tuple, and Array Expressions
     Token.O_LPAREN to ::parseGroupedOrTupleExpression,

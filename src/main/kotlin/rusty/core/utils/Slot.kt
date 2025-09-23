@@ -27,6 +27,10 @@ class Slot<T> {
         @Suppress("unchecked_cast") return if (value === UNSET) null else value as T
     }
 
+    fun getOr(default: T): T {
+        @Suppress("unchecked_cast") return if (value === UNSET) default else value as T
+    }
+
     fun set(value: T) {
         if (this.value !== UNSET) throw IllegalStateException("Slot is already set")
         this.value = value

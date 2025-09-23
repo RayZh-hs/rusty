@@ -136,19 +136,43 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     throw e.with(node).at(node.pointer)
                 }
                 val baseType = resolveLeftValueExpression(node.base, skipIdMut = true)
-                // perform auto-dereference
-                var derefBaseType = baseType
-                while (derefBaseType is SemanticType.ReferenceType) {
-                    if (!derefBaseType.isMutable.get())
-                        throw CompileError("Cannot assign to element of immutable reference type: $baseType")
-                            .with(node).at(node.pointer)
-                    derefBaseType = derefBaseType.type.get()
-                }
-                when (derefBaseType) {
-                    is SemanticType.ArrayType -> derefBaseType.elementType.get()
+                when (baseType) {
+                    is SemanticType.ArrayType -> {
+                        // need to check mutability of the array itself
+                        resolveLeftValueExpression(node.base, skipIdMut = false)
+                        return baseType.elementType.get()
+                    }
+
+                    is SemanticType.ReferenceType -> {
+                        // perform auto-dereference
+                        var derefBaseType = baseType
+                        while (derefBaseType is SemanticType.ReferenceType) {
+                            if (!derefBaseType.isMutable.get())
+                                throw CompileError("Cannot assign to element of immutable reference type: $baseType")
+                                    .with(node).at(node.pointer)
+                            derefBaseType = derefBaseType.type.get()
+                        }
+                        when (derefBaseType) {
+                            is SemanticType.ArrayType -> derefBaseType.elementType.get()
+                            else -> throw CompileError("Type '$baseType' does not support indexing")
+                                .with(node).at(node.pointer)
+                        }
+                    }
+
                     else -> throw CompileError("Type '$baseType' does not support indexing")
                         .with(node).at(node.pointer)
                 }
+            }
+
+            is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
+                val exprType = resolveLeftValueExpression(node.expr, skipIdMut = true)
+                if (exprType !is SemanticType.ReferenceType)
+                    throw CompileError("Cannot dereference non-reference type: $exprType")
+                        .with(node).at(node.pointer)
+                if (!exprType.isMutable.get())
+                    throw CompileError("Cannot assign to dereferenced immutable reference type: $exprType")
+                        .with(node).at(node.pointer)
+                exprType.type.get()
             }
 
             else -> throw CompileError("Unsupported left-value expression: $node").with(node).at(node.pointer)

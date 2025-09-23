@@ -53,6 +53,7 @@ class ProgressiveTypeInferrer(start: SemanticType = SemanticType.NeverType) {
                 cur is SemanticType.AnyIntType -> new
                 cur is SemanticType.AnySignedIntType -> {
                     if (isSignedConcrete(new)) new
+                    else if (new is SemanticType.AnyIntType) new
                     else throw CompileError("Cannot infer common integral type between $cur and $new")
                 }
                 isSignedConcrete(cur) && isAnySigned(new) -> cur

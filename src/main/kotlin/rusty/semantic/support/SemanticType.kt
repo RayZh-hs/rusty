@@ -51,39 +51,94 @@ sealed class SemanticType {
         )
     }
 
-    data object I32Type : Primitive()
-    data object U32Type : Primitive()
-    data object ISizeType : Primitive()
-    data object USizeType : Primitive()
-    data object AnyIntType : Primitive()
-    data object AnySignedIntType : Primitive()
-    data object CharType : Primitive()
-    data object StrType : Primitive()
-    data object CStrType : Primitive()
-    data object BoolType : Primitive()
-    data object UnitType : Primitive()
-    data object NeverType : SemanticType() // Used in type inference
+    data object I32Type : Primitive() {
+        override fun toString(): String = "i32"
+    }
+    data object U32Type : Primitive() {
+        override fun toString(): String = "u32"
+    }
+    data object ISizeType : Primitive() {
+        override fun toString(): String = "isize"
+    }
+    data object USizeType : Primitive() {
+        override fun toString(): String = "usize"
+    }
+    data object AnyIntType : Primitive() {
+        override fun toString(): String = "<int>"
+    }
+    data object AnySignedIntType : Primitive() {
+        override fun toString(): String = "<signed_int>"
+    }
+    data object CharType : Primitive() {
+        override fun toString(): String = "char"
+    }
+    data object StrType : Primitive() {
+        override fun toString(): String = "str"
+    }
+    data object CStrType : Primitive() {
+        override fun toString(): String = "cstr"
+    }
+    data object BoolType : Primitive() {
+        override fun toString(): String = "bool"
+    }
+    data object UnitType : Primitive() {
+        override fun toString(): String = "()"
+    }
+    data object NeverType : SemanticType() {
+        // Used in type inference
+        override fun toString(): String = "!"
+    }
 
-    data object WildcardType : SemanticType() // Used in type inference
+    data object WildcardType : SemanticType() {
+        // Used in type inference
+        override fun toString(): String = "_"
+    }
 
-    data class ArrayType(val elementType: Slot<SemanticType>, val length: Slot<SemanticValue.USizeValue>) : SemanticType()
+    data class ArrayType(val elementType: Slot<SemanticType>, val length: Slot<SemanticValue.USizeValue>) : SemanticType() {
+        override fun toString(): String = "[${elementType.getOrNull()}; ${length.getOrNull()?.value}]"
+    }
 
     // Tuples are removed; 0-tuples are converted into TypeUnit
     data class StructType(
         val identifier: String,
         val fields: Map<String, Slot<SemanticType>>,
-        ) : SemanticType()
+        ) : SemanticType() {
+        override fun toString(): String = "(struct)$identifier"
+    }
 
     data class EnumType(
         val identifier: String,
         val fields: Slot<List<String>> = Slot(),
-    ) : SemanticType()
+    ) : SemanticType() {
+        override fun toString(): String = "(enum)$identifier"
+    }
 
     data class TraitType(
         val identifier: String,
         val scope: Scope,
-    ) : SemanticType()
+    ) : SemanticType() {
+        override fun toString(): String = "(trait)$identifier"
+    }
 
-    data class ReferenceType(val type: Slot<SemanticType>, val isMutable: Slot<Boolean>) : SemanticType()
-    data class FunctionHeader(val identifier: String, val selfParamType: SemanticType?, val paramTypes: List<SemanticType>, val returnType: SemanticType) : SemanticType()
+    data class ReferenceType(val type: Slot<SemanticType>, val isMutable: Slot<Boolean>) : SemanticType() {
+        override fun toString(): String {
+            return when (isMutable.getOrNull()) {
+                true -> "&mut${type.getOrNull()}"
+                false -> "&${type.getOrNull()}"
+                null -> "&?${type.getOrNull()}"
+            }
+        }
+    }
+    data class FunctionHeader(val identifier: String, val selfParamType: SemanticType?, val paramTypes: List<SemanticType>, val returnType: SemanticType) : SemanticType() {
+        override fun toString(): String {
+            val params = buildString {
+                if (selfParamType != null) {
+                    append(selfParamType.toString())
+                    if (paramTypes.isNotEmpty()) append(", ")
+                }
+                append(paramTypes.joinToString(", ") { it.toString() })
+            }
+            return "(fn)$identifier($params) -> $returnType"
+        }
+    }
 }

@@ -2,8 +2,8 @@ package rusty.semantic.visitors.utils
 
 import rusty.core.CompileError
 import rusty.core.utils.Slot
+import rusty.core.utils.toSlot
 import rusty.lexer.Token
-import rusty.parser.nodes.TypeNode
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
 
@@ -62,21 +62,21 @@ class ExpressionAnalyzer {
                         is SemanticType.ISizeType -> SemanticValue.ISizeValue(from.value)
                         is SemanticType.USizeType -> SemanticValue.USizeValue(from.value.toUInt())
                         is SemanticType.AnySignedIntType -> SemanticValue.AnySignedIntValue(from.value)
-                        else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                        else -> throw CompileError("No implicit cast from $from to $to")
                     }
 
                 is SemanticValue.AnySignedIntValue ->
                     when (to) {
                         is SemanticType.I32Type -> SemanticValue.I32Value(from.value)
                         is SemanticType.ISizeType -> SemanticValue.ISizeValue(from.value)
-                        else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                        else -> throw CompileError("No implicit cast from $from to $to")
                     }
 
                 is SemanticValue.EnumValue ->
                     if (to is SemanticType.EnumType && to == from.type)
                         from
                     else
-                        throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                        throw CompileError("No implicit cast from $from to $to")
 
                 is SemanticValue.ArrayValue ->
                     when (to) {
@@ -99,17 +99,17 @@ class ExpressionAnalyzer {
                                         from.repeat
                                     )
                             }
-                            throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                            throw CompileError("No implicit cast from $from to $to")
                         }
 
-                        else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                        else -> throw CompileError("No implicit cast from $from to $to")
                     }
 
-                else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                else -> throw CompileError("No implicit cast from $from to $to")
             }
         }
 
-        fun tryImplicitCast(from: SemanticType, to: SemanticType): SemanticType {
+        fun tryImplicitCast(from: SemanticType, to: SemanticType, autoDeref: Boolean = false): SemanticType {
             if (from == to) return from
             if (to == SemanticType.WildcardType) return from
 
@@ -121,18 +121,18 @@ class ExpressionAnalyzer {
                     is SemanticType.USizeType,
                     is SemanticType.AnySignedIntType -> to
 
-                    else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                    else -> throw CompileError("No implicit cast from $from to $to")
                 }
 
                 is SemanticType.AnySignedIntType -> when (to) {
                     is SemanticType.I32Type,
                     is SemanticType.ISizeType -> to
 
-                    else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                    else -> throw CompileError("No implicit cast from $from to $to")
                 }
 
                 is SemanticType.EnumType -> if (to is SemanticType.EnumType && to.identifier == from.identifier) to
-                else throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                else throw CompileError("No implicit cast from $from to $to")
 
                 is SemanticType.ArrayType -> when (to) {
                     is SemanticType.ArrayType -> {
@@ -150,17 +150,28 @@ class ExpressionAnalyzer {
                         to
                     }
 
-                    else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                    else -> throw CompileError("No implicit cast from $from to $to")
                 }
 
                 is SemanticType.ReferenceType -> {
-                    // remove one layer of reference and try again
-                    val inner = from.type.getOrNull()
-                        ?: throw CompileError("Unresolved reference inner type: $from")
-                    tryImplicitCast(inner, to)
+                    if (to is SemanticType.ReferenceType) {
+                        try {
+                            val castType = tryImplicitCast(from.type.get(), to.type.get())
+                            if (!to.isMutable.get() || from.isMutable.get() == to.isMutable.get())
+                                return SemanticType.ReferenceType(castType.toSlot(), isMutable = to.isMutable)
+                        } catch (_: Throwable) {
+                            if (autoDeref) {
+                                // remove one layer of reference and try again
+                                val inner = from.type.getOrNull()
+                                    ?: throw CompileError("Unresolved reference inner type: $from")
+                                tryImplicitCast(inner, to)
+                            }
+                        }
+                    }
+                    throw CompileError("No implicit cast from $from to $to")
                 }
 
-                else -> throw CompileError("No implicit cast from ${from::class.simpleName} to $to")
+                else -> throw CompileError("No implicit cast from $from to $to")
             }
         }
 
@@ -296,7 +307,7 @@ class ExpressionAnalyzer {
 
                 is SemanticValue.BoolValue -> throw CompileError("Cannot cast bool to $to explicitly")
 
-                is SemanticValue.StringValue, is SemanticValue.CStringValue -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+                is SemanticValue.StringValue, is SemanticValue.CStringValue -> throw CompileError("Cannot cast $from to $to explicitly")
 
                 // Arrays: allow element-wise casts if total length matches and destination element type is known.
                 is SemanticValue.ArrayValue -> when (to) {
@@ -319,7 +330,7 @@ class ExpressionAnalyzer {
                         )
                     }
 
-                    else -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+                    else -> throw CompileError("Cannot cast $from to $to explicitly")
                 }
 
                 // Structs: only allow casts to the same struct identifier; perform per-field casts.
@@ -343,7 +354,7 @@ class ExpressionAnalyzer {
                         SemanticValue.StructValue(to, casted)
                     }
 
-                    else -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+                    else -> throw CompileError("Cannot cast $from to $to explicitly")
                 }
 
                 // Enums: only allow no-op cast to the exact same enum identifier (no payloads supported here).
@@ -354,10 +365,10 @@ class ExpressionAnalyzer {
                         from
                     }
 
-                    else -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+                    else -> throw CompileError("Cannot cast $from to $to explicitly")
                 }
 
-                is SemanticValue.UnitValue -> throw CompileError("Cannot cast ${from::class.simpleName} to $to explicitly")
+                is SemanticValue.UnitValue -> throw CompileError("Cannot cast $from to $to explicitly")
 
                 is SemanticValue.ReferenceValue -> throw CompileError("Explicit casts for references are not supported: ${from.type} as $to")
             }
