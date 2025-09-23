@@ -238,12 +238,21 @@ private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val elements = mutableListOf<ExpressionNode>()
     var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode(1.toUInt(), ctx.topPointer())
-    while (ctx.peekToken() != Token.O_RSQUARE) {
+    while (ctx.peekToken() != Token.O_RSQUARE ) {
         elements.add(parsePrecedence(ctx, Precedence.NONE.value))
-        putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
-        if (ctx.peekToken() == Token.O_SEMICOLON) {
-            ctx.stream.consume(1)
-            repeat = ExpressionNode.parse(ctx)
+        when (ctx.peekToken()) {
+            Token.O_COMMA -> {
+                putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
+            }
+            Token.O_SEMICOLON -> {
+                ctx.stream.consume(1)
+                repeat = ExpressionNode.parse(ctx)
+                putilsConsumeIfExistsToken(ctx, Token.O_COMMA)
+                break
+            }
+            Token.O_RSQUARE -> break
+            else -> throw CompileError("Expected ',' or ';' in array expression, found ${ctx.peekToken()}").with(ctx)
+                .at(ctx.peekPointer())
         }
     }
     putilsExpectToken(ctx, Token.O_RSQUARE)

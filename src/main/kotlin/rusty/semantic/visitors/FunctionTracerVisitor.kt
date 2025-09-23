@@ -484,18 +484,6 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             is SemanticType.ReferenceType -> {
                 // auto de-reference
                 val resolved = resolveFieldAccessForType(baseType.type.get(), field, node, recursiveResolveFunc)
-//                when (resolved) {
-//                    // (&X).func has the same type as X.func
-//                    is SemanticType.FunctionHeader -> {
-//                        resolved
-//                    }
-//
-//                    // (&X).field has the same type as &(X.field)
-//                    else -> SemanticType.ReferenceType(
-//                        type = resolved.toSlot(),
-//                        isMutable = baseType.isMutable,
-//                    )
-//                }
                 resolved
             }
 
