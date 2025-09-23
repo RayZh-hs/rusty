@@ -110,6 +110,7 @@ class ExpressionAnalyzer {
         }
 
         fun tryImplicitCast(from: SemanticType, to: SemanticType, autoDeref: Boolean = false): SemanticType {
+            if (from == SemanticType.NeverType) return to
             if (from == to) return from
             if (to == SemanticType.WildcardType) return from
 

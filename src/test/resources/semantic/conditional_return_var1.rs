@@ -12,4 +12,5 @@ fn bar() -> bool {
     } else {
         42
     };
+    foo % 2 == 0
 }

@@ -68,13 +68,10 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
         scopedVarMaintainer.withNextScope {
             // Parameters (and optional self) are already declared with concrete types in phase-4
             if (node.withBlockExpressionNode != null) {
-                val retType = funSymbol.returnType.get()
-                funcReturnResolvers.push(ProgressiveTypeInferrer(retType)).afterWhich {
-                    resolveExpression(node.withBlockExpressionNode)
-                }
-                val blockType = funcReturnResolvers.pop().type
-                // match block type to the function return type
                 val returnType = funSymbol.returnType.get()
+                funcReturnResolvers.push(ProgressiveTypeInferrer(returnType))
+                val blockType = resolveExpression(node.withBlockExpressionNode)
+                // match block type to the function return type
                 try {
                     ExpressionAnalyzer.tryImplicitCast(blockType, returnType)
                 } catch (e: CompileError) {
@@ -485,19 +482,21 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             }
 
             is SemanticType.ReferenceType -> {
+                // auto de-reference
                 val resolved = resolveFieldAccessForType(baseType.type.get(), field, node, recursiveResolveFunc)
-                when (resolved) {
-                    // (&X).func has the same type as X.func
-                    is SemanticType.FunctionHeader -> {
-                        resolved
-                    }
-
-                    // (&X).field has the same type as &(X.field)
-                    else -> SemanticType.ReferenceType(
-                        type = resolved.toSlot(),
-                        isMutable = baseType.isMutable,
-                    )
-                }
+//                when (resolved) {
+//                    // (&X).func has the same type as X.func
+//                    is SemanticType.FunctionHeader -> {
+//                        resolved
+//                    }
+//
+//                    // (&X).field has the same type as &(X.field)
+//                    else -> SemanticType.ReferenceType(
+//                        type = resolved.toSlot(),
+//                        isMutable = baseType.isMutable,
+//                    )
+//                }
+                resolved
             }
 
             // TODO: add support for builtin function calls

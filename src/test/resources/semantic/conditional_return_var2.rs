@@ -14,4 +14,5 @@ fn bar() -> bool {
     } else {
         42
     };
+    true
 }
