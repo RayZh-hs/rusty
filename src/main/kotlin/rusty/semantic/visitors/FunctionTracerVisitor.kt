@@ -383,7 +383,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 return structType
             }
             is ExpressionNode.WithoutBlockExpressionNode.UnderscoreExpressionNode -> {
-                return SemanticType.WildcardType
+                throw CompileError("In expressions, `_` can only be used on the left-hand side of an assignment")
+//                return SemanticType.WildcardType
             }
             is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode,
             is ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode
