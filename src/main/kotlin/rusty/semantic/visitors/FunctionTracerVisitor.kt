@@ -206,7 +206,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
                 }
                 return funcRepeatResolvers.pop().type.let {
-                    if (it == SemanticType.WildcardType) SemanticType.UnitType else it
+                    // wildcard type means no breaks, so the loop will never break out
+                    if (it == SemanticType.WildcardType) SemanticType.NeverType else it
                 }
             }
             is ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode -> {
@@ -215,7 +216,8 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
                 }
                 return funcRepeatResolvers.pop().type.let {
-                    if (it == SemanticType.WildcardType) SemanticType.UnitType else it
+                    // same here, wildcard type means no breaks
+                    if (it == SemanticType.WildcardType) SemanticType.NeverType else it
                 }
             }
             is ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode ->
