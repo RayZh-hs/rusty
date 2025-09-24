@@ -474,7 +474,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         // then base should be mutable, i.e. a left value
                         try {
                             // call the function to check mutability
-                            resolveLeftValueExpression(node.base)
+                            recursiveResolveFunc(node.base)
                         } catch (e: CompileError) {
                             throw CompileError("Cannot call mutable method '${funcSymbol.identifier}' on immutable instance")
                                 .with(node).at(node.pointer).with(e)
