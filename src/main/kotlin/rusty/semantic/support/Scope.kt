@@ -47,6 +47,11 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                 )
                 it.typeST.declare(
                     SemanticSymbol.BuiltinType(
+                        "char", (SemanticType.CharType)
+                    )
+                )
+                it.typeST.declare(
+                    SemanticSymbol.BuiltinType(
                         "str", (SemanticType.StrType)
                     )
                 )

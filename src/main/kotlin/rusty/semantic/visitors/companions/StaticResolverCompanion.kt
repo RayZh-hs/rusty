@@ -270,7 +270,11 @@ class StaticResolverCompanion(val ctx: Context, val selfResolverRef: SelfResolve
 
             is TypeNode.InferredType -> throw CompileError("Inferred type has been removed: '$node'")
             is TypeNode.SliceType -> throw CompileError("Slice type has been removed: '$node'")
-            is TypeNode.TupleType -> throw CompileError("Tuple type has been removed: '$node'")
+            is TypeNode.TupleType -> {
+                if (node.types.isEmpty())
+                    SemanticType.UnitType
+                else throw CompileError("Tuple type has been removed: '$node'")
+            }
             is TypeNode.NeverType -> throw CompileError("Never type has been removed: '$node'")
 
             is TypeNode.TypePath -> {
