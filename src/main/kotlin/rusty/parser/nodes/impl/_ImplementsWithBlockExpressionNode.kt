@@ -1,5 +1,6 @@
 package rusty.parser.nodes.impl
 
+import rusty.settings.Settings
 import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.support.ConditionsNode
@@ -101,11 +102,19 @@ fun ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.par
     }
 }
 
+fun enforceConditionalParens(ctx: Context) {
+    if (Settings.ENFORCE_PAREN_ON_CONDITIONAL) {
+        if (ctx.peekToken() != Token.O_LPAREN) {
+            throw CompileError("Expected '(' but found ${ctx.peekToken()}").with(ctx).at(ctx.peekPointer())
+        }
+    }
+}
+
 // while(condition) { ... }
 fun ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.K_WHILE)
-        peekAndExpectParen(ctx)
+        enforceConditionalParens(ctx)
         val condition = ConditionsNode.parse(ctx)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
         return ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode(condition, block, ctx.topPointer())
@@ -119,7 +128,7 @@ fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse
         var elseBranch: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode? = null
 
         putilsExpectToken(ctx, Token.K_IF)
-        peekAndExpectParen(ctx)
+        enforceConditionalParens(ctx)
         val firstCondition = ConditionsNode.parse(ctx)
         val firstThen = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
         ifBranches.add(IfBranchNode(firstCondition, firstThen))
@@ -130,7 +139,7 @@ fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse
             // Check for 'else if'
             if (ctx.peekToken() == Token.K_IF) {
                 ctx.stream.consume(1) // Consume 'if'
-                peekAndExpectParen(ctx)
+                enforceConditionalParens(ctx)
                 val condition = ConditionsNode.parse(ctx)
                 val thenBlock = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
                 ifBranches.add(IfBranchNode(condition, thenBlock))
@@ -154,11 +163,5 @@ fun ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.pa
         }
         val matchArmsNode = MatchArmsNode.parse(ctx)
         return ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode(scrutinee, matchArmsNode, ctx.topPointer())
-    }
-}
-
-private fun peekAndExpectParen(ctx: Context) {
-    if (ctx.peekToken() != Token.O_LPAREN) {
-        throw CompileError("Expected '(' but found ${ctx.peekToken()}").with(ctx).at(ctx.peekPointer())
     }
 }

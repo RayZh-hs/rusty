@@ -6,6 +6,7 @@ import rusty.core.utils.toSlot
 import rusty.lexer.Token
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
+import rusty.settings.Settings
 
 class ExpressionAnalyzer {
     companion object {
@@ -110,6 +111,7 @@ class ExpressionAnalyzer {
         }
 
         fun tryImplicitCast(from: SemanticType, to: SemanticType, autoDeref: Boolean = false): SemanticType {
+            if (from == SemanticType.WildcardType) return to
             if (from == SemanticType.NeverType) return to
             if (from == to) return from
             if (to == SemanticType.WildcardType) return from
@@ -197,7 +199,7 @@ class ExpressionAnalyzer {
                 }
 
                 // Equality/inequality
-                Token.O_DOUBLE_EQ, Token.O_NEQ -> intOrBoolEqType(left, right)
+                Token.O_DOUBLE_EQ, Token.O_NEQ -> eqType(left, right)
 
                 // Logical (bool)
                 Token.O_DOUBLE_AND, Token.O_DOUBLE_OR -> {
@@ -608,7 +610,7 @@ class ExpressionAnalyzer {
             }
         }
 
-        private fun intOrBoolEqType(left: SemanticType, right: SemanticType): SemanticType {
+        private fun eqType(left: SemanticType, right: SemanticType): SemanticType {
             // bool == bool
             if (left is SemanticType.BoolType && right is SemanticType.BoolType) return SemanticType.BoolType
             // char == char
@@ -616,6 +618,12 @@ class ExpressionAnalyzer {
             // string == string (both str and cstr separately)
             if (left is SemanticType.StrType && right is SemanticType.StrType) return SemanticType.BoolType
             if (left is SemanticType.CStrType && right is SemanticType.CStrType) return SemanticType.BoolType
+
+            // enum family
+            if (Settings.ALLOW_ENUM_EQ) {
+                if (left is SemanticType.EnumType && right is SemanticType.EnumType && left.identifier == right.identifier)
+                    return SemanticType.BoolType
+            }
 
             // Integer families
             return when (left) {
