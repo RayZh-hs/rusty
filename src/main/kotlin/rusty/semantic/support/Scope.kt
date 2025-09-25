@@ -186,6 +186,10 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
         return "Scope($annotation, ${kind.name})"
     }
 
+    fun toShortString(): String {
+        return "${kind.name}(${annotation.pointer?.line}:${annotation.pointer?.column})"
+    }
+
     fun addChildScope(childPointer: CompilerPointer, childName: String? = null, childKind: ScopeKind): Scope {
         val childScope = Scope(parent = this, annotation = Annotation.from(childPointer, childName), kind = childKind)
         assert(children.add(childScope))

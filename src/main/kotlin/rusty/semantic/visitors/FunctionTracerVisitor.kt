@@ -1,5 +1,9 @@
 package rusty.semantic.visitors
 
+import com.andreapivetta.kolor.cyan
+import com.andreapivetta.kolor.darkGray
+import com.andreapivetta.kolor.magenta
+import com.andreapivetta.kolor.yellow
 import rusty.core.CompileError
 import rusty.core.utils.toSlot
 import rusty.lexer.Token
@@ -431,6 +435,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                             stmt.patternNode, expectedType, currentScope())
                         for (sym in symbols) {
                             scopedVarMaintainer.declare(sym)
+                            println("[${scopedVarMaintainer.currentScope().toShortString()}]".magenta() + " Declared symbol ".darkGray() + sym.identifier.yellow() + ": ".darkGray() + sym.type.getOrNull())
                         }
                     }
                     is StatementNode.ItemStatementNode -> visit(stmt.item)
