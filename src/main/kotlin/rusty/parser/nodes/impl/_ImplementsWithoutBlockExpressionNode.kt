@@ -237,7 +237,7 @@ private fun parseGroupedOrTupleExpression(ctx: Context): ExpressionNode {
 private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val elements = mutableListOf<ExpressionNode>()
-    var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode(1.toUInt(), ctx.topPointer())
+    var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode(1.toULong(), ctx.topPointer())
     while (ctx.peekToken() != Token.O_RSQUARE ) {
         elements.add(parsePrecedence(ctx, Precedence.NONE.value))
         when (ctx.peekToken()) {
@@ -339,7 +339,7 @@ private fun parseFieldOrTupleIndexExpression(
         Token.I_IDENTIFIER -> WithoutBlockExpressionNode.FieldExpressionNode(base, nextToken.raw, ctx.topPointer())
         Token.L_INTEGER -> {
             val index =
-                nextToken.raw.toIntOrNull() ?: throw CompileError("Invalid tuple index: ${nextToken.raw}").with(ctx)
+                nextToken.raw.toLongOrNull() ?: throw CompileError("Invalid tuple index: ${nextToken.raw}").with(ctx)
                     .at(ctx.peekPointer())
             WithoutBlockExpressionNode.TupleIndexingNode(base, index, ctx.topPointer())
         }

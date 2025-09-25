@@ -26,12 +26,12 @@ fun literalFromInteger(tokenBearer: TokenBearer): LiteralExpressionNode {
             }
 
             return when (suffix) {
-                "u32"   -> LiteralExpressionNode.U32LiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
-                "usize" -> LiteralExpressionNode.USizeLiteralNode(numericPart.toUInt(radix), tokenBearer.pointer)
-                "i32"   -> LiteralExpressionNode.I32LiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
-                "isize" -> LiteralExpressionNode.ISizeLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
+                "u32"   -> LiteralExpressionNode.U32LiteralNode(numericPart.toULong(radix), tokenBearer.pointer)
+                "usize" -> LiteralExpressionNode.USizeLiteralNode(numericPart.toULong(radix), tokenBearer.pointer)
+                "i32"   -> LiteralExpressionNode.I32LiteralNode(numericPart.toLong(radix), tokenBearer.pointer)
+                "isize" -> LiteralExpressionNode.ISizeLiteralNode(numericPart.toLong(radix), tokenBearer.pointer)
                 else -> {
-                    LiteralExpressionNode.AnyIntLiteralNode(numericPart.toInt(radix), tokenBearer.pointer)
+                    LiteralExpressionNode.AnyIntLiteralNode(numericPart.toLong(radix), tokenBearer.pointer)
                 }
             }
         }
@@ -118,13 +118,13 @@ private fun unescapeString(str: String): String {
                 '"' -> sb.append('"')
                 'x' -> {
                     val hex = str.substring(i + 1, i + 3)
-                    sb.append(hex.toInt(16).toChar())
+                    sb.append(hex.toLong(16).toInt().toChar())
                     i += 2
                 }
                 'u' -> {
                     val closingBrace = str.indexOf('}', i)
                     val hex = str.substring(i + 2, closingBrace)
-                    sb.append(hex.toInt(16).toChar())
+                    sb.append(hex.toLong(16).toInt().toChar())
                     i = closingBrace
                 }
                 else -> {

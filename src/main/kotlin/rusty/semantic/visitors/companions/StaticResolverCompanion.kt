@@ -217,7 +217,7 @@ class StaticResolverCompanion(val ctx: Context, val selfResolverRef: SelfResolve
                         is SemanticValue.ArrayValue -> {
                             val index = resolveConstExpression(node.index, scope)
                             val castIndex = ExpressionAnalyzer.tryImplicitCast(index, SemanticType.USizeType) as SemanticValue.USizeValue
-                            if (castIndex.value >= base.elements.size.toUInt())
+                            if (castIndex.value >= base.elements.size.toULong())
                                 throw CompileError("Array index out of bounds: ${castIndex.value} >= ${base.elements.size}").with(node)
                             base.elements[castIndex.value.toInt()]
                         }

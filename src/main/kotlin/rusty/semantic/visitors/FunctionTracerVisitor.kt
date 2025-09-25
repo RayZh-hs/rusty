@@ -288,7 +288,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     throw CompileError("Array repeat count must be of type usize, got: ${repeatValue.type}")
                         .with(node).at(node.pointer)
                 val castRepeatValue = ExpressionAnalyzer.tryImplicitCast(repeatValue, SemanticType.USizeType)
-                val originalLength = node.elements.size.toUInt()
+                val originalLength = node.elements.size.toULong()
                 val trueLength = (castRepeatValue as SemanticValue.USizeValue).value * originalLength
                 val types = node.elements.map { resolveExpression(it) }
                 val inferred = types.inferCommonType(start = SemanticType.WildcardType)

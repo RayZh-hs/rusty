@@ -8,22 +8,22 @@ sealed class SemanticValue {
     private annotation class Virtual
     abstract val type: SemanticType
 
-    @Primitive data class I32Value(val value: Int) : SemanticValue() {
+    @Primitive data class I32Value(val value: Long) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.I32Type
     }
-    @Primitive data class U32Value(val value: UInt) : SemanticValue() {
+    @Primitive data class U32Value(val value: ULong) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.U32Type
     }
-    @Primitive data class ISizeValue(val value: Int) : SemanticValue() {
+    @Primitive data class ISizeValue(val value: Long) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.ISizeType
     }
-    @Primitive data class USizeValue(val value: UInt) : SemanticValue() {
+    @Primitive data class USizeValue(val value: ULong) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.USizeType
     }
-    @Primitive @Virtual class AnyIntValue(val value: Int) : SemanticValue() {
+    @Primitive @Virtual class AnyIntValue(val value: Long) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.AnyIntType
     }
-    @Primitive @Virtual class AnySignedIntValue(val value: Int) : SemanticValue() {
+    @Primitive @Virtual class AnySignedIntValue(val value: Long) : SemanticValue() {
         override val type: SemanticType get() = SemanticType.AnySignedIntType
     }
     @Primitive data class CharValue(val value: Char) : SemanticValue() {

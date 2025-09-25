@@ -71,7 +71,7 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
         is SemanticValue.BoolValue -> v.value.toString()
         is SemanticValue.UnitValue -> "()"
         is SemanticValue.ArrayValue -> buildString {
-            val n = if (v.elements.isNotEmpty()) v.elements.size else v.repeat.value.toInt()
+            val n = if (v.elements.isNotEmpty()) v.elements.size else v.repeat.value.toLong()
             append("#array(len=").append(n).append(")")
         }
         is SemanticValue.StructValue -> buildString {

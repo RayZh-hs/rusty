@@ -75,12 +75,12 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
         sealed class LiteralExpressionNode(pointer: CompilerPointer) : WithoutBlockExpressionNode(pointer) {
             companion object;
 
-            data class I32LiteralNode(val value: Int, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
-            data class ISizeLiteralNode(val value: Int, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
-            data class U32LiteralNode(val value: UInt, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
-            data class USizeLiteralNode(val value: UInt, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
-            data class AnyIntLiteralNode(val value: Int, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
-            data class AnySignedIntLiteralNode(val value: Int, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class I32LiteralNode(val value: Long, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class ISizeLiteralNode(val value: Long, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class U32LiteralNode(val value: ULong, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class USizeLiteralNode(val value: ULong, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class AnyIntLiteralNode(val value: Long, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
+            data class AnySignedIntLiteralNode(val value: Long, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class StringLiteralNode(val value: String, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class CStringLiteralNode(val value: String, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
             data class CharLiteralNode(val value: Char, override val pointer: CompilerPointer) : LiteralExpressionNode(pointer)
@@ -133,7 +133,7 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
 
         // - handles [tuple].[id] where id is an integer
         // - note: I don't know why rust had chosen a.0 as its tuple indexing grammar. The good thing is 0 cannot be an expression, so lookaheads work
-        data class TupleIndexingNode(val base: ExpressionNode, val index: Int, override val pointer: CompilerPointer) :
+        data class TupleIndexingNode(val base: ExpressionNode, val index: Long, override val pointer: CompilerPointer) :
             WithoutBlockExpressionNode(pointer)
 
         // Generic Expression Node
