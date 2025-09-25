@@ -22,6 +22,7 @@ import rusty.semantic.visitors.utils.ExpressionAnalyzer
 import rusty.semantic.visitors.utils.ProgressiveTypeInferrer
 import rusty.semantic.visitors.utils.ProgressiveTypeInferrer.Companion.inferCommonType
 import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
+import rusty.semantic.visitors.utils.getIdentifierFromType
 import rusty.semantic.visitors.utils.isClassMethod
 import rusty.semantic.visitors.utils.sequentialLookup
 import java.util.Stack
@@ -46,13 +47,23 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
         scopedVarMaintainer.withNextScope {
-            super.visitInherentImplItem(node)
+            val identifier = getIdentifierFromType(ctx, node.typeNode)
+            val (symbol, _) = sequentialLookup(identifier, currentScope(), {it.typeST})
+                ?: throw CompileError("Cannot find symbol for impl: $identifier")
+            selfResolver.withinSymbol(symbol) {
+                super.visitInherentImplItem(node)
+            }
         }
     }
 
     override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
         scopedVarMaintainer.withNextScope {
-            super.visitTraitImplItem(node)
+            val identifier = getIdentifierFromType(ctx, node.typeNode)
+            val (symbol, _) = sequentialLookup(identifier, currentScope(), {it.typeST})
+                ?: throw CompileError("Cannot find symbol for impl: $identifier")
+            selfResolver.withinSymbol(symbol) {
+                super.visitTraitImplItem(node)
+            }
         }
     }
 
@@ -560,7 +571,7 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 val member = path[1]
                 val baseSymbol = when (base.token) {
                     Token.I_IDENTIFIER -> sequentialLookup(base.name!!, currentScope(), { it.typeST })?.symbol
-                    Token.K_SELF -> selfResolver.getSelf()
+                    Token.K_TYPE_SELF -> selfResolver.getSelf()
                     else -> throw CompileError("Unsupported base path segment: $base").with(node).at(node.pointer)
                 } ?: throw CompileError("Cannot find symbol to base path segment: $base").with(node).at(node.pointer)
                 val memberName = when(member.token) {
