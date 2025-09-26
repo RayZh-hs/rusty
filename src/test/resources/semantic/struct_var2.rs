@@ -10,6 +10,7 @@ fn bar(x: &Foo) {
 fn main() {
     let foo: Foo = Foo { a: 1, b: 2 };
     bar(&foo);
+    exit(0);
 
     impl Foo {
         fn sum(&self) -> i32 {

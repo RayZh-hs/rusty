@@ -4,6 +4,7 @@ fn main() {
     } else {
         return
     }
+    exit(0);
 }
 
 fn bar() -> bool {

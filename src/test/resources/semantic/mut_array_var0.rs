@@ -3,4 +3,6 @@ fn main() {
 
     let a: &mut [i32; 1] = &mut x;
     a[0] = 10;
+
+    exit(0);
 }

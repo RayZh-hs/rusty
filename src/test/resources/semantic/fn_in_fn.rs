@@ -7,4 +7,5 @@ fn outer() {
 
 fn main() {
     outer();
+    exit(0);
 }

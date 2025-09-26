@@ -6,4 +6,5 @@ fn main() {
     a[0] = 10;
     a = &mut y;
     a[0] = 20;
+    exit(0);
 }

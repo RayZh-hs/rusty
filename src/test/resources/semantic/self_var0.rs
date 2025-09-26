@@ -12,4 +12,5 @@ impl Foo {
 fn main() {
     let foo: Foo = Foo { x: 10, y: 20 };
     let result = foo.foo(5);
+    exit(0);
 }

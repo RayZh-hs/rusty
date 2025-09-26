@@ -4,4 +4,5 @@ const C: usize = B[0] + B[1];
 
 fn main() {
     let arr: [i32; C] = [0; C];
+    exit(0);
 }

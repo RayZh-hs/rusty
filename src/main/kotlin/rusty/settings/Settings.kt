@@ -6,4 +6,7 @@ object Settings {
 
     @SuppressWarnings val ENFORCE_PAREN_ON_CONDITIONAL = true
     @SuppressWarnings val ALLOW_ENUM_EQ = true
+    @SuppressWarnings val MANDATORY_MAIN_FUNCTION = true
+    @SuppressWarnings val BANISH_EXIT_FROM_NON_MAIN = true
+    @SuppressWarnings val MANDATORY_EXIT_IN_MAIN = true
 }
