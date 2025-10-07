@@ -411,8 +411,12 @@ class ExpressionAnalyzer {
                     else -> throw CompileError("Cannot cast char to $to explicitly")
                 }
 
-                // Bool cannot be explicitly cast anywhere else
-                is SemanticType.BoolType -> throw CompileError("Cannot cast bool to $to explicitly")
+                // Bool can be explicitly cast to int-like
+                is SemanticType.BoolType -> {
+                    if (to is SemanticType.I32Type || to is SemanticType.ISizeType || to is SemanticType.U32Type || to is SemanticType.USizeType)
+                        return to
+                    throw CompileError("Cannot cast bool to $to explicitly")
+                }
 
                 // Strings cannot be explicitly cast elsewhere
                 is SemanticType.StrType, is SemanticType.CStrType -> throw CompileError("Cannot cast $from to $to explicitly")
