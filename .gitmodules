@@ -1,3 +1,6 @@
+[submodule "src/test/resources/@official-fixed"]
+	path = src/test/resources/@official-fixed
+	url = https://github.com/TheUnknownThing/RCompiler-Testcases.git
 [submodule "src/test/resources/@official"]
 	path = src/test/resources/@official
-	url = https://github.com/RayZh-hs/RCompiler-Testcases.git
+	url = https://github.com/peterzheng98/RCompiler-Testcases.git

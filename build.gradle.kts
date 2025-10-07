@@ -46,6 +46,17 @@ tasks.register<Test>("officialTest") {
     shouldRunAfter(tasks.test)
 }
 
+tasks.register<Test>("officialFixedTest") {
+    description = "Run official FIXED semantic tests (on-demand)."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("official-fixed")
+    }
+    shouldRunAfter(tasks.test)
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {
@@ -57,7 +68,7 @@ tasks.test {
     }
     // Do not run @Tag("official") tests by default; run via :officialTest
     useJUnitPlatform {
-        excludeTags("official")
+        excludeTags("official", "official-fixed")
     }
     doFirst {
         val localFile = System.getProperty("localTestFile")
