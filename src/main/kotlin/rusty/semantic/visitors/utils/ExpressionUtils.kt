@@ -4,6 +4,7 @@ import rusty.core.CompileError
 import rusty.core.utils.Slot
 import rusty.core.utils.toSlot
 import rusty.lexer.Token
+import rusty.parser.nodes.ExpressionNode
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
 import rusty.settings.Settings
@@ -122,6 +123,7 @@ class ExpressionAnalyzer {
                     is SemanticType.U32Type,
                     is SemanticType.ISizeType,
                     is SemanticType.USizeType,
+                    is SemanticType.AnyUnsignedIntType,
                     is SemanticType.AnySignedIntType -> to
 
                     else -> throw CompileError("No implicit cast from $from to $to")
@@ -130,6 +132,13 @@ class ExpressionAnalyzer {
                 is SemanticType.AnySignedIntType -> when (to) {
                     is SemanticType.I32Type,
                     is SemanticType.ISizeType -> to
+
+                    else -> throw CompileError("No implicit cast from $from to $to")
+                }
+
+                is SemanticType.AnyUnsignedIntType -> when (to) {
+                    is SemanticType.U32Type,
+                    is SemanticType.USizeType -> to
 
                     else -> throw CompileError("No implicit cast from $from to $to")
                 }
@@ -383,7 +392,7 @@ class ExpressionAnalyzer {
                 // Integer families: allow explicit casts across all integer kinds
                 is SemanticType.I32Type, is SemanticType.ISizeType,
                 is SemanticType.U32Type, is SemanticType.USizeType,
-                is SemanticType.AnyIntType, is SemanticType.AnySignedIntType -> when (to) {
+                is SemanticType.AnyIntType, is SemanticType.AnySignedIntType, is SemanticType.AnyUnsignedIntType -> when (to) {
                     is SemanticType.I32Type,
                     is SemanticType.ISizeType,
                     is SemanticType.U32Type,
@@ -522,31 +531,28 @@ class ExpressionAnalyzer {
         // ------- Type-level helpers mirroring value-level checks -------
         private fun isSignedConcreteType(t: SemanticType) = t is SemanticType.I32Type || t is SemanticType.ISizeType
         private fun isUnsignedConcreteType(t: SemanticType) = t is SemanticType.U32Type || t is SemanticType.USizeType
-        private fun isAnySignedType(t: SemanticType) = t is SemanticType.AnySignedIntType
-        private fun isAnyIntType(t: SemanticType) = t is SemanticType.AnyIntType
         private fun isIntType(t: SemanticType) =
-            isSignedConcreteType(t) || isUnsignedConcreteType(t) || isAnySignedType(t) || isAnyIntType(t)
+            isSignedConcreteType(t) || isUnsignedConcreteType(t) || t is SemanticType.AnySignedIntType || t is SemanticType.AnyIntType || t is SemanticType.AnyUnsignedIntType
 
-        private fun requireSameOrAbstractForSignedTypes(left: SemanticType, right: SemanticType, opName: String) {
+        private fun operateOnSigned(left: SemanticType, right: SemanticType, opName: String) {
+            val rightCanBeSigned = right is SemanticType.AnyIntType || right is SemanticType.AnySignedIntType
             val ok = when (left) {
-                is SemanticType.I32Type -> right is SemanticType.I32Type || isAnyIntType(right) || isAnySignedType(right)
-                is SemanticType.ISizeType -> right is SemanticType.ISizeType || isAnyIntType(right) || isAnySignedType(
-                    right
-                )
-
-                is SemanticType.AnySignedIntType -> right is SemanticType.I32Type || right is SemanticType.ISizeType || isAnySignedType(
-                    right
-                )
+                is SemanticType.I32Type -> right is SemanticType.I32Type || rightCanBeSigned
+                is SemanticType.ISizeType -> right is SemanticType.ISizeType || rightCanBeSigned
+                is SemanticType.AnySignedIntType -> right is SemanticType.I32Type || right is SemanticType.ISizeType || rightCanBeSigned
 
                 else -> false
             }
             if (!ok) throw CompileError("Cannot $opName $left and $right")
         }
 
-        private fun requireSameOrAbstractForUnsignedTypes(left: SemanticType, right: SemanticType, opName: String) {
+        private fun operateOnUnsigned(left: SemanticType, right: SemanticType, opName: String) {
+            val rightCanBeUnsigned = right is SemanticType.AnyIntType || right is SemanticType.AnyUnsignedIntType
             val ok = when (left) {
-                is SemanticType.U32Type -> right is SemanticType.U32Type || isAnyIntType(right)
-                is SemanticType.USizeType -> right is SemanticType.USizeType || isAnyIntType(right)
+                is SemanticType.U32Type -> right is SemanticType.U32Type || rightCanBeUnsigned
+                is SemanticType.USizeType -> right is SemanticType.USizeType || rightCanBeUnsigned
+                is SemanticType.AnyUnsignedIntType -> right is SemanticType.U32Type || right is SemanticType.USizeType || rightCanBeUnsigned
+
                 else -> false
             }
             if (!ok) throw CompileError("Cannot $opName $left and $right")
@@ -555,29 +561,40 @@ class ExpressionAnalyzer {
         private fun intArithmeticType(left: SemanticType, right: SemanticType, opName: String): SemanticType {
             return when (left) {
                 is SemanticType.I32Type -> {
-                    requireSameOrAbstractForSignedTypes(left, right, opName); SemanticType.I32Type
+                    operateOnSigned(left, right, opName); SemanticType.I32Type
                 }
 
                 is SemanticType.ISizeType -> {
-                    requireSameOrAbstractForSignedTypes(left, right, opName); SemanticType.ISizeType
+                    operateOnSigned(left, right, opName); SemanticType.ISizeType
                 }
 
                 is SemanticType.U32Type -> {
-                    requireSameOrAbstractForUnsignedTypes(left, right, opName); SemanticType.U32Type
+                    operateOnUnsigned(left, right, opName); SemanticType.U32Type
                 }
 
                 is SemanticType.USizeType -> {
-                    requireSameOrAbstractForUnsignedTypes(left, right, opName); SemanticType.USizeType
+                    operateOnUnsigned(left, right, opName); SemanticType.USizeType
                 }
 
                 is SemanticType.AnySignedIntType -> {
-                    requireSameOrAbstractForSignedTypes(left, right, opName)
+                    operateOnSigned(left, right, opName)
                     when (right) {
                         is SemanticType.I32Type -> SemanticType.I32Type
                         is SemanticType.ISizeType -> SemanticType.ISizeType
                         is SemanticType.AnySignedIntType -> SemanticType.AnySignedIntType
                         is SemanticType.AnyIntType -> SemanticType.AnySignedIntType
                         else -> throw CompileError("Cannot $opName AnySignedInt and $right")
+                    }
+                }
+
+                is SemanticType.AnyUnsignedIntType -> {
+                    operateOnUnsigned(left, right, opName)
+                    when (right) {
+                        is SemanticType.U32Type -> SemanticType.U32Type
+                        is SemanticType.USizeType -> SemanticType.USizeType
+                        is SemanticType.AnyUnsignedIntType -> SemanticType.AnyUnsignedIntType
+                        is SemanticType.AnyIntType -> SemanticType.AnyIntType
+                        else -> throw CompileError("Cannot $opName AnyUnsignedInt and $right")
                     }
                 }
 
@@ -597,11 +614,12 @@ class ExpressionAnalyzer {
 
         private fun intCompareType(left: SemanticType, right: SemanticType, opName: String) {
             when (left) {
-                is SemanticType.I32Type -> requireSameOrAbstractForSignedTypes(left, right, opName)
-                is SemanticType.ISizeType -> requireSameOrAbstractForSignedTypes(left, right, opName)
-                is SemanticType.U32Type -> requireSameOrAbstractForUnsignedTypes(left, right, opName)
-                is SemanticType.USizeType -> requireSameOrAbstractForUnsignedTypes(left, right, opName)
-                is SemanticType.AnySignedIntType -> requireSameOrAbstractForSignedTypes(left, right, opName)
+                is SemanticType.I32Type -> operateOnSigned(left, right, opName)
+                is SemanticType.ISizeType -> operateOnSigned(left, right, opName)
+                is SemanticType.U32Type -> operateOnUnsigned(left, right, opName)
+                is SemanticType.USizeType -> operateOnUnsigned(left, right, opName)
+                is SemanticType.AnySignedIntType -> operateOnSigned(left, right, opName)
+                is SemanticType.AnyUnsignedIntType -> operateOnUnsigned(left, right, opName)
                 is SemanticType.AnyIntType -> {
                     if (!isIntType(right)) throw CompileError("Cannot $opName AnyInt and $right")
                 }
@@ -628,23 +646,27 @@ class ExpressionAnalyzer {
             // Integer families
             return when (left) {
                 is SemanticType.I32Type -> {
-                    requireSameOrAbstractForSignedTypes(left, right, "compare"); SemanticType.BoolType
+                    operateOnSigned(left, right, "compare"); SemanticType.BoolType
                 }
 
                 is SemanticType.ISizeType -> {
-                    requireSameOrAbstractForSignedTypes(left, right, "compare"); SemanticType.BoolType
+                    operateOnSigned(left, right, "compare"); SemanticType.BoolType
                 }
 
                 is SemanticType.U32Type -> {
-                    requireSameOrAbstractForUnsignedTypes(left, right, "compare"); SemanticType.BoolType
+                    operateOnUnsigned(left, right, "compare"); SemanticType.BoolType
                 }
 
                 is SemanticType.USizeType -> {
-                    requireSameOrAbstractForUnsignedTypes(left, right, "compare"); SemanticType.BoolType
+                    operateOnUnsigned(left, right, "compare"); SemanticType.BoolType
                 }
 
                 is SemanticType.AnySignedIntType -> {
-                    requireSameOrAbstractForSignedTypes(left, right, "compare"); SemanticType.BoolType
+                    operateOnSigned(left, right, "compare"); SemanticType.BoolType
+                }
+
+                is SemanticType.AnyUnsignedIntType -> {
+                    operateOnUnsigned(left, right, "compare"); SemanticType.BoolType
                 }
 
                 is SemanticType.AnyIntType -> {
@@ -971,6 +993,46 @@ class ExpressionAnalyzer {
             is SemanticValue.AnyIntValue -> SemanticValue.AnyIntValue(v.value.inv())
             is SemanticValue.AnySignedIntValue -> SemanticValue.AnySignedIntValue(v.value.inv())
             else -> throw CompileError("Unary ! not supported for ${v::class.simpleName}")
+        }
+    }
+}
+
+class IntegerBoundGuard {
+    companion object {
+        fun checkSigned(value: Long): Boolean {
+            return value in Int.MIN_VALUE..Int.MAX_VALUE
+        }
+
+        fun checkUnsigned(value: Long): Boolean {
+            return value in 0..UInt.MAX_VALUE.toLong()
+        }
+
+        fun checkUnsigned(value: ULong): Boolean {
+            return value <= UInt.MAX_VALUE.toULong()
+        }
+
+        fun checkAny(value: Long): Boolean {
+            return checkSigned(value) || checkUnsigned(value)
+        }
+
+        fun intersectUnaryMinus(node: ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode): SemanticType? {
+            if (node.op != Token.O_MINUS) return null
+            val literal = node.expr
+            if (literal is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntLiteralNode) {
+                return when {
+                    checkSigned(-literal.value) -> SemanticType.AnySignedIntType
+                    checkUnsigned(-literal.value) -> SemanticType.AnyIntType
+                    else -> throw CompileError("Unary minus not supported for ${node.expr}")
+                }
+            }
+            if (literal is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode) {
+                return when {
+                    checkSigned(-literal.value) -> SemanticType.I32Type
+                    checkUnsigned(-literal.value) -> SemanticType.AnySignedIntType
+                    else -> throw CompileError("Unary minus not supported for ${node.expr}")
+                }
+            }
+            return null
         }
     }
 }

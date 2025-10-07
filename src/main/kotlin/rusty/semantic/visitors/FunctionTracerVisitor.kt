@@ -23,6 +23,7 @@ import rusty.semantic.visitors.companions.ScopedVariableMaintainerCompanion
 import rusty.semantic.visitors.companions.SelfResolverCompanion
 import rusty.semantic.visitors.companions.StaticResolverCompanion
 import rusty.semantic.visitors.utils.ExpressionAnalyzer
+import rusty.semantic.visitors.utils.IntegerBoundGuard
 import rusty.semantic.visitors.utils.ProgressiveTypeInferrer
 import rusty.semantic.visitors.utils.ProgressiveTypeInferrer.Companion.inferCommonType
 import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
@@ -262,12 +263,45 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CharLiteralNode -> SemanticType.CharType
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.StringLiteralNode -> SemanticType.RefStrType
                     is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.CStringLiteralNode -> SemanticType.RefCStrType
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode -> SemanticType.I32Type
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode -> SemanticType.U32Type
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode -> SemanticType.ISizeType
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode -> SemanticType.USizeType
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntLiteralNode -> SemanticType.AnyIntType
-                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnySignedIntLiteralNode -> SemanticType.AnySignedIntType
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.I32LiteralNode -> {
+                        if (!IntegerBoundGuard.checkSigned(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for i32")
+                                .with(node).at(node.pointer)
+                        SemanticType.I32Type
+                    }
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.U32LiteralNode -> {
+                        if (!IntegerBoundGuard.checkUnsigned(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for u32")
+                                .with(node).at(node.pointer)
+                        SemanticType.U32Type
+                    }
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.ISizeLiteralNode -> {
+                        if (!IntegerBoundGuard.checkSigned(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for isize")
+                                .with(node).at(node.pointer)
+                        SemanticType.ISizeType
+                    }
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode -> {
+                        if (!IntegerBoundGuard.checkUnsigned(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for usize")
+                                .with(node).at(node.pointer)
+                        SemanticType.USizeType
+                    }
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnyIntLiteralNode -> {
+                        if (!IntegerBoundGuard.checkAny(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for any supported integer type")
+                                .with(node).at(node.pointer)
+                        if (!IntegerBoundGuard.checkSigned(node.value)) // -MAX should have been handled in intersectUnaryMinus
+                            SemanticType.AnyUnsignedIntType
+                        else
+                            SemanticType.AnyIntType
+                    }
+                    is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode.AnySignedIntLiteralNode -> {
+                        if (!IntegerBoundGuard.checkSigned(node.value))
+                            throw CompileError("Integer literal ${node.value} is out of bounds for any supported signed integer type")
+                                .with(node).at(node.pointer)
+                        SemanticType.AnySignedIntType
+                    }
                 }
             }
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
@@ -369,6 +403,10 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                 }
             }
             is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> {
+                val intersection = IntegerBoundGuard.intersectUnaryMinus(node)
+                if (intersection != null) {
+                    return intersection
+                }
                 val exprType = resolveExpression(node.expr)
                 return runCatching {
                     ExpressionAnalyzer.tryUnaryOperate(exprType, node.op)

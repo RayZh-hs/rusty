@@ -66,6 +66,9 @@ sealed class SemanticType {
     data object AnyIntType : Primitive() {
         override fun toString(): String = "<int>"
     }
+    data object AnyUnsignedIntType : Primitive() {
+        override fun toString(): String = "<unsigned_int>"
+    }
     data object AnySignedIntType : Primitive() {
         override fun toString(): String = "<signed_int>"
     }
