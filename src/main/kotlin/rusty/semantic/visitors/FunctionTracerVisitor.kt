@@ -114,6 +114,23 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             return Pair(currentType, hasDeref)
         }
 
+        fun isMutFromSymbol(symbol: SemanticSymbol.Variable): Boolean {
+            if (!autoDeref) {
+                return symbol.mutable.get()
+            }
+            var baseType = symbol.type.get()
+            if (baseType !is SemanticType.ReferenceType) {
+                return symbol.mutable.get()
+            }
+            // envoke auto-deref on the type
+            while (baseType is SemanticType.ReferenceType) {
+                if (!baseType.isMutable.get())
+                    return false
+                baseType = baseType.type.get()
+            }
+            return true
+        }
+
         return when(node) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
                 // lookup where this path comes from
@@ -128,11 +145,11 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         val symbol = scopedVarMaintainer.resolveVariable(segment.name!!)
                             ?: throw CompileError("Unresolved variable: ${segment.name}")
                                 .with(node).at(node.pointer)
-                        val type = symbol.type.get()
-                        if (!symbol.mutable.get() && !autoDeref)
+                        if (!isMutFromSymbol(symbol)) {
                             throw CompileError("Cannot assign to immutable variable: ${segment.name}")
                                 .with(node).at(node.pointer)
-                        type
+                        }
+                        symbol.type.get()
                     }
 
                     Token.K_SELF -> {
@@ -493,7 +510,14 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                         // then base should be mutable, i.e. a left value
                         try {
                             // call the function to check mutability
-                            recursiveResolveFunc(node.base)
+                            var result = resolveLeftValueExpression(node.base, autoDeref = true)
+                            // the base should, if it is a reference, be a mutable one
+                            while (result is SemanticType.ReferenceType) {
+                                if (!result.isMutable.get())
+                                    throw CompileError("Method '${funcSymbol.identifier}' cannot be called on non-mut reference base to type: $baseType")
+                                        .at(node.pointer)
+                                result = result.type.get()
+                            }
                         } catch (e: CompileError) {
                             throw CompileError("Cannot call mutable method '${funcSymbol.identifier}' on immutable instance")
                                 .with(node).at(node.pointer).with(e)
