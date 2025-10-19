@@ -16,7 +16,7 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
     val selfResolver: SelfResolverCompanion = SelfResolverCompanion()
     val staticResolver: StaticResolverCompanion = StaticResolverCompanion(ctx, selfResolver)
 
-    private fun resolveFunctionSymbol(functionSymbol: SemanticSymbol.Function, lookupScope: Scope) {
+    private fun resolveFunctionSymbol(functionSymbol: SemanticSymbol.Function, lookupScope: Scope, isMainFunction: Boolean = false) {
         val defNode = functionSymbol.definedAt
         if (defNode != null) {
             val node = defNode as? ItemNode.FunctionItemNode
@@ -48,20 +48,26 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
                         val symbolCorrespondant = functionSymbol.funcParams.get()[idx]
                         if (!symbolCorrespondant.type.isReady())
                             symbolCorrespondant.type.set(type)
-//                        val iteratedPatterns = extractSymbolsFromTypedPattern(param.pattern, type, currentScope())
-//                        iteratedPatterns.forEach {
-//                            // Moved to next visitor
-//                            // declareScope?.variableST?.declare(it)
-//                        }
                     }
                     else -> throw CompileError("Unsupported function parameter pattern")
                         .with(param).at(node.pointer)
                 }
             }
             node.returnTypeNode.let {
-                if (it == null) // assume that no return type means unit
+                if (functionSymbol.returnType.isReady())    return
+                if (isMainFunction) {
+                    // Strange behavior due to @semantic-1/loop2.rx
+                    if (it != null) {
+                        val retType = staticResolver.resolveTypeNode(it, lookupScope)
+                        if (retType != SemanticType.UnitType)
+                            throw CompileError("Main function must not have be of return type $retType")
+                                .with(it).at(node.pointer)
+                    }
+                    functionSymbol.returnType.set(SemanticType.ExitType)
+                } else if (it == null) {
+                    // assume that no return type means unit
                     functionSymbol.returnType.set(SemanticType.UnitType)
-                else if (!functionSymbol.returnType.isReady()) {
+                 } else {
                     val retType = staticResolver.resolveTypeNode(it, lookupScope)
                     functionSymbol.returnType.set(retType)
                 }
@@ -79,9 +85,10 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
         val functionSymbol = (scope.functionST.resolve(node.identifier) as? SemanticSymbol.Function)
             ?: throw CompileError("Unresolved function: ${node.identifier}")
                 .with(node).with(scope).at(node.pointer)
+        val isMain = (scope.kind == Scope.ScopeKind.Crate && node.identifier == "main")
         scopeMaintainer.withNextScope {
             val varDefScope = currentScope()
-            resolveFunctionSymbol(functionSymbol, varDefScope)
+            resolveFunctionSymbol(functionSymbol, varDefScope, isMainFunction = isMain)
             super.visitFunctionInternal(node)
         }
     }
@@ -122,7 +129,8 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
     }
 
     override fun visitEnumItem(node: ItemNode.EnumItemNode) {
-        // TODO: Enum classes should also be able to be implemented
+        // Enum classes should also be able to be implemented
+        // This feature is not present in the new spec
     }
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
@@ -130,7 +138,6 @@ class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
     }
 
     override fun visitTraitImplItem(node: ItemNode.ImplItemNode.TraitImplItemNode) {
-        // TODO: Trait check (trait self-contain ability)
         scopeMaintainer.skipScope()
     }
 

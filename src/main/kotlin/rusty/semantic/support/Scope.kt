@@ -170,7 +170,7 @@ class Scope(val parent: Scope? = null, val children: MutableList<Scope> = mutabl
                             mapOf("code" to SemanticType.I32Type),
                             pointer = CompilerPointer.forPrelude
                         )),
-                        returnType = Slot(SemanticType.UnitType)
+                        returnType = Slot(SemanticType.ExitType)
                     )
                 )
                 it

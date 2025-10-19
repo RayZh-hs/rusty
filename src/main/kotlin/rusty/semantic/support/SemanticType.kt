@@ -144,4 +144,8 @@ sealed class SemanticType {
             return "(fn)$identifier($params) -> $returnType"
         }
     }
+
+    data object ExitType : SemanticType() {
+        override fun toString(): String = "(exit)"
+    }
 }

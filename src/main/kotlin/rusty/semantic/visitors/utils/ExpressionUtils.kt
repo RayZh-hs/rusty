@@ -478,6 +478,7 @@ class ExpressionAnalyzer {
                 is SemanticType.TraitType -> throw CompileError("Cannot explicitly cast trait objects: $from as $to")
                 is SemanticType.NeverType -> throw CompileError("Cannot explicitly cast never type: $from as $to")
                 is SemanticType.FunctionHeader -> throw CompileError("Cannot explicitly cast function types: $from as $to")
+                is SemanticType.ExitType -> throw CompileError("Cannot explicitly cast exit type: $from as $to")
             }
         }
 

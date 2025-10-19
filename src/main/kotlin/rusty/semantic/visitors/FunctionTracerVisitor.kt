@@ -500,16 +500,38 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
             // handle trailing expression
             when (node.trailingExpression) {
                 null -> {
-                    fun isReturnStatement(stmt: StatementNode): Boolean {
+                    fun lastUsefulStatement(stmts: List<StatementNode>): StatementNode? {
+                        for (i in stmts.size - 1 downTo 0) {
+                            val stmt = stmts[i]
+                            if (stmt !is StatementNode.ItemStatementNode)
+                                return stmt
+                        }
+                        return null
+                    }
+
+                    fun isReturnStatement(stmt: StatementNode?): Boolean {
                         if (stmt !is StatementNode.ExpressionStatementNode)
                             return false
                         val expr = stmt.expression
                         return expr is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode
                     }
 
+                    fun isExitStatement(stmt: StatementNode?): Boolean {
+                        if (stmt !is StatementNode.ExpressionStatementNode)
+                            return false
+                        val expr = stmt.expression
+                        return expr is ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode
+                                && expr.callee is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode
+                                && expr.callee.pathInExpressionNode.path.size == 1
+                                && expr.callee.pathInExpressionNode.path[0].token == Token.I_IDENTIFIER
+                                && expr.callee.pathInExpressionNode.path[0].name == "exit"
+                    }
+
                     // special case: if the last statement is a return, then the block type is never type
-                    if (node.statements.isNotEmpty() && isReturnStatement(node.statements.last()))
+                    if (node.statements.isNotEmpty() && isReturnStatement(lastUsefulStatement(node.statements)))
                         SemanticType.NeverType
+                    else if (node.statements.isNotEmpty() && isExitStatement(lastUsefulStatement(node.statements)))
+                        SemanticType.ExitType
                     else
                         if (ignoreFinalVerdict) SemanticType.WildcardType
                         else SemanticType.UnitType
