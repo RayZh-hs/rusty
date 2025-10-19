@@ -4,7 +4,7 @@
     alt="Rusty Logo"
     width="128" height="128"
   />
-  <h3 align="center">Rusty</h3>
+  <h2 align="center">Rusty</h2>
 </div>
 
 A minimal Rust compiler written in Kotlin.
