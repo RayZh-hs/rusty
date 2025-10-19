@@ -1,25 +1,19 @@
-# Rusty
-
 <div align="center">
-  <picture>
-    <source
-        srcset="public/rusty-logo-dark.png"
-        media="(prefers-color-scheme: dark)"
-        height="200"
-    />
-    <img
-        src="public/rusty-logo-light.png"
-        alt="Rusty Logo"
-        height="200"
-    />
-  </picture>
+  <img
+    src="public/rusty-logo-square.png"
+    alt="Rusty Logo"
+    width="128" height="128"
+  />
+  <h3 align="center">Rusty</h3>
 </div>
 
-A minimal Rust compiler written in Kotlin that implements a simplified subset of the Rust language.
+A minimal Rust compiler written in Kotlin.
+
+---
 
 ## About
 
-This project is a compiler for a simplified Rust language. It is written in Kotlin and handles lexing, parsing, preprocessing, and semantic analysis.
+This project is a compiler for a **simplified** Rust language. It is written in Kotlin and handles lexing, parsing, preprocessing, and semantic analysis. It is part of the ACM 2025-2026 Compiler Design course project at SJTU.
 
 ## Language Specification
 
