@@ -61,9 +61,8 @@ To run all official tests, use:
 ./gradlew officialTest --tests rusty.OfficialSemanticTests
 ```
 
-Before issues in the official tests were fixed, there existed [third-party forks](https://github.com/TheUnknownThing/RCompiler-Testcases) with ahead-of-time fixes from @theunknownthing. Run the fork using:
+Before issues in the official tests were fixed, there existed [a third-party fork](https://github.com/TheUnknownThing/RCompiler-Testcases) with ahead-of-time fixes from @TheUnknownThing. Run the fork using:
 
 ```bash
-./gradlew officialFixedTest  --tests rusty.OfficialFixedSemanticTests
+./gradlew officialFixedTest --tests rusty.OfficialFixedSemanticTests
 ```
-
