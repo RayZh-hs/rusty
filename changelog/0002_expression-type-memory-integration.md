@@ -1,0 +1,12 @@
+- (src/main/kotlin/rusty/semantic/support/Context.kt:1) feat: Add expressionTypeMemory to SemanticContext
+  - Registers an ExpressionTypeMemory instance on the semantic context to centralize expression-type lookups.
+- (src/main/kotlin/rusty/core/MemoryBank.kt:1) refactor: MemoryBank improvements for lazy evaluation
+  - Added support for storing lazy suppliers and caching computed values; new APIs used by expression-type memories.
+- (src/main/kotlin/rusty/semantic/utils/ExpressionTypeMemory.kt:1) feat: Introduce ExpressionTypeMemory wrapper utility
+  - Typed helper over MemoryBank for expression-type entries, with convenience get/put/lazy APIs.
+- (src/main/kotlin/rusty/semantic/visitors/FunctionTracerVisitor.kt:1) feat: Integrate ExpressionTypeMemory in FunctionTracerVisitor
+  - Function tracing stores and reuses computed expression types; reduces recomputation and fixes self-param tracing edge cases.
+- (src/main/kotlin/rusty/semantic/visitors/companions/SelfResolverCompanion.kt:1) feat: Integrate ExpressionTypeMemory for self parameter resolution
+  - Resolve self parameter types lazily and cache results across resolver passes to improve correctness and performance.
+- (src/main/kotlin/rusty/semantic/utils/ExpressionTypeMemory.kt:1) docs: Tests updated to reflect new memory semantics
+  - All tests pass after the refactor; preserved backward compatibility of public APIs.

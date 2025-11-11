@@ -213,6 +213,10 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
     }
 
     fun resolveExpression(node: ExpressionNode): SemanticType {
+        return ctx.expressionTypeMemory.recall(node) { resolveExpressionInternal(node) }
+    }
+    
+    private fun resolveExpressionInternal(node: ExpressionNode): SemanticType {
         when (node) {
             is ExpressionNode.WithBlockExpressionNode.BlockExpressionNode -> return resolveBlockExpression(node)
             is ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode -> {
@@ -643,6 +647,10 @@ class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
                     }
 
                     Token.K_SELF -> {
+                        // Prefer the semantic self type when available (e.g., within impl/trait methods)
+                        val selfType = selfResolver.getSelfType()
+                        if (selfType != null) return selfType
+
                         val symbol = scopedVarMaintainer.resolveVariable("self")
                             ?: throw CompileError("Unresolved self instance")
                                 .with(node).at(node.pointer)

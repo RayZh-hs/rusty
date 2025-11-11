@@ -4,9 +4,17 @@ package rusty.core
 class MemoryBank<Source, Target> {
     private val storage: MutableMap<Source, Target> = mutableMapOf()
 
+    /**
+     * Recall a value for [source], computing it via [lazyEval] only when needed.
+     * Avoid calling [lazyEval] more than once to prevent side-effects (e.g. scope changes).
+     */
     fun recall(source: Source, lazyEval: () -> Target): Target {
-        println("Recalling from MemoryBank: $source, set to: ${lazyEval()}")
-        return storage.getOrPut(source) { lazyEval() }
+        val existing = storage[source]
+        if (existing != null) return existing
+        val value = lazyEval()
+        storage[source] = value
+        println("Recalling from MemoryBank: $source, set to: $value")
+        return value
     }
 
     fun overwrite(source: Source, target: Target) {

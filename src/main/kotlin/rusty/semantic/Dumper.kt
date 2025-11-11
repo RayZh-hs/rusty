@@ -13,6 +13,7 @@ import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticValue
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
+import rusty.semantic.visitors.ASTTypeDumper
 import java.io.File
 
 // This file provides dump utilities for the SemanticConstructor module
@@ -281,5 +282,31 @@ fun SemanticConstructor.Companion.dumpPhase(label: String, output: OutputType, o
 fun SemanticConstructor.Companion.dumpScreenPhase(label: String, output: OutputType) {
     println("[rusty] Semantic dump ".green() + "($label):".cyan())
     print(output.scopeTree.renderTree())
+    println()
+}
+fun SemanticConstructor.Companion.dumpAstWithTypes(output: OutputType, outputPath: String) {
+    val file = File(outputPath)
+    val dumper = ASTTypeDumper(output)
+    file.writeText(dumper.format(output.astTree))
+}
+
+fun SemanticConstructor.Companion.dumpScreenAstWithTypes(output: OutputType) {
+    println("[rusty] AST annotated with expression types:".green())
+    val dumper = ASTTypeDumper(output)
+    print(dumper.format(output.astTree))
+    println()
+}
+
+fun SemanticConstructor.Companion.dumpPhaseAstWithTypes(label: String, output: OutputType, outputPath: String) {
+    val file = File(outputPath)
+    val header = "[rusty] AST with types ($label)\n"
+    val dumper = ASTTypeDumper(output)
+    file.writeText(header + dumper.format(output.astTree))
+}
+
+fun SemanticConstructor.Companion.dumpScreenPhaseAstWithTypes(label: String, output: OutputType) {
+    println("[rusty] AST with types ".green() + "($label):".cyan())
+    val dumper = ASTTypeDumper(output)
+    print(dumper.format(output.astTree))
     println()
 }
