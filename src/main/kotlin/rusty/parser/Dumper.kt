@@ -204,7 +204,7 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
                 line(label("ParamType"))
                 indented { appendType(param.type) }
             }
-            FunctionParamNode.FunctionParamWildcardNode -> line(label("ParamWildcard..."))
+            is FunctionParamNode.FunctionParamWildcardNode -> line(label("ParamWildcard..."))
         }
     }
     private fun appendStructField(structField: StructFieldNode) {
@@ -589,6 +589,10 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
     override fun visitInferredType(node: TypeNode.InferredType) = appendType(node)
     override fun visitGenericParams(node: ParamsNode.GenericParamsNode) = appendGenericParams(node)
     override fun visitFunctionParams(node: ParamsNode.FunctionParamsNode) = appendFunctionParams(node)
+    override fun visitSelfParam(node: SelfParamNode) = appendSelfParam(node)
+    override fun visitFunctionParamTypedPattern(node: FunctionParamNode.FunctionParamTypedPatternNode) = appendFunctionParam(node)
+    override fun visitFunctionParamType(node: FunctionParamNode.FunctionParamTypeNode) = appendFunctionParam(node)
+    override fun visitFunctionParamWildcard(node: FunctionParamNode.FunctionParamWildcardNode) = appendFunctionParam(node)
     override fun visitPathIndentSegment(node: PathIndentSegmentNode) { line(value(node.name ?: node.token.toString().lowercase())) }
     override fun visitPathInExpression(node: PathInExpressionNode) {
         val pathStr = node.path.joinToString("::") { it.name ?: it.token.toString().lowercase() }

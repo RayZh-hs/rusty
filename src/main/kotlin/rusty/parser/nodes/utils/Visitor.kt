@@ -2,6 +2,8 @@ package rusty.parser.nodes.utils
 
 import rusty.parser.nodes.*
 import rusty.parser.nodes.support.ConditionsNode
+import rusty.parser.nodes.support.FunctionParamNode
+import rusty.parser.nodes.support.SelfParamNode
 
 interface Visitor<R> {
 	// Crate
@@ -83,6 +85,10 @@ interface Visitor<R> {
 	// Params
 	fun visitGenericParams(node: ParamsNode.GenericParamsNode): R
 	fun visitFunctionParams(node: ParamsNode.FunctionParamsNode): R
+	fun visitSelfParam(node: SelfParamNode): R
+	fun visitFunctionParamTypedPattern(node: FunctionParamNode.FunctionParamTypedPatternNode): R
+	fun visitFunctionParamType(node: FunctionParamNode.FunctionParamTypeNode): R
+	fun visitFunctionParamWildcard(node: FunctionParamNode.FunctionParamWildcardNode): R
 
 	// Paths
 	fun visitPathIndentSegment(node: PathIndentSegmentNode): R
@@ -164,11 +170,15 @@ fun <R> ASTNode.accept(visitor: Visitor<R>): R = when (this) {
 
 	is ParamsNode.GenericParamsNode -> visitor.visitGenericParams(this)
 	is ParamsNode.FunctionParamsNode -> visitor.visitFunctionParams(this)
+	is SelfParamNode -> visitor.visitSelfParam(this)
+	is FunctionParamNode.FunctionParamTypedPatternNode -> visitor.visitFunctionParamTypedPattern(this)
+	is FunctionParamNode.FunctionParamTypeNode -> visitor.visitFunctionParamType(this)
+	is FunctionParamNode.FunctionParamWildcardNode -> visitor.visitFunctionParamWildcard(this)
 
 	is PathIndentSegmentNode -> visitor.visitPathIndentSegment(this)
 	is PathInExpressionNode -> visitor.visitPathInExpression(this)
 
-    is ConditionsNode -> visitor.visitConditions(this)
+	   is ConditionsNode -> visitor.visitConditions(this)
 
-    else -> throw IllegalArgumentException("Unknown ASTNode type: ${this::class.simpleName}")
+	   else -> throw IllegalArgumentException("Unknown ASTNode type: ${this::class.simpleName}")
 }

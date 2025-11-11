@@ -3,6 +3,8 @@ package rusty.semantic.visitors.bases
 import rusty.parser.nodes.CrateNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
+import rusty.parser.nodes.support.FunctionParamNode
+import rusty.parser.nodes.support.SelfParamNode
 import rusty.semantic.support.Context
 import rusty.semantic.visitors.companions.ScopeMaintainerCompanion
 
@@ -57,5 +59,23 @@ open class ScopeAwareVisitorBase(ctx: Context) : SimpleVisitorBase(ctx) {
 
     fun visitTraitItemInternal(node: ItemNode.TraitItemNode) {
         super.visitTraitItem(node)
+    }
+    
+    // New visitor methods for SelfParamNode and FunctionParamNode
+    // These don't typically need special scope handling, so we delegate to parent
+    override fun visitSelfParam(node: SelfParamNode) {
+        super.visitSelfParam(node)
+    }
+    
+    override fun visitFunctionParamTypedPattern(node: FunctionParamNode.FunctionParamTypedPatternNode) {
+        super.visitFunctionParamTypedPattern(node)
+    }
+    
+    override fun visitFunctionParamType(node: FunctionParamNode.FunctionParamTypeNode) {
+        super.visitFunctionParamType(node)
+    }
+    
+    override fun visitFunctionParamWildcard(node: FunctionParamNode.FunctionParamWildcardNode) {
+        super.visitFunctionParamWildcard(node)
     }
 }

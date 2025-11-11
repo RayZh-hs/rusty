@@ -11,6 +11,8 @@ import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.support.ConditionsNode
+import rusty.parser.nodes.support.FunctionParamNode
+import rusty.parser.nodes.support.SelfParamNode
 import rusty.parser.nodes.utils.Visitor
 import rusty.semantic.support.Context
 
@@ -219,6 +221,15 @@ open class SimpleVisitorBase(open val ctx: Context) : Visitor<Unit> {
     // Params
     override fun visitGenericParams(node: ParamsNode.GenericParamsNode) = Unit
     override fun visitFunctionParams(node: ParamsNode.FunctionParamsNode) = Unit
+    override fun visitSelfParam(node: SelfParamNode) = Unit
+    override fun visitFunctionParamTypedPattern(node: FunctionParamNode.FunctionParamTypedPatternNode) {
+        visit(node.pattern)
+        node.type?.let { visit(it) }
+    }
+    override fun visitFunctionParamType(node: FunctionParamNode.FunctionParamTypeNode) {
+        visit(node.type)
+    }
+    override fun visitFunctionParamWildcard(node: FunctionParamNode.FunctionParamWildcardNode) = Unit
 
     // Paths
     override fun visitPathIndentSegment(node: PathIndentSegmentNode) = Unit

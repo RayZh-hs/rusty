@@ -1,0 +1,10 @@
+- (src/main/kotlin/rusty/parser/nodes/support/_SupportsParamsNode.kt:18) refactor: Modified SelfParamNode to extend ASTNode
+  - Added pointer parameter to track source location information
+- (src/main/kotlin/rusty/parser/nodes/support/_SupportsParamsNode.kt:23) refactor: Modified FunctionParamNode implementations to extend ASTNode
+  - Added pointer parameter to all FunctionParamNode subclasses to track source location
+- (src/main/kotlin/rusty/parser/nodes/utils/Visitor.kt:88) refactor: Updated visitor pattern to support SelfParamNode and FunctionParamNode as ASTNodes
+  - Added visitSelfParam, visitFunctionParamTypedPattern, visitFunctionParamType, and visitFunctionParamWildcard methods
+- (src/main/kotlin/rusty/parser/nodes/support/_SupportsParamsNode.kt:35) refactor: Updated SelfParamNode.parse to capture source location
+  - Added pointer capture using ctx.peekPointer() at the start of parsing
+- (src/main/kotlin/rusty/parser/nodes/support/_SupportsParamsNode.kt:47) refactor: Updated parseFunctionParamNode to capture source location
+  - Added pointer capture for all FunctionParamNode variants using ctx.peekPointer()
