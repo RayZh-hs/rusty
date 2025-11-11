@@ -8,9 +8,13 @@ You must reason thoroughly and gather enough information before you act. You mus
 
 When you are unsure about design principles, consult the user before you proceed.
 
+Prefer the documentation in `docs/` directory to reading source code. If any of your actions require reading source code, read the relevant parts only. If what you do requires modifying documented design, update the docs accordingly but with caution.
+
 ## Coding Standards
 
 When you are modifying existing code instead of adding new functionality, do not add comments unless absolutely necessary.
+
+Before you implement a new feature, read the documentation or related code to see whether there are existing APIs or utility libraries you can reuse. You are free to extend existing APIs or libraries if necessary, but be sure they maintain backward compatibility.
 
 After you finish adding features or fixing bugs, please run all the tests via `./gradlew test` to make sure nothing is broken. After this, write a **brief** changelog pointing to all the major changes you made, in the `changelog/` directory. If what you do is trivial (e.g., fixing typos, adding comments), you can skip the changelog. Append to last changelog file if the work done is similar.
 
