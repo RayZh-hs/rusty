@@ -1,16 +1,15 @@
 package rusty.semantic.visitors.companions
 
 import rusty.parser.nodes.utils.afterWhich
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
-import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SymbolTable
 import rusty.semantic.visitors.utils.sequentialLookup
 import java.util.Stack
 
 // All variables and constants will be automatically pushed into the scope stack
-class ScopedVariableMaintainerCompanion(ctx: Context) {
+class ScopedVariableMaintainerCompanion(ctx: SemanticContext) {
     private val scopeMaintainer = ScopeMaintainerCompanion(ctx)
     private val varSymbolStack = Stack<SymbolTable>()
 

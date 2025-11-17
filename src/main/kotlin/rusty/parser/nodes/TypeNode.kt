@@ -1,9 +1,7 @@
 package rusty.parser.nodes
 
 import rusty.core.CompilerPointer
-import rusty.parser.putils.Context
 import rusty.parser.nodes.utils.Parsable
-import rusty.parser.nodes.utils.Peekable
 
 // I will assume that Type refers to TypeNoBounds.
 @Parsable

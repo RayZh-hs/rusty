@@ -3,12 +3,12 @@ package rusty.semantic.visitors
 import rusty.core.CompileError
 import rusty.core.utils.Slot
 import rusty.parser.nodes.ItemNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.visitors.bases.ScopeAwareVisitorBase
 import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
 
-class FunctionParamsDeclareVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
+class FunctionParamsDeclareVisitor(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     override fun visitFunctionItem(node: ItemNode.FunctionItemNode) {
         val scope = currentScope()
         val symbol = (scope.functionST.resolve(node.identifier) as? SemanticSymbol.Function)

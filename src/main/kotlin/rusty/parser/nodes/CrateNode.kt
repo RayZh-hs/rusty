@@ -2,15 +2,14 @@ package rusty.parser.nodes
 
 import rusty.core.CompilerPointer
 import rusty.parser.nodes.utils.Parsable
-import rusty.parser.nodes.utils.Peekable
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 
 @Parsable
 data class CrateNode(val items: List<ItemNode>, override val pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name get() = "Crate"
 
-        fun parse(ctx: Context): CrateNode {
+        fun parse(ctx: ParsingContext): CrateNode {
             ctx.callMe(name, enable_stack = true) {
                 val pointer = ctx.peekPointer()
                 val itemNodeList: MutableList<ItemNode> = mutableListOf()

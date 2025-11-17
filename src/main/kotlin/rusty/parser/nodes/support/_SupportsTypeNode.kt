@@ -5,7 +5,7 @@ import rusty.lexer.Token
 import rusty.lexer.TokenBearer
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.impl.parseTypeNode
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
@@ -16,7 +16,7 @@ data class TypePathSegment(
     val generics: GenericArgsNode?
 ) {
     companion object {
-        fun parse(ctx: Context): TypePathSegment {
+        fun parse(ctx: ParsingContext): TypePathSegment {
             val pathIndentSegment = ctx.stream.read()
             if (!setOf(Token.I_IDENTIFIER, Token.K_SUPER, Token.K_SELF, Token.K_TYPE_SELF, Token.K_CRATE)
                 .contains(pathIndentSegment.token)) {
@@ -40,7 +40,7 @@ data class TypePathSegment(
 @Peekable @Parsable
 data class GenericArgsNode(val args: List<TypeNode>) {
     companion object {
-        fun parse(ctx: Context): GenericArgsNode {
+        fun parse(ctx: ParsingContext): GenericArgsNode {
             val args = putilsExpectListWithin(ctx,
                 ::parseTypeNode,
                 Pair(Token.O_LANG, Token.O_RANG))

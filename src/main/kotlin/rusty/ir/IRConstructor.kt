@@ -1,11 +1,14 @@
 package rusty.ir
 
-import rusty.semantic.support.Context
+import rusty.ir.support.IRContext
+import rusty.semantic.support.SemanticContext
 
 class IRConstructor {
     companion object {
-        fun run(context: Context, dumpToScreen: Boolean = false): String {
-            TODO()
+        fun run(semanticContext: SemanticContext, dumpToScreen: Boolean = false): String {
+            val module = IRContext.module
+            // Phase 1: Fill in the structs and constants
+
         }
     }
 }

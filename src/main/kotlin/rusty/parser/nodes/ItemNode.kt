@@ -7,24 +7,23 @@ import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
-import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.support.StructFieldNode
 import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 
 // Since we don't need to implement OuterAttribute or MacroItem, Item directly corresponds to VisItem in our AST
 @Peekable @Parsable
 sealed class ItemNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
-        fun peek(ctx: Context): Boolean {
+        fun peek(ctx: ParsingContext): Boolean {
             return when (ctx.peekToken()) {
                 Token.K_FN, Token.K_STRUCT, Token.K_IMPL, Token.K_CONST, Token.K_ENUM, Token.K_TRAIT -> true
                 else -> false
             }
         }
 
-        fun parse(ctx: Context): ItemNode {
+        fun parse(ctx: ParsingContext): ItemNode {
             if (FunctionItemNode.peek(ctx)) return FunctionItemNode.parse(ctx)
             if (StructItemNode.peek(ctx)) return StructItemNode.parse(ctx)
             if (EnumItemNode.peek(ctx)) return EnumItemNode.parse(ctx)

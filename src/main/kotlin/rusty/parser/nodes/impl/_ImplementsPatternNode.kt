@@ -6,12 +6,12 @@ import rusty.parser.nodes.ExpressionNode.WithoutBlockExpressionNode.LiteralExpre
 import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectGroupOrTupleWithin
 import rusty.parser.putils.putilsExpectToken
 
-fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
+fun SupportingPatternNode.Companion.parse(ctx: ParsingContext): SupportingPatternNode {
     return when (ctx.peekToken()) {
         null -> throw CompileError("Pattern cannot start with EOF").with(ctx).at(ctx.peekPointer())
         Token.K_REF, Token.K_MUT -> SupportingPatternNode.IdentifierPatternNode.parse(ctx)
@@ -38,7 +38,7 @@ fun SupportingPatternNode.Companion.parse(ctx: Context): SupportingPatternNode {
     }
 }
 
-fun SupportingPatternNode.IdentifierPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.IdentifierPatternNode {
+fun SupportingPatternNode.IdentifierPatternNode.Companion.parse(ctx: ParsingContext): SupportingPatternNode.IdentifierPatternNode {
     val pointer = ctx.peekPointer()
     val isRef = putilsConsumeIfExistsToken(ctx, Token.K_REF)
     val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
@@ -55,7 +55,7 @@ fun SupportingPatternNode.IdentifierPatternNode.Companion.parse(ctx: Context): S
     )
 }
 
-fun SupportingPatternNode.LiteralPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.LiteralPatternNode {
+fun SupportingPatternNode.LiteralPatternNode.Companion.parse(ctx: ParsingContext): SupportingPatternNode.LiteralPatternNode {
     val pointer = ctx.peekPointer()
     val isNegated = putilsConsumeIfExistsToken(ctx, Token.O_MINUS)
     return SupportingPatternNode.LiteralPatternNode(
@@ -65,18 +65,18 @@ fun SupportingPatternNode.LiteralPatternNode.Companion.parse(ctx: Context): Supp
     )
 }
 
-fun SupportingPatternNode.WildcardPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.WildcardPatternNode {
+fun SupportingPatternNode.WildcardPatternNode.Companion.parse(ctx: ParsingContext): SupportingPatternNode.WildcardPatternNode {
     val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_UNDERSCORE)
     return SupportingPatternNode.WildcardPatternNode(pointer)
 }
 
-fun SupportingPatternNode.PathPatternNode.Companion.parse(ctx: Context): SupportingPatternNode.PathPatternNode {
+fun SupportingPatternNode.PathPatternNode.Companion.parse(ctx: ParsingContext): SupportingPatternNode.PathPatternNode {
     val pointer = ctx.peekPointer()
     return SupportingPatternNode.PathPatternNode(path = PathInExpressionNode.parse(ctx), pointer = pointer)
 }
 
-private fun parseGroupOrTuplePattern(ctx: Context): SupportingPatternNode {
+private fun parseGroupOrTuplePattern(ctx: ParsingContext): SupportingPatternNode {
     val pointer = ctx.peekPointer()
     return putilsExpectGroupOrTupleWithin(
         ctx,

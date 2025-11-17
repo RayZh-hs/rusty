@@ -3,12 +3,9 @@ package rusty.semantic.visitors.utils
 import rusty.core.CompileError
 import rusty.lexer.Token
 import rusty.parser.nodes.TypeNode
-import rusty.parser.nodes.support.AssociatedItemsNode
-import rusty.semantic.support.Context
-import rusty.semantic.support.SemanticSymbol
-import kotlin.collections.set
+import rusty.semantic.support.SemanticContext
 
-fun getIdentifierFromType(ctx: Context, typeNode: TypeNode): String = when(typeNode) {
+fun getIdentifierFromType(ctx: SemanticContext, typeNode: TypeNode): String = when(typeNode) {
     is TypeNode.TypePath -> {
         if (typeNode.pathSegmentNode.token != Token.I_IDENTIFIER)
             throw CompileError("Impl expected a struct identifier, found: ${typeNode.pathSegmentNode}")

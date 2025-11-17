@@ -1,6 +1,5 @@
 package rusty.semantic.visitors
 
-import com.andreapivetta.kolor.cyan
 import com.andreapivetta.kolor.darkGray
 import com.andreapivetta.kolor.magenta
 import com.andreapivetta.kolor.yellow
@@ -14,7 +13,7 @@ import rusty.parser.nodes.PathInExpressionNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.utils.afterWhich
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
@@ -32,7 +31,7 @@ import rusty.semantic.visitors.utils.isClassMethod
 import rusty.semantic.visitors.utils.sequentialLookup
 import java.util.Stack
 
-class FunctionTracerVisitor(ctx: Context): SimpleVisitorBase(ctx) {
+class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
     val selfResolver = SelfResolverCompanion()
     val scopedVarMaintainer = ScopedVariableMaintainerCompanion(ctx)
     val staticResolver = StaticResolverCompanion(ctx, selfResolver)

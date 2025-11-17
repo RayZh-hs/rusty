@@ -1,14 +1,13 @@
 package rusty.semantic.visitors.utils
 
 import rusty.core.CompileError
-import rusty.parser.nodes.support.AssociatedItemsNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import kotlin.collections.set
 
 @Deprecated("Use the other overload that takes a list of symbols instead")
-fun SemanticSymbol.AssociativeItem.injectAssociatedItems(ctx: Context, implScope: Scope) {
+fun SemanticSymbol.AssociativeItem.injectAssociatedItems(ctx: SemanticContext, implScope: Scope) {
     val implFunctions = implScope.functionST.symbols.mapValues { (_, symbol) ->
         symbol as? SemanticSymbol.Function
             ?: throw CompileError("Expected function symbol, found $symbol").with(ctx).at(symbol.definedAt?.pointer)

@@ -3,17 +3,16 @@ package rusty.parser.nodes
 import rusty.core.CompileError
 import rusty.core.CompilerPointer
 import rusty.lexer.Token
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.nodes.utils.Parsable
-import rusty.parser.nodes.utils.Peekable
 
 @Parsable
 data class PathIndentSegmentNode(val token: Token, val name: String?, override val pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name: String = "PathIndentSegment"
 
-        fun parse(ctx: Context): PathIndentSegmentNode {
+        fun parse(ctx: ParsingContext): PathIndentSegmentNode {
             val cur = ctx.peekPointer()
             val nextToken = ctx.stream.read()
             return when (nextToken.token) {
@@ -31,7 +30,7 @@ data class PathInExpressionNode(val path: List<PathIndentSegmentNode>, override 
     companion object {
         val name: String = "PathInExpression"
 
-        fun parse(ctx: Context): PathInExpressionNode {
+        fun parse(ctx: ParsingContext): PathInExpressionNode {
             val cur = ctx.peekPointer()
             val path = mutableListOf<PathIndentSegmentNode>()
             path.add(PathIndentSegmentNode.parse(ctx))

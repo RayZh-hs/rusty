@@ -14,9 +14,9 @@ import rusty.parser.nodes.support.ConditionsNode
 import rusty.parser.nodes.support.FunctionParamNode
 import rusty.parser.nodes.support.SelfParamNode
 import rusty.parser.nodes.utils.Visitor
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 
-open class SimpleVisitorBase(open val ctx: Context) : Visitor<Unit> {
+open class SimpleVisitorBase(open val ctx: SemanticContext) : Visitor<Unit> {
 
     open fun run() {
         visit(ctx.astTree)

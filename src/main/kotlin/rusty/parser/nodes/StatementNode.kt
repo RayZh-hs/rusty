@@ -1,12 +1,11 @@
 package rusty.parser.nodes
 
-import rusty.core.CompileError
 import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
 import rusty.parser.nodes.impl.peek
 import rusty.parser.nodes.utils.afterWhich
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 import rusty.parser.nodes.utils.Parsable
@@ -17,7 +16,7 @@ sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
     companion object {
         val name get() = "Statement"
 
-        fun parse(ctx: Context): StatementNode {
+        fun parse(ctx: ParsingContext): StatementNode {
             when (ctx.peekToken()) {
                 null -> throw AssertionError("Statement node parsing called upon null stream")
                 Token.O_SEMICOLON -> return NullStatementNode(ctx.peekPointer()).afterWhich {
@@ -61,11 +60,11 @@ sealed class StatementNode(pointer: CompilerPointer): ASTNode(pointer) {
     }
 }
 
-fun StatementNode.LetStatementNode.Companion.peek(ctx: Context): Boolean {
+fun StatementNode.LetStatementNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_LET
 }
 
-fun StatementNode.LetStatementNode.Companion.parse(ctx: Context): StatementNode {
+fun StatementNode.LetStatementNode.Companion.parse(ctx: ParsingContext): StatementNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_LET)
         val patternNode = PatternNode.parse(ctx)
@@ -83,13 +82,13 @@ fun StatementNode.LetStatementNode.Companion.parse(ctx: Context): StatementNode 
     }
 }
 
-fun StatementNode.ItemStatementNode.Companion.parse(ctx: Context): StatementNode.ItemStatementNode {
+fun StatementNode.ItemStatementNode.Companion.parse(ctx: ParsingContext): StatementNode.ItemStatementNode {
     ctx.callMe(name) {
         return StatementNode.ItemStatementNode(item = ItemNode.parse(ctx), pointer = ctx.topPointer())
     }
 }
 
-fun StatementNode.ExpressionStatementNode.Companion.parse(ctx: Context): StatementNode.ExpressionStatementNode {
+fun StatementNode.ExpressionStatementNode.Companion.parse(ctx: ParsingContext): StatementNode.ExpressionStatementNode {
     ctx.callMe(name) {
         return StatementNode.ExpressionStatementNode(
             expression = if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {

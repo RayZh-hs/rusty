@@ -6,10 +6,8 @@ import rusty.lexer.Token
 import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
-import rusty.parser.nodes.PatternNode
-import rusty.parser.nodes.SupportingPatternNode
 import rusty.parser.nodes.TypeNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
@@ -19,7 +17,7 @@ import rusty.semantic.support.commonSemanticType
 import rusty.semantic.visitors.utils.ExpressionAnalyzer
 import rusty.semantic.visitors.utils.sequentialLookup
 
-class StaticResolverCompanion(val ctx: Context, val selfResolverRef: SelfResolverCompanion) {
+class StaticResolverCompanion(val ctx: SemanticContext, val selfResolverRef: SelfResolverCompanion) {
     val stepping = mutableSetOf<ASTNode>()
     private fun <R> withTrace(node: ASTNode?, block: () -> R): R {
         if (node in stepping) {

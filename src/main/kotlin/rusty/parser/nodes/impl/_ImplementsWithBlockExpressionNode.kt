@@ -9,15 +9,15 @@ import rusty.parser.nodes.support.IfBranchNode
 import rusty.parser.nodes.StatementNode
 import rusty.parser.nodes.parse
 import rusty.parser.nodes.support.MatchArmsNode
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsExpectToken
 
-fun ExpressionNode.WithBlockExpressionNode.Companion.peek(ctx: Context): Boolean {
+fun ExpressionNode.WithBlockExpressionNode.Companion.peek(ctx: ParsingContext): Boolean {
     return setOf(Token.O_LCURL, Token.K_CONST, Token.K_LOOP, Token.K_WHILE, Token.K_IF, Token.K_MATCH)
         .contains(ctx.peekToken())
 }
 
-fun ExpressionNode.WithBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode {
     return when (val token = ctx.peekToken()) {
         Token.O_LCURL -> ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
         Token.K_CONST -> ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.parse(ctx)
@@ -38,7 +38,7 @@ val ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.name 
 val ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.name get() = "MatchBlockExpression"
 
 // { ... }
-fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.BlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.BlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.O_LCURL)
 
@@ -85,7 +85,7 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
 }
 
 // const { ... }
-fun ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.K_CONST)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
@@ -94,7 +94,7 @@ fun ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode.Companion.pa
 }
 
 // loop { ... }
-fun ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.K_LOOP)
         val block = ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.parse(ctx)
@@ -102,7 +102,7 @@ fun ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode.Companion.par
     }
 }
 
-fun enforceConditionalParens(ctx: Context) {
+fun enforceConditionalParens(ctx: ParsingContext) {
     if (Settings.ENFORCE_PAREN_ON_CONDITIONAL) {
         if (ctx.peekToken() != Token.O_LPAREN) {
             throw CompileError("Expected '(' but found ${ctx.peekToken()}").with(ctx).at(ctx.peekPointer())
@@ -111,7 +111,7 @@ fun enforceConditionalParens(ctx: Context) {
 }
 
 // while(condition) { ... }
-fun ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.K_WHILE)
         enforceConditionalParens(ctx)
@@ -122,7 +122,7 @@ fun ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode.Companion.pa
 }
 
 // if (condition) { ... } (else { ... } | SELF)?
-fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         val ifBranches = mutableListOf<IfBranchNode>()
         var elseBranch: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode? = null
@@ -155,7 +155,7 @@ fun ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode.Companion.parse
 }
 
 // match scrutinee { ... }
-fun ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode {
+fun ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode {
     ctx.callMe(name, enable_stack = true) {
         putilsExpectToken(ctx, Token.K_MATCH)
         val scrutinee = ctx.withEnableStruct(enable = false) {

@@ -4,8 +4,8 @@ import rusty.core.CompileError
 import rusty.lexer.Token
 
 fun <T> putilsExpectListWithin(
-    ctx: Context,
-    parsingFunction: (Context) -> T,
+    ctx: ParsingContext,
+    parsingFunction: (ParsingContext) -> T,
     wrappingTokens: Pair<Token?, Token>,
     delimiter: Token = Token.O_COMMA,
 ): List<T> {
@@ -25,8 +25,8 @@ fun <T> putilsExpectListWithin(
 }
 
 fun <T> putilsExpectGroupOrTupleWithin(
-    ctx: Context,
-    parsingFunction: (Context) -> T,
+    ctx: ParsingContext,
+    parsingFunction: (ParsingContext) -> T,
     tupleConstructor: (List<T>) -> T,
     wrappingTokens: Pair<Token?, Token>,
     delimiter: Token = Token.O_COMMA,

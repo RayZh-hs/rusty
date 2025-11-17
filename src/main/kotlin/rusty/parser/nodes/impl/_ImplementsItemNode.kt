@@ -10,7 +10,7 @@ import rusty.parser.nodes.parse
 import rusty.parser.nodes.support.AssociatedItemsNode
 import rusty.parser.nodes.support.EnumVariantNode
 import rusty.parser.nodes.support.StructFieldNode
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.putils.putilsExpectToken
@@ -18,11 +18,11 @@ import rusty.parser.putils.putilsExpectToken
 // Function Item
 val ItemNode.FunctionItemNode.Companion.name get() = "FunctionItem"
 
-fun ItemNode.FunctionItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.FunctionItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.stream.peekOrNull()?.token == Token.K_FN
 }
 
-fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionItemNode {
+fun ItemNode.FunctionItemNode.Companion.parse(ctx: ParsingContext): ItemNode.FunctionItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_FN)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -59,11 +59,11 @@ fun ItemNode.FunctionItemNode.Companion.parse(ctx: Context): ItemNode.FunctionIt
 // Struct Item
 val ItemNode.StructItemNode.Companion.name get() = "StructItem"
 
-fun ItemNode.StructItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.StructItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_STRUCT
 }
 
-fun ItemNode.StructItemNode.Companion.parse(ctx: Context): ItemNode.StructItemNode {
+fun ItemNode.StructItemNode.Companion.parse(ctx: ParsingContext): ItemNode.StructItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_STRUCT)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -87,11 +87,11 @@ fun ItemNode.StructItemNode.Companion.parse(ctx: Context): ItemNode.StructItemNo
 // Enum Item
 val ItemNode.EnumItemNode.Companion.name get() = "EnumItem"
 
-fun ItemNode.EnumItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.EnumItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_ENUM
 }
 
-fun ItemNode.EnumItemNode.Companion.parse(ctx: Context): ItemNode.EnumItemNode {
+fun ItemNode.EnumItemNode.Companion.parse(ctx: ParsingContext): ItemNode.EnumItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_ENUM)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -107,11 +107,11 @@ fun ItemNode.EnumItemNode.Companion.parse(ctx: Context): ItemNode.EnumItemNode {
 // Const Item
 val ItemNode.ConstItemNode.Companion.name get() = "ConstantItem"
 
-fun ItemNode.ConstItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.ConstItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_CONST
 }
 
-fun ItemNode.ConstItemNode.Companion.parse(ctx: Context): ItemNode.ConstItemNode {
+fun ItemNode.ConstItemNode.Companion.parse(ctx: ParsingContext): ItemNode.ConstItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_CONST)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -128,11 +128,11 @@ fun ItemNode.ConstItemNode.Companion.parse(ctx: Context): ItemNode.ConstItemNode
 // Trait Item
 val ItemNode.TraitItemNode.Companion.name get() = "TraitItem"
 
-fun ItemNode.TraitItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.TraitItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_TRAIT
 }
 
-fun ItemNode.TraitItemNode.Companion.parse(ctx: Context): ItemNode.TraitItemNode {
+fun ItemNode.TraitItemNode.Companion.parse(ctx: ParsingContext): ItemNode.TraitItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_TRAIT)
         val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
@@ -144,11 +144,11 @@ fun ItemNode.TraitItemNode.Companion.parse(ctx: Context): ItemNode.TraitItemNode
 // Impl Item
 val ItemNode.ImplItemNode.Companion.name get() = "ImplItem"
 
-fun ItemNode.ImplItemNode.Companion.peek(ctx: Context): Boolean {
+fun ItemNode.ImplItemNode.Companion.peek(ctx: ParsingContext): Boolean {
     return ctx.peekToken() == Token.K_IMPL
 }
 
-fun ItemNode.ImplItemNode.Companion.parse(ctx: Context): ItemNode.ImplItemNode {
+fun ItemNode.ImplItemNode.Companion.parse(ctx: ParsingContext): ItemNode.ImplItemNode {
     ctx.callMe(name) {
         putilsExpectToken(ctx, Token.K_IMPL)
         val nt = ctx.stream.peekAtOrNull(ctx.stream.cur)?.token

@@ -16,7 +16,7 @@ import rusty.parser.nodes.support.FunctionParamNode
 import rusty.parser.nodes.support.SelfParamNode
 import rusty.parser.nodes.utils.Visitor
 import rusty.parser.nodes.utils.accept
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticType
 
 /**
@@ -26,7 +26,7 @@ import rusty.semantic.support.SemanticType
  * It reuses formatting ideas from the parser Dumper (color helpers, indentation)
  * but is independent so it can live in the semantic package.
  */
-class ASTTypeDumper(private val context: Context, private val cfgColor: Boolean = true) : Visitor<Unit> {
+class ASTTypeDumper(private val context: SemanticContext, private val cfgColor: Boolean = true) : Visitor<Unit> {
     val sb = StringBuilder()
     private var indent = 0
 

@@ -7,7 +7,7 @@ import rusty.parser.nodes.ExpressionNode
 // This file defines the global context object used in Semantic Check
 // Added: expressionTypeMemory for caching resolved expression types
 
-data class Context (
+data class SemanticContext (
     val astTree: ASTTree,
     val scopeTree: Scope = Scope.ofPrelude(),
 

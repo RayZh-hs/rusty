@@ -6,7 +6,7 @@ import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.parse
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 import rusty.parser.nodes.utils.Parsable
@@ -17,7 +17,7 @@ data class ConditionsNode(val expression: ExpressionNode, override val pointer: 
     companion object {
         val name get() = "Conditions"
 
-        fun parse(ctx: Context): ConditionsNode {
+        fun parse(ctx: ParsingContext): ConditionsNode {
             ctx.callMe(name, enable_stack = false) {
                 val expression = ExpressionNode.parse(ctx)
                 return ConditionsNode(expression, ctx.topPointer())
@@ -38,7 +38,7 @@ data class StructExprFieldNode(
     val expressionNode: ExpressionNode?
 ) {
     companion object {
-        fun parse(ctx: Context): StructExprFieldNode {
+        fun parse(ctx: ParsingContext): StructExprFieldNode {
             val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
             val expressionNode = if (putilsConsumeIfExistsToken(ctx, Token.O_COLUMN)) {
                 ExpressionNode.parse(ctx)
@@ -53,7 +53,7 @@ data class StructExprFieldNode(
 @Peekable @Parsable
 data class MatchArmNode(val pattern: PatternNode, val guard: ExpressionNode?) {
     companion object {
-        fun parse(ctx: Context): MatchArmNode {
+        fun parse(ctx: ParsingContext): MatchArmNode {
             val pattern = PatternNode.parse(ctx)
             val guard = if (putilsConsumeIfExistsToken(ctx, Token.K_IF)) {
                 ExpressionNode.parse(ctx)
@@ -68,7 +68,7 @@ data class MatchArmNode(val pattern: PatternNode, val guard: ExpressionNode?) {
 @Peekable @Parsable
 data class MatchArmsNode(val arms: List<MatchArmNode>, val values: List<ExpressionNode>) {
     companion object {
-        fun parse(ctx: Context): MatchArmsNode {
+        fun parse(ctx: ParsingContext): MatchArmsNode {
             putilsExpectToken(ctx, Token.O_LCURL)
             val arms = mutableListOf<MatchArmNode>()
             val expressions = mutableListOf<ExpressionNode>()

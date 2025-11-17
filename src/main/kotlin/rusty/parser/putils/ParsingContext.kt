@@ -6,7 +6,7 @@ import rusty.parser.TokenStream
 import java.util.Stack
 
 // A parsing context implementation
-data class Context(
+data class ParsingContext(
     val stream: TokenStream,
     val flags: Flags = Flags(),
     val parseStack: Stack<ParseStackItem> = Stack(),

@@ -9,14 +9,14 @@ import rusty.parser.nodes.CrateNode
 import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.utils.afterWhich
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.visitors.bases.SimpleVisitorBase
 import rusty.semantic.visitors.utils.newFunctionSignature
 
-class ItemNameCollectorVisitor(override val ctx: Context) : SimpleVisitorBase(ctx) {
+class ItemNameCollectorVisitor(override val ctx: SemanticContext) : SimpleVisitorBase(ctx) {
     private var scopeCursor = ctx.scopeTree
     private var kindAnnotator = VolatileWithDefault(Scope.ScopeKind.Normal)
 

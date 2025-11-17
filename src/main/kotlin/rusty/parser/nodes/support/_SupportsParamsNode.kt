@@ -6,7 +6,7 @@ import rusty.parser.nodes.ASTNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.impl.parseTypeNode
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 import rusty.parser.nodes.utils.Parsable
@@ -28,11 +28,11 @@ sealed class FunctionParamNode(pointer: CompilerPointer) : ASTNode(pointer) {
     @Peekable @Parsable data class FunctionParamWildcardNode(override val pointer: CompilerPointer) : FunctionParamNode(pointer)
 }
 
-fun parseGenericParamNode(ctx: Context): GenericParamNode {
+fun parseGenericParamNode(ctx: ParsingContext): GenericParamNode {
     return GenericParamNode(parseTypeNode(ctx))
 }
 
-fun SelfParamNode.Companion.parse(ctx: Context): SelfParamNode {
+fun SelfParamNode.Companion.parse(ctx: ParsingContext): SelfParamNode {
     val pointer = ctx.peekPointer()
     val isReference = putilsConsumeIfExistsToken(ctx, Token.O_AND)
     val isMutable = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
@@ -44,7 +44,7 @@ fun SelfParamNode.Companion.parse(ctx: Context): SelfParamNode {
     return SelfParamNode(isReference, isMutable, type, pointer)
 }
 
-fun parseFunctionParamNode(ctx: Context): FunctionParamNode {
+fun parseFunctionParamNode(ctx: ParsingContext): FunctionParamNode {
     if (ctx.peekToken() == Token.O_TRIPLE_DOT) {
         val pointer = ctx.peekPointer()
         ctx.stream.consume(1)

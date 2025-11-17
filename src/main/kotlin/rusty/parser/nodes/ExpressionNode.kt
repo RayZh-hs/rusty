@@ -10,7 +10,7 @@ import rusty.parser.nodes.support.MatchArmsNode
 import rusty.parser.nodes.support.StructExprFieldNode
 import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 
 // Expression nodes use a Pratt-based parsing system
 sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
@@ -166,11 +166,11 @@ sealed class ExpressionNode(pointer: CompilerPointer) : ASTNode(pointer) {
     }
 }
 
-fun ExpressionNode.Companion.peekIsBlock(ctx: Context): Boolean {
+fun ExpressionNode.Companion.peekIsBlock(ctx: ParsingContext): Boolean {
     return ExpressionNode.WithBlockExpressionNode.peek(ctx)
 }
 
-fun ExpressionNode.Companion.parse(ctx: Context): ExpressionNode {
+fun ExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode {
     return if (ExpressionNode.WithBlockExpressionNode.peek(ctx)) {
         ExpressionNode.WithBlockExpressionNode.parse(ctx)
     } else {

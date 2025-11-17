@@ -1,15 +1,12 @@
 package rusty.semantic.visitors.companions
 
-import com.andreapivetta.kolor.cyan
-import com.andreapivetta.kolor.darkGray
-import com.andreapivetta.kolor.yellow
 import rusty.core.CompileError
 import rusty.parser.nodes.utils.afterWhich
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import java.util.Stack
 
-class ScopeMaintainerCompanion(ctx: Context) {
+class ScopeMaintainerCompanion(ctx: SemanticContext) {
     var currentScope: Scope = ctx.scopeTree
     private val curStack: Stack<Int> = Stack<Int>().apply { push(0) }
 

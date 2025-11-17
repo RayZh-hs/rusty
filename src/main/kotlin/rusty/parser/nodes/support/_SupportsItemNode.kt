@@ -5,7 +5,7 @@ import rusty.lexer.Token
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.impl.parse
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsExpectToken
 import rusty.parser.nodes.utils.Parsable
 import rusty.parser.nodes.utils.Peekable
@@ -13,7 +13,7 @@ import rusty.parser.nodes.utils.Peekable
 @Peekable @Parsable
 data class StructFieldNode(val identifier: String, val typeNode: TypeNode) {
     companion object {
-        fun parse(ctx: Context): StructFieldNode {
+        fun parse(ctx: ParsingContext): StructFieldNode {
             val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
             putilsExpectToken(ctx, Token.O_COLUMN)
             val typeNode = TypeNode.parse(ctx)
@@ -25,7 +25,7 @@ data class StructFieldNode(val identifier: String, val typeNode: TypeNode) {
 @Peekable @Parsable
 data class EnumVariantNode(val identifier: String) {
     companion object {
-        fun parse(ctx: Context): EnumVariantNode {
+        fun parse(ctx: ParsingContext): EnumVariantNode {
             val identifier = putilsExpectToken(ctx, Token.I_IDENTIFIER)
             return EnumVariantNode(identifier)
         }
@@ -38,7 +38,7 @@ data class AssociatedItemsNode(
     val functionItems: List<ItemNode.FunctionItemNode>,
 ) {
     companion object {
-        fun parse(ctx: Context): AssociatedItemsNode {
+        fun parse(ctx: ParsingContext): AssociatedItemsNode {
             val constItems = mutableListOf<ItemNode.ConstItemNode>()
             val functionItems = mutableListOf<ItemNode.FunctionItemNode>()
             putilsExpectToken(ctx, Token.O_LCURL)

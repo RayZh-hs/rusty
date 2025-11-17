@@ -12,14 +12,14 @@ import rusty.parser.nodes.utils.literalFromBoolean
 import rusty.parser.nodes.utils.literalFromChar
 import rusty.parser.nodes.utils.literalFromInteger
 import rusty.parser.nodes.utils.literalFromString
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectListWithin
 import rusty.parser.putils.putilsExpectToken
 
 val WithoutBlockExpressionNode.Companion.name get() = "WithoutBlockExpression"
 
-fun WithoutBlockExpressionNode.Companion.parse(ctx: Context): ExpressionNode {
+fun WithoutBlockExpressionNode.Companion.parse(ctx: ParsingContext): ExpressionNode {
     ctx.callMe(name) {
         return parsePrecedence(ctx, Precedence.NONE.value)
     }
@@ -65,8 +65,8 @@ private fun getTokenPrecedence(token: Token?): Precedence {
     }
 }
 
-private typealias NudParselet = (Context) -> ExpressionNode
-private typealias LedParselet = (Context, ExpressionNode) -> ExpressionNode
+private typealias NudParselet = (ParsingContext) -> ExpressionNode
+private typealias LedParselet = (ParsingContext, ExpressionNode) -> ExpressionNode
 
 // Map for NUD functions. Used for tokens that start an expression.
 private val nudParselets: Map<Token, NudParselet> = mapOf(
@@ -140,7 +140,7 @@ private val ledParselets: Map<Token, LedParselet> = mapOf(
     Token.K_AS to ::parseTypeCastExpression
 )
 
-private fun parsePrecedence(ctx: Context, precedence: Int): ExpressionNode {
+private fun parsePrecedence(ctx: ParsingContext, precedence: Int): ExpressionNode {
     val startToken = ctx.peekToken()
         ?: throw CompileError("Unexpected EOF when expecting start of expression").with(ctx).at(ctx.peekPointer())
     val nud = nudParselets[startToken]
@@ -158,7 +158,7 @@ private fun parsePrecedence(ctx: Context, precedence: Int): ExpressionNode {
     return left
 }
 
-private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
+private fun parseLiteral(ctx: ParsingContext): WithoutBlockExpressionNode {
     val tokenBearer = ctx.stream.read()
     return when (val literalToken = tokenBearer.token) {
         Token.L_INTEGER -> literalFromInteger(tokenBearer)
@@ -169,12 +169,12 @@ private fun parseLiteral(ctx: Context): WithoutBlockExpressionNode {
     }
 }
 
-private fun parseUnderscore(ctx: Context): WithoutBlockExpressionNode {
+private fun parseUnderscore(ctx: ParsingContext): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.O_UNDERSCORE)
     return WithoutBlockExpressionNode.UnderscoreExpressionNode(ctx.topPointer())
 }
 
-private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNode {
+private fun parsePathOrStructExpression(ctx: ParsingContext): WithoutBlockExpressionNode {
     val path = PathInExpressionNode.parse(ctx)
     if (!ctx.isStructEnabled()) {
         return WithoutBlockExpressionNode.PathExpressionNode(path, ctx.topPointer())
@@ -193,7 +193,7 @@ private fun parsePathOrStructExpression(ctx: Context): WithoutBlockExpressionNod
     }
 }
 
-private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
+private fun parsePrefixOperator(ctx: ParsingContext): WithoutBlockExpressionNode {
     when (val operator = ctx.stream.read().token) {
         Token.O_AND -> {
             val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)
@@ -211,7 +211,7 @@ private fun parsePrefixOperator(ctx: Context): WithoutBlockExpressionNode {
     }
 }
 
-private fun parseGroupedOrTupleExpression(ctx: Context): ExpressionNode {
+private fun parseGroupedOrTupleExpression(ctx: ParsingContext): ExpressionNode {
     putilsExpectToken(ctx, Token.O_LPAREN)
     if (ctx.peekToken() == Token.O_RPAREN) {
         ctx.stream.read() // consume ')'
@@ -234,7 +234,7 @@ private fun parseGroupedOrTupleExpression(ctx: Context): ExpressionNode {
     return firstExpr
 }
 
-private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
+private fun parseArrayExpression(ctx: ParsingContext): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val elements = mutableListOf<ExpressionNode>()
     var repeat: ExpressionNode = WithoutBlockExpressionNode.LiteralExpressionNode.USizeLiteralNode(1.toULong(), ctx.topPointer())
@@ -259,7 +259,7 @@ private fun parseArrayExpression(ctx: Context): WithoutBlockExpressionNode {
     return WithoutBlockExpressionNode.ArrayExpressionNode(elements, repeat, ctx.topPointer())
 }
 
-private fun parseReturnExpression(ctx: Context): WithoutBlockExpressionNode {
+private fun parseReturnExpression(ctx: ParsingContext): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.K_RETURN)
     val expr = when (ctx.peekToken()) {
         Token.O_SEMICOLON, Token.O_RCURL -> null
@@ -268,7 +268,7 @@ private fun parseReturnExpression(ctx: Context): WithoutBlockExpressionNode {
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode(expr, ctx.topPointer())
 }
 
-private fun parseBreakExpression(ctx: Context): WithoutBlockExpressionNode {
+private fun parseBreakExpression(ctx: ParsingContext): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.K_BREAK)
     val expr = when (ctx.peekToken()) {
         Token.O_SEMICOLON -> null
@@ -277,37 +277,37 @@ private fun parseBreakExpression(ctx: Context): WithoutBlockExpressionNode {
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.BreakExpressionNode(expr, ctx.topPointer())
 }
 
-private fun parseContinueExpression(ctx: Context): WithoutBlockExpressionNode {
+private fun parseContinueExpression(ctx: ParsingContext): WithoutBlockExpressionNode {
     putilsExpectToken(ctx, Token.K_CONTINUE)
     return WithoutBlockExpressionNode.ControlFlowExpressionNode.ContinueExpressionNode(ctx.topPointer())
 }
 
-private fun parseBlockExpression(ctx: Context): ExpressionNode {
+private fun parseBlockExpression(ctx: ParsingContext): ExpressionNode {
     return ExpressionNode.WithBlockExpressionNode.parse(ctx)
 }
 
-private fun parseLAInfixOperator(ctx: Context, left: ExpressionNode): ExpressionNode {
+private fun parseLAInfixOperator(ctx: ParsingContext, left: ExpressionNode): ExpressionNode {
     val opToken = ctx.stream.read().token
     val precedence = getTokenPrecedence(opToken)
     val right = parsePrecedence(ctx, precedence.value)
     return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right, ctx.topPointer())
 }
 
-private fun parseRAInfixOperator(ctx: Context, left: ExpressionNode): ExpressionNode {
+private fun parseRAInfixOperator(ctx: ParsingContext, left: ExpressionNode): ExpressionNode {
     val opToken = ctx.stream.read().token
     val precedence = getTokenPrecedence(opToken)
     val right = parsePrecedence(ctx, precedence.value - 1)
     return WithoutBlockExpressionNode.InfixOperatorNode(left, opToken, right, ctx.topPointer())
 }
 
-private fun parseTypeCastExpression(ctx: Context, left: ExpressionNode): ExpressionNode {
+private fun parseTypeCastExpression(ctx: ParsingContext, left: ExpressionNode): ExpressionNode {
     // consume 'as'
     putilsExpectToken(ctx, Token.K_AS)
     val targetType = TypeNode.parse(ctx)
     return WithoutBlockExpressionNode.TypeCastExpressionNode(left, targetType, ctx.topPointer())
 }
 
-private fun parseCallExpression(ctx: Context, callee: ExpressionNode): ExpressionNode {
+private fun parseCallExpression(ctx: ParsingContext, callee: ExpressionNode): ExpressionNode {
     putilsExpectToken(ctx, Token.O_LPAREN)
     val args = mutableListOf<ExpressionNode>()
     if (ctx.peekToken() != Token.O_RPAREN) {
@@ -322,7 +322,7 @@ private fun parseCallExpression(ctx: Context, callee: ExpressionNode): Expressio
     return WithoutBlockExpressionNode.CallExpressionNode(callee, args, ctx.topPointer())
 }
 
-private fun parseIndexExpression(ctx: Context, base: ExpressionNode): ExpressionNode {
+private fun parseIndexExpression(ctx: ParsingContext, base: ExpressionNode): ExpressionNode {
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val index = parsePrecedence(ctx, Precedence.NONE.value)
     putilsExpectToken(ctx, Token.O_RSQUARE)
@@ -330,7 +330,7 @@ private fun parseIndexExpression(ctx: Context, base: ExpressionNode): Expression
 }
 
 private fun parseFieldOrTupleIndexExpression(
-    ctx: Context,
+    ctx: ParsingContext,
     base: ExpressionNode
 ): ExpressionNode {
     putilsExpectToken(ctx, Token.O_DOT)
@@ -349,7 +349,7 @@ private fun parseFieldOrTupleIndexExpression(
     }
 }
 
-fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: Context): WithoutBlockExpressionNode.LiteralExpressionNode {
+fun WithoutBlockExpressionNode.LiteralExpressionNode.Companion.parse(ctx: ParsingContext): WithoutBlockExpressionNode.LiteralExpressionNode {
     val tokenBearer = ctx.stream.read()
     return when (tokenBearer.token) {
         Token.L_INTEGER -> literalFromInteger(tokenBearer)

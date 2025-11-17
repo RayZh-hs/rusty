@@ -3,16 +3,15 @@ package rusty.semantic.visitors
 import rusty.core.CompileError
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.support.FunctionParamNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.visitors.bases.ScopeAwareVisitorBase
 import rusty.semantic.visitors.companions.SelfResolverCompanion
 import rusty.semantic.visitors.companions.StaticResolverCompanion
-import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
 
-class ItemTypeResolverVisitor(ctx: Context) : ScopeAwareVisitorBase(ctx) {
+class ItemTypeResolverVisitor(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     val selfResolver: SelfResolverCompanion = SelfResolverCompanion()
     val staticResolver: StaticResolverCompanion = StaticResolverCompanion(ctx, selfResolver)
 

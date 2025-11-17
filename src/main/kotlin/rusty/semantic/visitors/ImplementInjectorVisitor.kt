@@ -2,14 +2,14 @@ package rusty.semantic.visitors
 
 import rusty.core.CompileError
 import rusty.parser.nodes.ItemNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.visitors.bases.ScopeAwareVisitorBase
 import rusty.semantic.visitors.utils.getIdentifierFromType
 import rusty.semantic.visitors.utils.injectAssociatedItems
 import rusty.semantic.visitors.utils.sequentialLookup
 
-class ImplementInjectorVisitor(override val ctx: Context) : ScopeAwareVisitorBase(ctx) {
+class ImplementInjectorVisitor(override val ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
 
     override fun visitInherentImplItem(node: ItemNode.ImplItemNode.InherentImplItemNode) {
         scopeMaintainer.withNextScope { scope ->

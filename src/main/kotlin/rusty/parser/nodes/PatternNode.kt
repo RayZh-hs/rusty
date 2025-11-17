@@ -3,10 +3,9 @@ package rusty.parser.nodes
 import rusty.core.CompilerPointer
 import rusty.lexer.Token
 import rusty.parser.nodes.impl.parse
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.nodes.utils.Parsable
-import rusty.parser.nodes.utils.Peekable
 
 // corresponds to pattern without range
 @Parsable
@@ -14,7 +13,7 @@ data class PatternNode(val patternNodes: List<SupportingPatternNode>, override v
     companion object {
         val name get() = "Pattern"
 
-        fun parse(ctx: Context): PatternNode {
+        fun parse(ctx: ParsingContext): PatternNode {
             val pointer = ctx.peekPointer()
             val patternNodes: MutableList<SupportingPatternNode> = mutableListOf()
             putilsConsumeIfExistsToken(ctx, Token.O_OR)

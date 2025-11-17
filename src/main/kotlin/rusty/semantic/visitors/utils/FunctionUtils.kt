@@ -6,13 +6,13 @@ import rusty.core.utils.Slot
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.PatternNode
 import rusty.parser.nodes.SupportingPatternNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticFunctionParamNode
 import rusty.semantic.support.SemanticSelfNode
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 
-fun newFunctionSignature(ctx: Context, node: ItemNode.FunctionItemNode): SemanticSymbol.Function {
+fun newFunctionSignature(ctx: SemanticContext, node: ItemNode.FunctionItemNode): SemanticSymbol.Function {
     val selfParam = node.functionParamsNode.selfParam?.let { SemanticSelfNode.from(it) }
     val funcParams = node.functionParamsNode.functionParams.map {
         when (it) {

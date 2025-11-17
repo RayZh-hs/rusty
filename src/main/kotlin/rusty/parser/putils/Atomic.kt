@@ -3,7 +3,7 @@ package rusty.parser.putils
 import rusty.core.CompileError
 import rusty.lexer.Token
 
-fun putilsExpectToken(ctx: Context, token: Token): String {
+fun putilsExpectToken(ctx: ParsingContext, token: Token): String {
     val tokenBearer = ctx.stream.readOrNull()
     if (tokenBearer == null)
         throw CompileError("Parsec: End of stream when expecting token $token")
@@ -12,7 +12,7 @@ fun putilsExpectToken(ctx: Context, token: Token): String {
     return tokenBearer.raw
 }
 
-fun putilsConsumeIfExistsToken(ctx: Context, token: Token): Boolean {
+fun putilsConsumeIfExistsToken(ctx: ParsingContext, token: Token): Boolean {
     val tokenBearer = ctx.stream.peekOrNull()
     if (tokenBearer?.token == token) {
         ctx.stream.consume(1)

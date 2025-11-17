@@ -7,13 +7,13 @@ import rusty.parser.nodes.PathIndentSegmentNode
 import rusty.parser.nodes.TypeNode
 import rusty.parser.nodes.parse
 import rusty.parser.nodes.utils.afterWhich
-import rusty.parser.putils.Context
+import rusty.parser.putils.ParsingContext
 import rusty.parser.putils.putilsConsumeIfExistsToken
 import rusty.parser.putils.putilsExpectToken
 
 val TypeNode.Companion.name get() = "TypeNode"
 
-fun TypeNode.Companion.parse(ctx: Context): TypeNode {
+fun TypeNode.Companion.parse(ctx: ParsingContext): TypeNode {
     // Since typing systems are coupled with semantic check,
     // and the internal workings of it is rather tedious,
     // we will call the context stack here under a unified name.
@@ -24,7 +24,7 @@ fun TypeNode.Companion.parse(ctx: Context): TypeNode {
 
 // Use a custom function as wrapper so that the callMe() annotator is called only once
 // It is exposed for external use (see _SupportsTypeNode)
-fun parseTypeNode(ctx: Context): TypeNode {
+fun parseTypeNode(ctx: ParsingContext): TypeNode {
     return when (ctx.peekToken()) {
         Token.O_DOUBLE_COLON, Token.I_IDENTIFIER, Token.K_SELF, Token.K_TYPE_SELF -> parseTypePath(ctx)
         Token.O_NOT -> parseNeverType(ctx)
@@ -41,18 +41,18 @@ fun parseTypeNode(ctx: Context): TypeNode {
     }
 }
 
-private fun parseTypePath(ctx: Context): TypeNode.TypePath {
+private fun parseTypePath(ctx: ParsingContext): TypeNode.TypePath {
     val pointer = ctx.peekPointer()
     return TypeNode.TypePath(PathIndentSegmentNode.parse(ctx), pointer)
 }
 
-private fun parseNeverType(ctx: Context): TypeNode.NeverType {
+private fun parseNeverType(ctx: ParsingContext): TypeNode.NeverType {
     val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_NOT)
     return TypeNode.NeverType(parseTypeNode(ctx), pointer)
 }
 
-private fun parseTupleOrGroup(ctx: Context): TypeNode {
+private fun parseTupleOrGroup(ctx: ParsingContext): TypeNode {
     val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_LPAREN)
     if (ctx.peekToken() == Token.O_RPAREN) {
@@ -81,7 +81,7 @@ private fun parseTupleOrGroup(ctx: Context): TypeNode {
     }
 }
 
-private fun parseArrayOrSlice(ctx: Context): TypeNode {
+private fun parseArrayOrSlice(ctx: ParsingContext): TypeNode {
     val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_LSQUARE)
     val type = parseTypeNode(ctx)
@@ -100,7 +100,7 @@ private fun parseArrayOrSlice(ctx: Context): TypeNode {
     }
 }
 
-private fun parseReferenceType(ctx: Context): TypeNode.ReferenceType {
+private fun parseReferenceType(ctx: ParsingContext): TypeNode.ReferenceType {
     val pointer = ctx.peekPointer()
     putilsExpectToken(ctx, Token.O_AND)
     val isMut = putilsConsumeIfExistsToken(ctx, Token.K_MUT)

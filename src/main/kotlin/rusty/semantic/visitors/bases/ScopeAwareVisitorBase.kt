@@ -5,10 +5,10 @@ import rusty.parser.nodes.ExpressionNode
 import rusty.parser.nodes.ItemNode
 import rusty.parser.nodes.support.FunctionParamNode
 import rusty.parser.nodes.support.SelfParamNode
-import rusty.semantic.support.Context
+import rusty.semantic.support.SemanticContext
 import rusty.semantic.visitors.companions.ScopeMaintainerCompanion
 
-open class ScopeAwareVisitorBase(ctx: Context) : SimpleVisitorBase(ctx) {
+open class ScopeAwareVisitorBase(ctx: SemanticContext) : SimpleVisitorBase(ctx) {
     protected val scopeMaintainer = ScopeMaintainerCompanion(ctx)
 
     fun currentScope() = scopeMaintainer.currentScope
