@@ -29,6 +29,8 @@ import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
 import rusty.semantic.visitors.utils.getIdentifierFromType
 import rusty.semantic.visitors.utils.isClassMethod
 import rusty.semantic.visitors.utils.sequentialLookup
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.Stack
 
 class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
@@ -95,6 +97,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                         .at(node.withBlockExpressionNode.pointer)
                         .with(e)
                 }
+                enforceIntegerExpectation(node.withBlockExpressionNode, returnType)
             }
         }
     }
@@ -180,6 +183,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 } catch (e: CompileError) {
                     throw e.with(node).at(node.pointer)
                 }
+                enforceIntegerExpectation(node.index, SemanticType.USizeType)
                 val baseType = resolveLeftValueExpression(node.base, autoDeref = true)
                 val (derefBaseType, isReference) = mutDerefType(baseType)
                 when (derefBaseType) {
@@ -235,11 +239,15 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 return inf.type
             }
             is ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode -> {
-                return resolveBlockExpression(node.expression)
+                return ctx.expressionTypeMemory.recall(node.expression) {
+                    resolveBlockExpression(node.expression)
+                }
             }
             is ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode -> {
                 funcRepeatResolvers.push(ProgressiveTypeInferrer(SemanticType.WildcardType)).afterWhich {
-                    resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
+                    ctx.expressionTypeMemory.recall(node.expression) {
+                        resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
+                    }
                 }
                 return funcRepeatResolvers.pop().type.let {
                     // wildcard type means no breaks, so the loop will never break out
@@ -249,7 +257,9 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
             is ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode -> {
                 node.condition.expression.ensureIsOfType(SemanticType.BoolType, "While loop condition")
                 funcRepeatResolvers.push(ProgressiveTypeInferrer(SemanticType.WildcardType)).afterWhich {
-                    resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
+                    ctx.expressionTypeMemory.recall(node.expression) {
+                        resolveBlockExpression(node.expression, ignoreFinalVerdict = true)
+                    }
                 }
                 return funcRepeatResolvers.pop().type.let {
                     // same here, wildcard type means no breaks
@@ -361,6 +371,9 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                     throw CompileError("Return expression used outside of function")
                         .with(node).at(node.pointer)
                 val shouldRet = funcReturnResolvers.peek()
+                if (node.expr != null) {
+                    enforceIntegerExpectation(node.expr, shouldRet.type)
+                }
                 shouldRet.register(returnType)
                 return SemanticType.NeverType
             }
@@ -375,6 +388,9 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 }
                 val shouldRet = funcRepeatResolvers.peek()
                 shouldRet.register(breakType)
+                if (node.expr != null) {
+                    enforceIntegerExpectation(node.expr, shouldRet.type)
+                }
 //                return if (node.expr == null) {
 //                    SemanticType.NeverType
 //                } else {
@@ -393,6 +409,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 if (node.op.isAssignmentVariant()) {
                     val leftHandle = resolveLeftValueExpression(node.left)
                     ExpressionAnalyzer.tryImplicitCast(rightType, leftHandle)
+                    enforceIntegerExpectation(node.right, leftHandle)
                     // All assignment variants return unit
                     return SemanticType.UnitType
                 } else {
@@ -488,6 +505,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                                 throw CompileError("Let binding expression type $exprType does not match expected type $expectedType")
                                     .with(stmt.expressionNode).at(stmt.expressionNode.pointer).with(e)
                             }
+                            enforceIntegerExpectation(stmt.expressionNode, expectedType)
                         }
                         val symbols = extractSymbolsFromTypedPattern(
                             stmt.patternNode, expectedType, currentScope())
@@ -726,6 +744,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 throw CompileError("Argument ${i+1} type mismatch: expected $expectedType, got $actualType")
                     .with(node.arguments[i]).at(node.arguments[i].pointer).with(e)
             }
+            enforceIntegerExpectation(node.arguments[i], expectedType)
         }
 
         return calleeType.returnType
@@ -739,6 +758,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
             throw CompileError("$name must be of type $expected, got $exprType")
                 .with(this).at(this.pointer).with(e)
         }
+        enforceIntegerExpectation(this, expected)
     }
 
     private fun List<ExpressionNode>.ensureAllIsOfType(expected: SemanticType) {
@@ -750,6 +770,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 throw CompileError("Expression must be of type $expected, got $exprType")
                     .with(node).at(node.pointer).with(e)
             }
+            enforceIntegerExpectation(node, expected)
         }
     }
 
@@ -788,6 +809,152 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                     .with(node).at(node.pointer).with(e)
             }
         }
+    }
+
+    private fun enforceIntegerExpectation(node: ExpressionNode?, expectedType: SemanticType) {
+        if (node == null) return
+        val targetType = deriveConcreteIntegerTarget(expectedType) ?: return
+        val visited = identityExpressionSet()
+        val guards = identityExpressionSet()
+        propagateIntegerConstraint(node, targetType, visited, guards)
+        if (guards.isEmpty()) return
+
+        guards.forEach { guard ->
+            val guardType = resolveExpression(guard)
+            val fallback = guardType.defaultConcreteFallback() ?: return@forEach
+            warnDefaultInference(guard, guardType, fallback)
+            ctx.expressionTypeMemory.overwrite(guard, fallback)
+            propagateIntegerConstraint(guard, fallback, identityExpressionSet(), identityExpressionSet())
+        }
+    }
+
+    private fun deriveConcreteIntegerTarget(type: SemanticType?): SemanticType? {
+        return when (type) {
+            is SemanticType.I32Type,
+            is SemanticType.ISizeType,
+            is SemanticType.U32Type,
+            is SemanticType.USizeType -> type
+
+            is SemanticType.ReferenceType -> deriveConcreteIntegerTarget(type.type.getOrNull())
+            else -> null
+        }
+    }
+
+    private fun propagateIntegerConstraint(
+        node: ExpressionNode,
+        targetType: SemanticType,
+        visited: MutableSet<ExpressionNode>,
+        guardNodes: MutableSet<ExpressionNode>,
+    ) {
+        if (!visited.add(node)) return
+        val currentType = resolveExpression(node)
+        val assigned = assignConcreteIntTypeIfNeeded(node, currentType, targetType)
+        if (!assigned && currentType.isAnyIntFamily()) {
+            guardNodes.add(node)
+        }
+
+        when (node) {
+            is ExpressionNode.WithBlockExpressionNode.BlockExpressionNode ->
+                node.trailingExpression?.let { propagateIntegerConstraint(it, targetType, visited, guardNodes) }
+
+            is ExpressionNode.WithBlockExpressionNode.ConstBlockExpressionNode ->
+                propagateIntegerConstraint(node.expression, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithBlockExpressionNode.LoopBlockExpressionNode ->
+                propagateIntegerConstraint(node.expression, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode ->
+                propagateIntegerConstraint(node.expression, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithBlockExpressionNode.IfBlockExpressionNode -> {
+                node.ifs.forEach { propagateIntegerConstraint(it.then, targetType, visited, guardNodes) }
+                node.elseBranch?.let { propagateIntegerConstraint(it, targetType, visited, guardNodes) }
+            }
+
+            is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> {
+                if (!node.op.isAssignmentVariant()) {
+                    propagateIntegerConstraint(node.left, targetType, visited, guardNodes)
+                    propagateIntegerConstraint(node.right, targetType, visited, guardNodes)
+                }
+            }
+
+            is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode ->
+                propagateIntegerConstraint(node.expr, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode ->
+                propagateIntegerConstraint(node.expr, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode ->
+                propagateIntegerConstraint(node.expr, targetType, visited, guardNodes)
+
+            is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode ->
+                guardNodes.add(node.expr)
+
+            is ExpressionNode.WithBlockExpressionNode.MatchBlockExpressionNode -> {}
+            else -> {}
+        }
+    }
+
+    private fun assignConcreteIntTypeIfNeeded(
+        node: ExpressionNode,
+        currentType: SemanticType,
+        targetType: SemanticType,
+    ): Boolean {
+        return when (currentType) {
+            is SemanticType.AnyIntType -> {
+                overwriteExpressionType(node, currentType, targetType); true
+            }
+
+            is SemanticType.AnySignedIntType -> {
+                if (targetType.isConcreteSignedInteger()) {
+                    overwriteExpressionType(node, currentType, targetType); true
+                } else {
+                    false
+                }
+            }
+
+            is SemanticType.AnyUnsignedIntType -> {
+                if (targetType.isConcreteUnsignedInteger()) {
+                    overwriteExpressionType(node, currentType, targetType); true
+                } else {
+                    false
+                }
+            }
+
+            else -> false
+        }
+    }
+
+    private fun overwriteExpressionType(node: ExpressionNode, from: SemanticType, to: SemanticType) {
+        ctx.expressionTypeMemory.overwrite(node, to)
+        println("[type-infer] ${node.pointer}: $from -> $to")
+    }
+
+    private fun warnDefaultInference(node: ExpressionNode, from: SemanticType, fallback: SemanticType) {
+        println("[type-infer][warn] ${node.pointer}: unable to infer $from, defaulting to $fallback")
+    }
+
+    private fun identityExpressionSet(): MutableSet<ExpressionNode> {
+        return Collections.newSetFromMap(IdentityHashMap())
+    }
+
+    private fun SemanticType.isConcreteSignedInteger() =
+        this is SemanticType.I32Type || this is SemanticType.ISizeType
+
+    private fun SemanticType.isConcreteUnsignedInteger() =
+        this is SemanticType.U32Type || this is SemanticType.USizeType
+
+    private fun SemanticType.isConcreteInteger() =
+        isConcreteSignedInteger() || isConcreteUnsignedInteger()
+
+    private fun SemanticType.isAnyIntFamily() =
+        this is SemanticType.AnyIntType || this is SemanticType.AnySignedIntType || this is SemanticType.AnyUnsignedIntType
+
+    private fun SemanticType.defaultConcreteFallback(): SemanticType? = when (this) {
+        is SemanticType.AnyUnsignedIntType -> SemanticType.U32Type
+        is SemanticType.AnyIntType,
+        is SemanticType.AnySignedIntType -> SemanticType.I32Type
+        else -> null
     }
 
     private fun lookupVarType(name: String): SemanticType {
