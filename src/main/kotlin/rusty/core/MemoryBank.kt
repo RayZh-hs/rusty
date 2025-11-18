@@ -13,7 +13,6 @@ class MemoryBank<Source, Target> {
         if (existing != null) return existing
         val value = lazyEval()
         storage[source] = value
-        println("Recalling from MemoryBank: $source, set to: $value")
         return value
     }
 

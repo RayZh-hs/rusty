@@ -414,12 +414,14 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                     return SemanticType.UnitType
                 } else {
                     val leftType = resolveExpression(node.left)
-                    return runCatching {
+                    val resultType = runCatching {
                         ExpressionAnalyzer.tryBinaryOperate(leftType, rightType, node.op)
                     }.getOrElse {
                         throw CompileError("Cannot apply operator '${node.op}' to types '$leftType' and '$rightType'")
                             .with(node).at(node.pointer).with(it)
                     }
+                    propagateIntegerOperandsFromPeers(node.left, leftType, node.right, rightType, node.op)
+                    return resultType
                 }
             }
             is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> {
@@ -938,6 +940,29 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
         return Collections.newSetFromMap(IdentityHashMap())
     }
 
+    private fun propagateIntegerOperandsFromPeers(
+        leftNode: ExpressionNode,
+        leftType: SemanticType,
+        rightNode: ExpressionNode,
+        rightType: SemanticType,
+        op: Token,
+    ) {
+        if (!op.isIntegerConstraintOperator()) return
+        val leftIntegerLike = leftType.isConcreteInteger() || leftType.isAnyIntFamily()
+        val rightIntegerLike = rightType.isConcreteInteger() || rightType.isAnyIntFamily()
+        if (!leftIntegerLike && !rightIntegerLike) return
+
+        val rightTarget = deriveConcreteIntegerTarget(rightType)
+        if (rightTarget != null && leftType.isAnyIntFamily()) {
+            enforceIntegerExpectation(leftNode, rightTarget)
+        }
+
+        val leftTarget = deriveConcreteIntegerTarget(leftType)
+        if (leftTarget != null && rightType.isAnyIntFamily()) {
+            enforceIntegerExpectation(rightNode, leftTarget)
+        }
+    }
+
     private fun SemanticType.isConcreteSignedInteger() =
         this is SemanticType.I32Type || this is SemanticType.ISizeType
 
@@ -987,5 +1012,24 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
         Token.O_XOR_EQ,
         Token.O_SLFT_EQ,
         Token.O_SRIT_EQ,
+    )
+
+    private fun Token.isIntegerConstraintOperator() = this in setOf(
+        Token.O_PLUS,
+        Token.O_MINUS,
+        Token.O_STAR,
+        Token.O_DIV,
+        Token.O_PERCENT,
+        Token.O_LANG,
+        Token.O_LEQ,
+        Token.O_RANG,
+        Token.O_GEQ,
+        Token.O_DOUBLE_EQ,
+        Token.O_NEQ,
+        Token.O_AND,
+        Token.O_OR,
+        Token.O_BIT_XOR,
+        Token.O_SLFT,
+        Token.O_SRIT,
     )
 }
