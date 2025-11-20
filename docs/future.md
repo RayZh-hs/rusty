@@ -23,3 +23,5 @@ The IR generation process involves:
 1. **Declaring Types**: All structs are declared at the beginning of the IR code.
 2. **Function Declarations**: All functions are declared at top-level, and methods are raised from impl blocks to top-level functions with `STRUCT.METHOD` names.
 3. **Function Definitions**: Each function is traced and the body filled in with IR instructions. This step is done while a visitor traverses the AST-tree, from each function declaration via the lookup table.
+
+For more details entailing the design of the IR generation phase, refer to the [IR Generation Design Document](./ir-gen.md).
