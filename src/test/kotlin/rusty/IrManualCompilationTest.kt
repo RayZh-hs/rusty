@@ -1,10 +1,13 @@
 package rusty
 
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.extension
 import kotlin.test.fail
 
 class IrManualCompilationTest {
@@ -23,21 +26,33 @@ class IrManualCompilationTest {
         val outputDir = Paths.get("build", "ir-manual")
         Files.createDirectories(outputDir)
 
-        val caseName = sanitizeName(input)
-        val irOutput = outputDir.resolve("$caseName.ll")
-        val exeOutput = outputDir.resolve("$caseName.out")
+        compileAndLinkSingle(input, clangBinary, outputDir, requireClang = false)
+    }
 
-        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-m", "ir"))
+    @TestFactory
+    fun compileIrResourcesIndividually(): Collection<DynamicTest> {
+        val shouldRunAll = System.getProperty(PROP_RUN_ALL)?.equals("true", ignoreCase = true) == true
+        assumeTrue(shouldRunAll) { "Skipping IR clang-all run: set -D$PROP_RUN_ALL=true to enable" }
 
-        assumeTrue(commandAvailable(clangBinary)) { "Skipping clang step: '$clangBinary' not found" }
+        val clangBinary = System.getProperty(PROP_CLANG) ?: "clang"
+        require(commandAvailable(clangBinary)) { "clang not found; set -D$PROP_CLANG=/path/to/clang" }
 
-        val clangResult = runProcess(listOf(clangBinary, irOutput.toString(), "-o", exeOutput.toString()))
-        if (clangResult.exitCode != 0) {
-            fail("clang failed (exit ${clangResult.exitCode}). Output:\n${clangResult.output}")
+        val baseDir = Paths.get("src", "test", "resources", "ir")
+        require(Files.isDirectory(baseDir)) { "IR resource directory missing: $baseDir" }
+
+        val outputDir = Paths.get("build", "ir-manual", "all")
+        Files.createDirectories(outputDir)
+
+        return Files.list(baseDir).use { paths ->
+            paths.filter { Files.isRegularFile(it) && it.extension == "rs" }
+                .sorted()
+                .map { file ->
+                    DynamicTest.dynamicTest("clang IR ${file.fileName}") {
+                        compileAndLinkSingle(file, clangBinary, outputDir, requireClang = true)
+                    }
+                }
+                .toList()
         }
-
-        println("[IrManualCompilationTest] IR saved to $irOutput")
-        println("[IrManualCompilationTest] Executable saved to $exeOutput")
     }
 
     private fun resolveInput(pathStr: String): Path {
@@ -85,5 +100,30 @@ class IrManualCompilationTest {
     companion object {
         private const val PROP_FILE = "customIrFile"
         private const val PROP_CLANG = "customIrClang"
+        private const val PROP_RUN_ALL = "irClangAll"
+    }
+
+    private fun compileAndLinkSingle(input: Path, clangBinary: String, outputDir: Path, requireClang: Boolean) {
+        val caseName = sanitizeName(input)
+        val irOutput = outputDir.resolve("$caseName.ll")
+        val exeOutput = outputDir.resolve("$caseName.out")
+
+        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-m", "ir"))
+
+        if (!commandAvailable(clangBinary)) {
+            if (requireClang) {
+                fail("clang not available for $input")
+            } else {
+                assumeTrue(false) { "Skipping clang step: '$clangBinary' not found" }
+            }
+        }
+
+        val clangResult = runProcess(listOf(clangBinary, irOutput.toString(), "-o", exeOutput.toString()))
+        if (clangResult.exitCode != 0) {
+            fail("clang failed (exit ${clangResult.exitCode}) for $input. Output:\n${clangResult.output}")
+        }
+
+        println("[IrManualCompilationTest] IR saved to $irOutput")
+        println("[IrManualCompilationTest] Executable saved to $exeOutput")
     }
 }
