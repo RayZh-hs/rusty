@@ -499,18 +499,22 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                             null -> SemanticType.WildcardType
                             else -> resolveType(stmt.typeNode)
                         }
+                        var bindingType = expectedType
                         if (stmt.expressionNode != null) {
                             val exprType = resolveExpression(stmt.expressionNode)
                             try {
-                                ExpressionAnalyzer.tryImplicitCast(exprType, expectedType)
+                                val castResult = ExpressionAnalyzer.tryImplicitCast(exprType, expectedType)
+                                if (expectedType == SemanticType.WildcardType) {
+                                    bindingType = castResult
+                                }
                             } catch (e: CompileError) {
                                 throw CompileError("Let binding expression type $exprType does not match expected type $expectedType")
                                     .with(stmt.expressionNode).at(stmt.expressionNode.pointer).with(e)
                             }
-                            enforceIntegerExpectation(stmt.expressionNode, expectedType)
+                            enforceIntegerExpectation(stmt.expressionNode, bindingType)
                         }
                         val symbols = extractSymbolsFromTypedPattern(
-                            stmt.patternNode, expectedType, currentScope())
+                            stmt.patternNode, bindingType, currentScope())
                         for (sym in symbols) {
                             scopedVarMaintainer.declare(sym)
                             println("[${scopedVarMaintainer.currentScope().toShortString()}]".magenta() + " Declared symbol ".darkGray() + sym.identifier.yellow() + ": ".darkGray() + sym.type.getOrNull())

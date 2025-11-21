@@ -29,8 +29,10 @@ fun SemanticType.toIRType(): IRType {
 
         // Zero-sized or divergent constructs are padded to a single byte
         SemanticType.UnitType,
-        SemanticType.NeverType,
-        SemanticType.ExitType -> TypeUtils.I8
+        SemanticType.NeverType -> TypeUtils.I8
+
+        // Exit returns an i32 code in IR
+        SemanticType.ExitType -> TypeUtils.I32
 
         is SemanticType.ArrayType -> {
             elementType.getOrNull()

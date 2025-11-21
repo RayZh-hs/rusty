@@ -32,7 +32,7 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val extractor = ParameterNameExtractor(funcScope)
             val plan = FunctionPlanBuilder.build(symbol, ownerName, extractor)
 
-            val linkage = if (symbol.definedAt == null) LinkageType.EXTERNAL else LinkageType.INTERNAL
+            val linkage = LinkageType.EXTERNAL
             val fn = IRContext.module.registerFunction(plan.name.identifier, plan.type, linkage, false)
 
             IRContext.functionPlans[symbol] = plan
