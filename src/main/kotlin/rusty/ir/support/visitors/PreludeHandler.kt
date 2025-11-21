@@ -1,4 +1,25 @@
 package rusty.ir.support.visitors
 
-class PreludeHandler {
+import rusty.ir.support.FunctionPlanBuilder
+import rusty.ir.support.IRContext
+import rusty.semantic.support.SemanticContext
+import rusty.semantic.support.SemanticSymbol
+import space.norb.llvm.enums.LinkageType
+
+/**
+ * Declares prelude functions as external so they can be called from user code.
+ * No bodies are generated here.
+ */
+class PreludeHandler(private val semanticContext: SemanticContext) {
+    fun run() {
+        val preludeFunctions = semanticContext.scopeTree.functionST.symbols.values
+            .filterIsInstance<SemanticSymbol.Function>()
+        for (function in preludeFunctions) {
+            val plan = FunctionPlanBuilder.build(function, ownerName = null, paramNameExtractor = null)
+            val fn = IRContext.module.declareExternalFunction(plan.name.identifier, plan.type)
+            IRContext.functionPlans[function] = plan
+            IRContext.functionNameLookup[function] = plan.name
+            IRContext.functionLookup[function] = fn.also { it.setBasicBlocks(emptyList()) }
+        }
+    }
 }
