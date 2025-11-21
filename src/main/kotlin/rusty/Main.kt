@@ -7,6 +7,8 @@ import rusty.core.CompileError
 import rusty.lexer.Lexer
 import rusty.lexer.dump
 import rusty.lexer.dumpScreen
+import rusty.ir.IRConstructor
+import rusty.ir.dump
 import rusty.preprocessor.Preprocessor
 import rusty.preprocessor.dump
 import rusty.preprocessor.dumpScreen
@@ -98,6 +100,16 @@ fun main(args: Array<String>) {
     if (mode == CompileMode.SEMANTIC) {
         // dump into file
         SemanticConstructor.dump(semanticResult, outputPath)
+        return
+    }
+
+    // 5. IR Generation
+    val irResult = when (displayMode) {
+        DisplayMode.VERBOSE -> IRConstructor.run(semanticResult, dumpToScreen = true)
+        else -> IRConstructor.run(semanticResult, dumpToScreen = false)
+    }
+    if (mode == CompileMode.IR) {
+        IRConstructor.dump(irResult, outputPath)
         return
     }
 }

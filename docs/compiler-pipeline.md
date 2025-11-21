@@ -4,21 +4,23 @@ This document provides a detailed overview of the Rusty compiler pipeline, expla
 
 ## Overview
 
-The Rusty compiler processes source code through four main stages, orchestrated by [`Main.kt`](src/main/kotlin/rusty/Main.kt:25):
+The Rusty compiler processes source code through five main stages, orchestrated by [`Main.kt`](src/main/kotlin/rusty/Main.kt:25):
 
 1. **Preprocessing** - Removes comments and normalizes whitespace
 2. **Lexical Analysis** - Converts source text into tokens
 3. **Parsing** - Builds an Abstract Syntax Tree (AST) from tokens
 4. **Semantic Analysis** - Performs type checking and semantic validation
+5. **IR Generation** - Emits LLVM IR text suitable for clang/llc
 
 ## Compilation Modes
 
-The compiler supports four compilation modes ([`CompileMode`](src/main/kotlin/rusty/core/Constants.kt:3)):
+The compiler supports five compilation modes ([`CompileMode`](src/main/kotlin/rusty/core/Constants.kt:3)):
 
 - **PREPROCESS** (`pp`, `pre`, `preprocess`) - Stops after preprocessing
 - **LEX** (`lex`) - Stops after lexical analysis
 - **PARSE** (`parse`, `parser`, `parsing`) - Stops after parsing (default)
 - **SEMANTIC** (`sem`, `semantic`) - Completes all stages
+- **IR** (`ir`, `llvm`, `ll`) - Generates LLVM IR (.ll) output
 
 ## Stage 1: Preprocessing
 

@@ -11,7 +11,11 @@ class IRConstructor {
                 // Phase 1: Fill in the structs and constants
                 StructHandler(semanticContext).run()
             }
-            return module.toIRString()
+            val irString = module.toIRString()
+            if (dumpToScreen) {
+                dumpScreen(irString)
+            }
+            return irString
         }
     }
 }
