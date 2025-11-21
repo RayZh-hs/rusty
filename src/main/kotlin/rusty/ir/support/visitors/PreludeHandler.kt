@@ -4,7 +4,6 @@ import rusty.ir.support.FunctionPlanBuilder
 import rusty.ir.support.IRContext
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
-import space.norb.llvm.enums.LinkageType
 
 /**
  * Declares prelude functions as external so they can be called from user code.
@@ -19,7 +18,7 @@ class PreludeHandler(private val semanticContext: SemanticContext) {
             val fn = IRContext.module.declareExternalFunction(plan.name.identifier, plan.type)
             IRContext.functionPlans[function] = plan
             IRContext.functionNameLookup[function] = plan.name
-            IRContext.functionLookup[function] = fn.also { it.setBasicBlocks(emptyList()) }
+            IRContext.functionLookup[function] = fn
         }
     }
 }

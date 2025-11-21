@@ -325,6 +325,8 @@ class ExpressionEmitter(
         val expr = emitExpression(node.expr) ?: return null
         val targetType = staticResolver.resolveTypeNode(node.targetType, scopeMaintainer.currentScope)
         val targetIr = targetType.toIRType()
+        val sourceIr = expr.type.toIRType()
+        if (sourceIr == targetIr) return GeneratedValue(expr.value, targetType)
         val builder = currentEnv().builder
         val casted = when (targetIr) {
             TypeUtils.I1 -> builder.insertTrunc(expr.value, TypeUtils.I1 as IntegerType, Name.auxTemp("trunc").identifier)

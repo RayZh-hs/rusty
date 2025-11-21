@@ -17,9 +17,10 @@ import space.norb.llvm.enums.LinkageType
 class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
 
     override fun visitFunctionItem(node: rusty.parser.nodes.ItemNode.FunctionItemNode) {
+        val containerScope = currentScope()
+        val symbol = containerScope.functionST.resolve(node.identifier) as? SemanticSymbol.Function
+            ?: throw IllegalStateException("Unresolved function symbol for ${node.identifier}")
         scopeMaintainer.withNextScope { funcScope ->
-            val symbol = currentScope().functionST.resolve(node.identifier) as? SemanticSymbol.Function
-                ?: throw IllegalStateException("Unresolved function symbol for ${node.identifier}")
 
             val ownerName = symbol.selfParam.getOrNull()?.let { self ->
                 when (val ty = self.type.getOrNull()) {

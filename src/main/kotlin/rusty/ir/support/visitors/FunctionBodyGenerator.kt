@@ -39,9 +39,13 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     }
 
     override fun visitFunctionItem(node: rusty.parser.nodes.ItemNode.FunctionItemNode) {
+        val containerScope = currentScope()
+        val symbol = containerScope.functionST.resolve(node.identifier) as? SemanticSymbol.Function
+        if (symbol == null) {
+            scopeMaintainer.skipScope()
+            return
+        }
         scopeMaintainer.withNextScope { funcScope ->
-            val symbol = currentScope().functionST.resolve(node.identifier) as? SemanticSymbol.Function
-                ?: return@withNextScope
             val plan = IRContext.functionPlans[symbol] ?: FunctionPlanBuilder.build(symbol).also {
                 IRContext.functionPlans[symbol] = it
             }
@@ -56,6 +60,8 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             if (fn.basicBlocks.isNotEmpty()) return@withNextScope
 
             val builder = IRBuilder(IRContext.module)
+            val entry = fn.insertBasicBlock("entry", setAsEntrypoint = true)
+            builder.positionAtEnd(entry)
             val returnSlot = if (!plan.returnsByPointer && plan.returnType != SemanticType.UnitType) {
                 builder.insertAlloca(plan.returnType.toIRType(), Name.auxTemp("ret").identifier)
             } else null
@@ -68,9 +74,6 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             )
             env.locals.addLast(mutableMapOf())
             envStack.addLast(env)
-
-            val entry = fn.insertBasicBlock("entry", setAsEntrypoint = true)
-            builder.positionAtEnd(entry)
             bindParameters(symbol, plan)
 
             val result = emitBlock(body)
