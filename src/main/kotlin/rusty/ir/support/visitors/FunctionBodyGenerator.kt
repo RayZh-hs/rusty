@@ -215,12 +215,15 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     }
 
     private fun insertBlockComment(pointer: CompilerPointer, label: String) {
-        currentEnv().builder.insertComment("${formatPointer(pointer)} $label", ";")
+        currentEnv().builder.insertComment("${formatPointer(pointer)} block ${normalizeBlockLabel(label)}", ";")
     }
 
     private fun insertLetComment(pointer: CompilerPointer, variableName: String) {
         currentEnv().builder.insertComment("${formatPointer(pointer)} let $variableName", ";")
     }
+
+    private fun normalizeBlockLabel(label: String): String =
+        if (label.endsWith("-block")) label.removeSuffix("-block") else label
 
     private fun formatPointer(pointer: CompilerPointer): String = "[${pointer.line}:${pointer.column}]"
 }

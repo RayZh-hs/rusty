@@ -114,15 +114,18 @@ aux.block.0:
     %cond = icmp sgt i32 %user.var.b.0, 0
     br i1 %cond, label %aux.block.1, label %aux.block.2
 
-aux.block.1: ; then-block
+aux.block.1:
+    ; [line:column] block then
     store i32 %user.var.b.0, i32* %aux.var.blockret.0
     br label %aux.block.3
 
-aux.block.2: ; else-block
+aux.block.2:
+    ; [line:column] block else
     store i32 0, i32* %aux.var.blockret.0
     br label %aux.block.3
 
-aux.block.3: ; end-if
+aux.block.3:
+    ; [line:column] block end-if
     %user.var.a.0 = load i32, i32* %aux.var.blockret.0
     ; after
 }
@@ -133,7 +136,7 @@ aux.block.3: ; end-if
 The LLVM package supports comments. Add comments:
 - For each basic block, add a full-line comment at its beginning:
     ```
-    ; [line:column] then-block (or else-block, end-if, etc.)
+    ; [line:column] block then (or else, end, etc.)
     ```
 - For each let statement, add an inline comment:
     ```
