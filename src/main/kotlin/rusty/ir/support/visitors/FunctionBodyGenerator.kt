@@ -7,6 +7,7 @@ import rusty.ir.support.GeneratedValue
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
 import rusty.ir.support.toIRType
+import rusty.ir.support.toStorageIRType
 import rusty.ir.support.visitors.pattern.ParameterBinder
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
@@ -190,7 +191,15 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             plan.returnsByPointer -> {
                 val dest = plan.retParamIndex?.let { env.function.parameters[it] }
                     ?: throw IllegalStateException("Return pointer missing for ${plan.name.identifier}")
-                if (value != null) env.builder.insertStore(value.value, dest)
+                if (value != null) {
+                    if (plan.returnType is SemanticType.StructType) {
+                        val storageType = plan.returnType.toStorageIRType()
+                        val loaded = env.builder.insertLoad(storageType, value.value, Name.auxTemp("ret.copy", env.renamer).identifier)
+                        env.builder.insertStore(loaded, dest)
+                    } else {
+                        env.builder.insertStore(value.value, dest)
+                    }
+                }
                 env.builder.insertRetVoid()
             }
             value != null -> env.builder.insertRet(value.value)

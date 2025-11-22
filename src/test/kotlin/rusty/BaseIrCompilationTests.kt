@@ -113,8 +113,10 @@ abstract class BaseIrCompilationTests {
                 }
 
                 c.expectedOutput?.takeIf { Files.exists(it) }?.let { outPath ->
-                    val expected = outPath.readText().trimEnd('\n', '\r')
-                    val actual = runResult.output.trimEnd('\n', '\r')
+                    fun normalize(text: String): String =
+                        text.replace("\r\n", "\n").trimEnd('\n', '\r')
+                    val expected = normalize(outPath.readText())
+                    val actual = normalize(runResult.output)
                     assertEquals(
                         expected,
                         actual,

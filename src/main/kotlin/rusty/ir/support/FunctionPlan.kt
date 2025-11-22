@@ -43,10 +43,10 @@ object FunctionPlanBuilder {
         if (returnsByPointer) {
             retIndex = paramTypes.size
             paramTypes += TypeUtils.PTR
-            paramNames += Name.auxReturn().identifier
-        }
+        paramNames += Name.auxReturn().identifier
+    }
 
-        val extractedNames = paramNameExtractor?.orderedParamNames(symbol) ?: emptyList()
+    val extractedNames = paramNameExtractor?.orderedParamNames(symbol) ?: emptyList()
         symbol.funcParams.getOrNull()?.forEachIndexed { index, param ->
             paramTypes += param.type.get().toIRType()
             val userName = extractedNames.getOrNull(index)

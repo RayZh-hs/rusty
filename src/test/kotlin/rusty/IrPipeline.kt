@@ -9,7 +9,7 @@ import java.nio.file.Paths
  *
  * Provides a consistent `.rx -> .ll -> .out` pipeline so both manual and
  * official test suites generate comparable artifacts.
- */ 
+ */
 object IrPipeline {
     const val PROP_CLANG = "customIrClang"
     const val PROP_NO_CLANG = "irNoClang"

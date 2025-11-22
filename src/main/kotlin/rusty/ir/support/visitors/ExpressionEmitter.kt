@@ -6,6 +6,7 @@ import rusty.ir.support.GeneratedValue
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
 import rusty.ir.support.toIRType
+import rusty.ir.support.toStorageIRType
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
@@ -159,8 +160,8 @@ class ExpressionEmitter(
 
     private fun emitPath(node: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode): GeneratedValue? {
         val path = node.pathInExpressionNode.path
-        if (path.size != 1) return null
-        val seg = path.first()
+        if (path.isEmpty()) return null
+        val seg = path.last()
         if (seg.token == Token.K_SELF) {
             val selfVar = currentEnv().locals.asReversed()
                 .flatMap { it.keys }
@@ -270,18 +271,29 @@ class ExpressionEmitter(
 
     private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {
         val callee = node.callee
-        val fnSymbol = when (callee) {
-            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
-                val name = callee.pathInExpressionNode.path.first().name ?: return null
-                generateSequence(scopeMaintainer.currentScope) { it.parent }
-                    .mapNotNull { scopePointer -> scopePointer.functionST.symbols[name] as? SemanticSymbol.Function }
-                    .firstOrNull { it.selfParam.getOrNull() == null }
-            }
-            else -> null
-        } ?: return null
 
-        val plan = IRContext.functionPlans[fnSymbol] ?: return null
-        val fn = IRContext.functionLookup[fnSymbol] ?: return null
+        data class Target(val symbol: SemanticSymbol.Function, val selfArg: space.norb.llvm.core.Value?)
+
+        val target: Target = when (callee) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+                val name = callee.pathInExpressionNode.path.last().name ?: return null
+                val symbol = resolveFunction(name) { it.selfParam.getOrNull() == null } ?: return null
+                Target(symbol, null)
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
+                val base = emitExpression(callee.base) ?: return null
+                val baseType = base.type.unwrapReferences()
+                val symbol = resolveFunction(callee.field) { fn ->
+                    val selfType = fn.selfParam.getOrNull()?.type?.getOrNull()?.unwrapReferences()
+                    selfType != null && selfType == baseType
+                } ?: return null
+                Target(symbol, base.value)
+            }
+            else -> return null
+        }
+
+        val plan = IRContext.functionPlans[target.symbol] ?: return null
+        val fn = IRContext.functionLookup[target.symbol] ?: return null
 
         val env = currentEnv()
         val userArgs = node.arguments.mapNotNull { emitExpression(it)?.value }
@@ -289,12 +301,13 @@ class ExpressionEmitter(
 
         plan.selfParamIndex?.let { idx ->
             while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
-            callArgs.add(idx, BuilderUtils.getNullPointer(TypeUtils.PTR))
+            val self = target.selfArg ?: BuilderUtils.getNullPointer(TypeUtils.PTR)
+            callArgs.add(idx, self)
         }
 
         var retSlot: space.norb.llvm.core.Value? = null
         if (plan.returnsByPointer) {
-            retSlot = env.builder.insertAlloca(plan.returnType.toIRType(), temp("ret.slot"))
+            retSlot = env.builder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.slot"))
             plan.retParamIndex?.let { idx ->
                 while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
                 callArgs.add(idx, retSlot)
@@ -304,10 +317,39 @@ class ExpressionEmitter(
 
         val callInstName = if (plan.returnsByPointer) "" else temp("call")
         val callInst = env.builder.insertCall(fn, callArgs, callInstName)
-        return if (plan.returnsByPointer) {
-            val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, temp("ret.load"))
-            GeneratedValue(loaded, plan.returnType)
-        } else GeneratedValue(callInst, plan.returnType)
+        return when {
+            plan.returnsByPointer && plan.returnType is SemanticType.StructType -> GeneratedValue(retSlot!!, plan.returnType)
+            plan.returnsByPointer -> {
+                val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, temp("ret.load"))
+                GeneratedValue(loaded, plan.returnType)
+            }
+            plan.returnType is SemanticType.StructType -> {
+                val storage = env.builder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.struct"))
+                val structVal = env.builder.insertLoad(plan.returnType.toStorageIRType(), callInst, temp("ret.struct.load"))
+                env.builder.insertStore(structVal, storage)
+                GeneratedValue(storage, plan.returnType)
+            }
+            else -> GeneratedValue(callInst, plan.returnType)
+        }
+    }
+
+    private fun resolveFunction(
+        name: String,
+        predicate: (SemanticSymbol.Function) -> Boolean
+    ): SemanticSymbol.Function? {
+        val scoped = generateSequence(scopeMaintainer.currentScope) { it.parent }
+            .mapNotNull { scopePointer -> scopePointer.functionST.symbols[name] as? SemanticSymbol.Function }
+            .firstOrNull(predicate)
+        if (scoped != null) return scoped
+        return IRContext.functionPlans.keys.firstOrNull { it.identifier == name && predicate(it) }
+    }
+
+    private fun SemanticType.unwrapReferences(): SemanticType {
+        var ty: SemanticType = this
+        while (ty is SemanticType.ReferenceType) {
+            ty = ty.type.get()
+        }
+        return ty
     }
 
     private fun emitInfix(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode): GeneratedValue? {

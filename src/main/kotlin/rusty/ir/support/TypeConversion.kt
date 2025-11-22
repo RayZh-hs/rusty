@@ -1,6 +1,7 @@
 package rusty.ir.support
 
 import rusty.core.CompileError
+import rusty.ir.support.IRContext
 import rusty.semantic.support.SemanticType
 import space.norb.llvm.core.Type as IRType
 import space.norb.llvm.types.TypeUtils
@@ -66,5 +67,13 @@ fun SemanticType.toIRType(): IRType {
         SemanticType.AnyUnsignedIntType,
         SemanticType.AnySignedIntType,
         SemanticType.WildcardType -> error("Type inference not resolved before IR lowering: $this")
+    }
+}
+
+fun SemanticType.toStorageIRType(): IRType {
+    return when (this) {
+        is SemanticType.StructType -> IRContext.structTypeLookup[identifier]
+            ?: throw IllegalStateException("Struct IR type missing for $identifier")
+        else -> this.toIRType()
     }
 }
