@@ -60,6 +60,28 @@ tasks.register<Test>("officialFixedTest") {
     shouldRunAfter(tasks.test)
 }
 
+tasks.register<Test>("officialIrTest") {
+    description = "Run official IR tests (on-demand)."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("official-ir")
+    }
+    shouldRunAfter(tasks.test)
+}
+
+tasks.register<Test>("officialFixedIrTest") {
+    description = "Run official FIXED IR tests (on-demand)."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("official-fixed-ir")
+    }
+    shouldRunAfter(tasks.test)
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {
@@ -71,7 +93,7 @@ tasks.test {
     }
     // Do not run @Tag("official") tests by default; run via :officialTest
     useJUnitPlatform {
-        excludeTags("official", "official-fixed")
+        excludeTags("official", "official-fixed", "official-ir", "official-fixed-ir")
     }
     doFirst {
         val localFile = System.getProperty("localTestFile")
@@ -87,6 +109,8 @@ tasks.test {
         if (customIrClang != null) systemProperty("customIrClang", customIrClang)
         val customIrFile = (findProperty("customIrFile") ?: System.getProperty("customIrFile"))?.toString()
         if (customIrFile != null) systemProperty("customIrFile", customIrFile)
+        val irNoClang = (findProperty("irNoClang") ?: System.getProperty("irNoClang"))?.toString()
+        if (irNoClang != null) systemProperty("irNoClang", irNoClang)
     }
     // If a local manual test file is specified, always rerun tests to show fresh dump output.
     if (System.getProperty("localTestFile") != null) {

@@ -66,3 +66,18 @@ Before issues in the official tests were fixed, there existed [a third-party for
 ```bash
 ./gradlew officialFixedTest --tests rusty.OfficialFixedSemanticTests
 ```
+
+IR generation has its own testbench. Manual IR resources run with clang+execution by default:
+
+```bash
+./gradlew test --tests rusty.ManualIrTests
+```
+
+To exercise the official IR suites (tagged and skipped by default), run:
+
+```bash
+./gradlew officialIrTest --tests rusty.OfficialIrTests
+./gradlew officialFixedIrTest --tests rusty.OfficialFixedIrTests
+```
+
+Pass `-DirNoClang=true` to skip the clang/link/run phase when you only want IR emission.

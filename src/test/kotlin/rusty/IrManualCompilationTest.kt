@@ -18,24 +18,19 @@ class IrManualCompilationTest {
             assumeTrue(false) { "Skipping IR manual test: provide -D$PROP_FILE=/path/to/file.rs" }
             return
         }
-        val clangBinary = System.getProperty(PROP_CLANG) ?: "clang"
-
         val input = resolveInput(target)
         require(Files.exists(input)) { "Input Rust file not found: $input" }
 
         val outputDir = Paths.get("build", "ir-manual")
         Files.createDirectories(outputDir)
 
-        compileAndLinkSingle(input, clangBinary, outputDir, requireClang = false)
+        compileAndLinkSingle(input, outputDir, requireClang = !skipClang)
     }
 
     @TestFactory
     fun compileIrResourcesIndividually(): Collection<DynamicTest> {
         val shouldRunAll = System.getProperty(PROP_RUN_ALL)?.equals("true", ignoreCase = true) == true
         assumeTrue(shouldRunAll) { "Skipping IR clang-all run: set -D$PROP_RUN_ALL=true to enable" }
-
-        val clangBinary = System.getProperty(PROP_CLANG) ?: "clang"
-        require(commandAvailable(clangBinary)) { "clang not found; set -D$PROP_CLANG=/path/to/clang" }
 
         val baseDir = Paths.get("src", "test", "resources", "ir")
         require(Files.isDirectory(baseDir)) { "IR resource directory missing: $baseDir" }
@@ -48,7 +43,7 @@ class IrManualCompilationTest {
                 .sorted()
                 .map { file ->
                     DynamicTest.dynamicTest("clang IR ${file.fileName}") {
-                        compileAndLinkSingle(file, clangBinary, outputDir, requireClang = true)
+                        compileAndLinkSingle(file, outputDir, requireClang = !skipClang)
                     }
                 }
                 .toList()
@@ -68,49 +63,27 @@ class IrManualCompilationTest {
         return candidate.toAbsolutePath().normalize()
     }
 
-    private fun sanitizeName(path: Path): String {
-        val rawName = path.fileName.toString().substringBeforeLast('.')
-        val hashSuffix = Integer.toHexString(path.toAbsolutePath().normalize().toString().hashCode())
-        return "$rawName-$hashSuffix"
-    }
-
-    private fun commandAvailable(binary: String): Boolean {
-        return try {
-            val process = ProcessBuilder(binary, "--version")
-                .redirectErrorStream(true)
-                .start()
-            process.waitFor()
-            process.exitValue() == 0
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun runProcess(args: List<String>): ProcessResult {
-        val process = ProcessBuilder(args)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        val exit = process.waitFor()
-        return ProcessResult(exit, output)
-    }
-
-    private data class ProcessResult(val exitCode: Int, val output: String)
-
     companion object {
         private const val PROP_FILE = "customIrFile"
         private const val PROP_CLANG = "customIrClang"
         private const val PROP_RUN_ALL = "irClangAll"
     }
 
-    private fun compileAndLinkSingle(input: Path, clangBinary: String, outputDir: Path, requireClang: Boolean) {
-        val caseName = sanitizeName(input)
-        val irOutput = outputDir.resolve("$caseName.ll")
-        val exeOutput = outputDir.resolve("$caseName.out")
+    private val skipClang: Boolean =
+        System.getProperty(IrPipeline.PROP_NO_CLANG)?.equals("true", ignoreCase = true) == true
 
-        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-m", "ir"))
+    private fun compileAndLinkSingle(input: Path, outputDir: Path, requireClang: Boolean) {
+        val clangBinary = System.getProperty(PROP_CLANG) ?: IrPipeline.resolveClangBinary()
+        val artifacts = IrPipeline.artifactPathsFor(input, outputDir)
 
-        if (!commandAvailable(clangBinary)) {
+        IrPipeline.emitIr(input, artifacts.irOutput)
+
+        if (skipClang) {
+            println("[IrManualCompilationTest] Skipping clang/link for $input due to -D${IrPipeline.PROP_NO_CLANG}=true")
+            return
+        }
+
+        if (!IrPipeline.commandAvailable(clangBinary)) {
             if (requireClang) {
                 fail("clang not available for $input")
             } else {
@@ -118,33 +91,18 @@ class IrManualCompilationTest {
             }
         }
 
-        val preludeDir = Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude")
-        val preludeLl = preludeDir.resolve("prelude.ll")
-        val preludeCLl = preludeDir.resolve("prelude.c.ll")
-        listOf(preludeLl, preludeCLl).forEach {
-            require(Files.exists(it)) { "Prelude IR missing: $it" }
-        }
-
-        val clangArgs = listOf(
-            clangBinary,
-            irOutput.toString(),
-            preludeLl.toString(),
-            preludeCLl.toString(),
-            "-o",
-            exeOutput.toString()
-        )
-        val clangResult = runProcess(clangArgs)
+        val clangResult = IrPipeline.linkWithPrelude(artifacts.irOutput, artifacts.exeOutput, clangBinary)
         if (clangResult.exitCode != 0) {
             fail(
                 buildString {
                     append("clang failed (exit ${clangResult.exitCode}) for $input.\n")
-                    append("Command: ${clangArgs.joinToString(" ")}\n")
+                    append("Command: ${clangResult.args.joinToString(" ")}\n")
                     append("Output:\n${clangResult.output}")
                 }
             )
         }
 
-        println("[IrManualCompilationTest] IR saved to $irOutput")
-        println("[IrManualCompilationTest] Executable saved to $exeOutput")
+        println("[IrManualCompilationTest] IR saved to ${artifacts.irOutput}")
+        println("[IrManualCompilationTest] Executable saved to ${artifacts.exeOutput}")
     }
 }
