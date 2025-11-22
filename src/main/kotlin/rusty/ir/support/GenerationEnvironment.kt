@@ -6,6 +6,7 @@ import space.norb.llvm.builder.IRBuilder
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
+import rusty.ir.support.Renamer
 
 data class LoopFrame(
     val breakTarget: BasicBlock,
@@ -18,6 +19,7 @@ data class FunctionEnvironment(
     val plan: FunctionPlan,
     val function: Function,
     val scope: Scope,
+    val renamer: Renamer,
     val locals: ArrayDeque<MutableMap<SemanticSymbol.Variable, Value>> = ArrayDeque(),
     val loopStack: ArrayDeque<LoopFrame> = ArrayDeque(),
     var terminated: Boolean = false,

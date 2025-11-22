@@ -7,7 +7,9 @@ import rusty.ir.support.visitors.pattern.ParameterNameExtractor
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
+import rusty.core.CompileError
 import rusty.semantic.visitors.bases.ScopeAwareVisitorBase
+import rusty.semantic.visitors.utils.sequentialLookup
 import space.norb.llvm.enums.LinkageType
 
 /**
@@ -19,18 +21,21 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     override fun visitFunctionItem(node: rusty.parser.nodes.ItemNode.FunctionItemNode) {
         val containerScope = currentScope()
         val symbol = containerScope.functionST.resolve(node.identifier) as? SemanticSymbol.Function
+            ?: sequentialLookup(node.identifier, containerScope) { it.functionST }?.symbol as? SemanticSymbol.Function
             ?: throw IllegalStateException("Unresolved function symbol for ${node.identifier}")
-        scopeMaintainer.withNextScope { funcScope ->
+        val renamer = IRContext.renamerFor(symbol).also { it.clearAll() }
 
-            val ownerName = symbol.selfParam.getOrNull()?.let { self ->
-                when (val ty = self.type.getOrNull()) {
-                    is SemanticType.StructType -> ty.identifier
-                    is SemanticType.EnumType -> ty.identifier
-                    else -> null
-                }
+        val ownerName = symbol.selfParam.getOrNull()?.let { self ->
+            when (val ty = self.type.getOrNull()) {
+                is SemanticType.StructType -> ty.identifier
+                is SemanticType.EnumType -> ty.identifier
+                else -> null
             }
-            val extractor = ParameterNameExtractor(funcScope)
-            val plan = FunctionPlanBuilder.build(symbol, ownerName, extractor)
+        }
+
+        val registerPlan: (rusty.semantic.support.Scope) -> Unit = { funcScope ->
+            val extractor = ParameterNameExtractor(funcScope, renamer)
+            val plan = FunctionPlanBuilder.build(symbol, ownerName, renamer, extractor)
 
             val linkage = LinkageType.EXTERNAL
             val fn = IRContext.module.registerFunction(plan.name.identifier, plan.type, linkage, false)
@@ -38,6 +43,14 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             IRContext.functionPlans[symbol] = plan
             IRContext.functionNameLookup[symbol] = plan.name
             IRContext.functionLookup[symbol] = fn
+        }
+
+        try {
+            scopeMaintainer.withNextScope { funcScope ->
+                registerPlan(funcScope)
+            }
+        } catch (e: CompileError) {
+            registerPlan(containerScope)
         }
     }
 

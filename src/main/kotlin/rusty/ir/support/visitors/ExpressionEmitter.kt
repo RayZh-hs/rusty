@@ -22,6 +22,8 @@ import space.norb.llvm.types.ArrayType
 import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.TypeUtils
 import space.norb.llvm.values.constants.ArrayConstant
+import rusty.core.CompilerPointer
+import kotlin.sequences.generateSequence
 
 class ExpressionEmitter(
     private val ctx: SemanticContext,
@@ -32,12 +34,16 @@ class ExpressionEmitter(
     private val declareVariable: (SemanticSymbol.Variable, Name?) -> space.norb.llvm.core.Value,
     private val emitFunctionReturn: (FunctionPlan, GeneratedValue?) -> Unit,
     private val currentEnv: () -> FunctionEnvironment,
+    private val addBlockComment: (CompilerPointer, String) -> Unit,
 ) {
     private val controlFlowEmitter = ControlFlowEmitter(
         ctx = ctx,
         emitExpr = { emitExpression(it) },
         currentEnv = currentEnv,
+        addBlockComment = addBlockComment,
     )
+
+    private fun temp(prefix: String): String = Name.auxTemp(prefix, currentEnv().renamer).identifier
 
     fun emitExpression(node: ExpressionNode): GeneratedValue? {
         if (currentEnv().terminated) return null
@@ -130,7 +136,7 @@ class ExpressionEmitter(
                 ty
             )
             module.registerGlobalVariable(
-                name = Name.auxTemp(if (isCString) "cstr" else "str").identifier,
+                name = Name.auxTempGlobal(if (isCString) "cstr" else "str").identifier,
                 initialValue = arr,
                 isConstant = true,
                 linkage = LinkageType.PRIVATE,
@@ -146,7 +152,7 @@ class ExpressionEmitter(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType)
             ),
-            Name.auxTemp("str.ptr").identifier
+            temp("str.ptr")
         )
         return GeneratedValue(gep, exprType)
     }
@@ -155,7 +161,20 @@ class ExpressionEmitter(
         val path = node.pathInExpressionNode.path
         if (path.size != 1) return null
         val seg = path.first()
+        if (seg.token == Token.K_SELF) {
+            val selfVar = currentEnv().locals.asReversed()
+                .flatMap { it.keys }
+                .firstOrNull { it.identifier == "self" }
+                ?: sequentialLookup("self", scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
+                ?: throw IllegalStateException("Self not bound in IR generation")
+            return resolveVariable(selfVar)
+        }
         val identifier = seg.name ?: return null
+
+        val localMatch = currentEnv().locals.asReversed()
+            .flatMap { it.keys }
+            .firstOrNull { it.identifier == identifier }
+        if (localMatch != null) return resolveVariable(localMatch)
 
         val resolvedVar = sequentialLookup(identifier, scopeMaintainer.currentScope) { it.variableST }?.symbol
         when (resolvedVar) {
@@ -171,7 +190,7 @@ class ExpressionEmitter(
             val fn = IRContext.functionLookup[resolvedFn] ?: return null
             return GeneratedValue(fn, SemanticType.FunctionHeader(identifier, null, emptyList(), resolvedFn.returnType.get()))
         }
-        return null
+        throw IllegalStateException("Unresolved path '$identifier' in IR generation")
     }
 
     private fun emitStructLiteral(
@@ -185,7 +204,7 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Struct '$structName' not found")
         val structType = IRContext.structTypeLookup[structName]
             ?: throw IllegalStateException("Struct type '$structName' not registered")
-        val storage = env.builder.insertAlloca(structType, Name.ofStruct(structName).identifier)
+        val storage = env.builder.insertAlloca(structType, temp("struct.$structName"))
         node.fields.forEachIndexed { index, field ->
             symbol.fields[field.identifier]?.get()
                 ?: throw IllegalStateException("Unknown field ${field.identifier} on $structName")
@@ -197,7 +216,7 @@ class ExpressionEmitter(
                         ?: throw IllegalStateException("Shorthand field ${field.identifier} missing binding")
                     resolveVariable(resolved)
                 }
-            } ?: throw IllegalStateException("Failed to emit field ${field.identifier}")
+            } ?: throw IllegalStateException("Failed to emit field ${field.identifier} from expr=${field.expressionNode}")
             val gep = env.builder.insertGep(
                 structType,
                 storage,
@@ -205,11 +224,11 @@ class ExpressionEmitter(
                     BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
                     BuilderUtils.getIntConstant(index.toLong(), TypeUtils.I32 as IntegerType)
                 ),
-                Name.auxTemp("${structName}.${field.identifier}").identifier
+                temp("$structName.${field.identifier}")
             )
             env.builder.insertStore(value.value, gep)
         }
-        val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, Name.auxTemp("${structName}.ptr").identifier)
+        val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("$structName.ptr"))
         return GeneratedValue(ptrValue, symbol.definesType)
     }
 
@@ -220,19 +239,22 @@ class ExpressionEmitter(
         // Auto-dereference reference layers to reach the underlying struct pointer.
         while (baseType is SemanticType.ReferenceType) {
             val inner = baseType.type.getOrNull() ?: return null
-            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, Name.auxTemp("deref").identifier)
+            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, temp("deref"))
             base = GeneratedValue(loaded, inner)
             baseType = inner
         }
 
-        val structType = baseType as? SemanticType.StructType ?: return null
+        val structType = baseType as? SemanticType.StructType
+            ?: throw IllegalStateException("Field base is not struct for '${node.field}': $baseType")
         val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
-            as? SemanticSymbol.Struct ?: return null
+            as? SemanticSymbol.Struct ?: throw IllegalStateException("Struct '${structType.identifier}' not resolved in field access")
         val fieldIndex = structSymbol.fields.keys.toList().indexOf(node.field)
-        if (fieldIndex == -1) return null
+        if (fieldIndex == -1) throw IllegalStateException("Field '${node.field}' not found on struct '${structType.identifier}'")
 
-        val fieldType = structSymbol.fields[node.field]?.get() ?: return null
-        val structIrType = IRContext.structTypeLookup[structType.identifier] ?: return null
+        val fieldType = structSymbol.fields[node.field]?.get()
+            ?: throw IllegalStateException("Field type for '${node.field}' not resolved on ${structType.identifier}")
+        val structIrType = IRContext.structTypeLookup[structType.identifier]
+            ?: throw IllegalStateException("Struct IR type for '${structType.identifier}' missing")
         val gep = currentEnv().builder.insertGep(
             structIrType,
             base.value,
@@ -240,21 +262,23 @@ class ExpressionEmitter(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
                 BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
             ),
-            Name.auxTemp("${structType.identifier}.${node.field}").identifier
+            temp("${structType.identifier}.${node.field}")
         )
-        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), gep, Name.auxTemp("${structType.identifier}.${node.field}.load").identifier)
+        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), gep, temp("${structType.identifier}.${node.field}.load"))
         return GeneratedValue(loaded, fieldType)
     }
 
     private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {
         val callee = node.callee
-            val fnSymbol = when (callee) {
-                is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
-                    val name = callee.pathInExpressionNode.path.first().name ?: return null
-                    sequentialLookup(name, scopeMaintainer.currentScope) { it.functionST }?.symbol
-                }
-                else -> null
-            } as? SemanticSymbol.Function ?: return null
+        val fnSymbol = when (callee) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+                val name = callee.pathInExpressionNode.path.first().name ?: return null
+                generateSequence(scopeMaintainer.currentScope) { it.parent }
+                    .mapNotNull { scopePointer -> scopePointer.functionST.symbols[name] as? SemanticSymbol.Function }
+                    .firstOrNull { it.selfParam.getOrNull() == null }
+            }
+            else -> null
+        } ?: return null
 
         val plan = IRContext.functionPlans[fnSymbol] ?: return null
         val fn = IRContext.functionLookup[fnSymbol] ?: return null
@@ -270,7 +294,7 @@ class ExpressionEmitter(
 
         var retSlot: space.norb.llvm.core.Value? = null
         if (plan.returnsByPointer) {
-            retSlot = env.builder.insertAlloca(plan.returnType.toIRType(), Name.auxReturn().identifier)
+            retSlot = env.builder.insertAlloca(plan.returnType.toIRType(), temp("ret.slot"))
             plan.retParamIndex?.let { idx ->
                 while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
                 callArgs.add(idx, retSlot)
@@ -278,10 +302,10 @@ class ExpressionEmitter(
         }
         callArgs.addAll(userArgs)
 
-        val callInstName = if (plan.returnsByPointer) "" else Name.auxTemp("call").identifier
+        val callInstName = if (plan.returnsByPointer) "" else temp("call")
         val callInst = env.builder.insertCall(fn, callArgs, callInstName)
         return if (plan.returnsByPointer) {
-            val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, Name.auxTemp("ret.load").identifier)
+            val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, temp("ret.load"))
             GeneratedValue(loaded, plan.returnType)
         } else GeneratedValue(callInst, plan.returnType)
     }
@@ -305,10 +329,10 @@ class ExpressionEmitter(
         val left = emitExpression(node.left) ?: return null
         val right = emitExpression(node.right) ?: return null
         return when (op) {
-            Token.O_PLUS -> GeneratedValue(env.builder.insertAdd(left.value, right.value, Name.auxTemp("add").identifier), left.type)
-            Token.O_MINUS -> GeneratedValue(env.builder.insertSub(left.value, right.value, Name.auxTemp("sub").identifier), left.type)
-            Token.O_STAR -> GeneratedValue(env.builder.insertMul(left.value, right.value, Name.auxTemp("mul").identifier), left.type)
-            Token.O_DIV -> GeneratedValue(env.builder.insertSDiv(left.value, right.value, Name.auxTemp("div").identifier), left.type)
+            Token.O_PLUS -> GeneratedValue(env.builder.insertAdd(left.value, right.value, temp("add")), left.type)
+            Token.O_MINUS -> GeneratedValue(env.builder.insertSub(left.value, right.value, temp("sub")), left.type)
+            Token.O_STAR -> GeneratedValue(env.builder.insertMul(left.value, right.value, temp("mul")), left.type)
+            Token.O_DIV -> GeneratedValue(env.builder.insertSDiv(left.value, right.value, temp("div")), left.type)
             Token.O_DOUBLE_EQ -> compareInts(IcmpPredicate.EQ, left, right)
             Token.O_NEQ -> compareInts(IcmpPredicate.NE, left, right)
             Token.O_LANG -> compareInts(IcmpPredicate.SLT, left, right)
@@ -324,7 +348,7 @@ class ExpressionEmitter(
         left: GeneratedValue,
         right: GeneratedValue,
     ): GeneratedValue {
-        val cmp = currentEnv().builder.insertICmp(pred, left.value, right.value, Name.auxTemp("cmp").identifier)
+        val cmp = currentEnv().builder.insertICmp(pred, left.value, right.value, temp("cmp"))
         return GeneratedValue(cmp, SemanticType.BoolType)
     }
 
@@ -334,9 +358,9 @@ class ExpressionEmitter(
         return when (node.op) {
             Token.O_MINUS -> {
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType)
-                GeneratedValue(env.builder.insertSub(zero, expr.value, Name.auxTemp("neg").identifier), expr.type)
+                GeneratedValue(env.builder.insertSub(zero, expr.value, temp("neg")), expr.type)
             }
-            Token.O_NOT -> GeneratedValue(env.builder.insertNot(expr.value, Name.auxTemp("not").identifier), expr.type)
+            Token.O_NOT -> GeneratedValue(env.builder.insertNot(expr.value, temp("not")), expr.type)
             else -> expr
         }
     }
@@ -354,7 +378,7 @@ class ExpressionEmitter(
         val base = emitExpression(node.expr) ?: return null
         val targetType = (ctx.expressionTypeMemory.recall(node.expr) { base.type } as? SemanticType.ReferenceType)?.type?.get()
             ?: base.type
-        val loaded = currentEnv().builder.insertLoad(targetType.toIRType(), base.value, Name.auxTemp("deref").identifier)
+        val loaded = currentEnv().builder.insertLoad(targetType.toIRType(), base.value, temp("deref"))
         return GeneratedValue(loaded, targetType)
     }
 
@@ -366,10 +390,10 @@ class ExpressionEmitter(
         if (sourceIr == targetIr) return GeneratedValue(expr.value, targetType)
         val builder = currentEnv().builder
         val casted = when (targetIr) {
-            TypeUtils.I1 -> builder.insertTrunc(expr.value, TypeUtils.I1 as IntegerType, Name.auxTemp("trunc").identifier)
-            TypeUtils.I8 -> builder.insertTrunc(expr.value, TypeUtils.I8 as IntegerType, Name.auxTemp("trunc").identifier)
-            TypeUtils.I32 -> builder.insertSExt(expr.value, TypeUtils.I32 as IntegerType, Name.auxTemp("sext").identifier)
-            else -> builder.insertBitcast(expr.value, targetIr, Name.auxTemp("bitcast").identifier)
+            TypeUtils.I1 -> builder.insertTrunc(expr.value, TypeUtils.I1 as IntegerType, temp("trunc"))
+            TypeUtils.I8 -> builder.insertTrunc(expr.value, TypeUtils.I8 as IntegerType, temp("trunc"))
+            TypeUtils.I32 -> builder.insertSExt(expr.value, TypeUtils.I32 as IntegerType, temp("sext"))
+            else -> builder.insertBitcast(expr.value, targetIr, temp("bitcast"))
         }
         return GeneratedValue(casted, targetType)
     }

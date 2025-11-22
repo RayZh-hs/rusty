@@ -32,6 +32,7 @@ import rusty.semantic.visitors.utils.sequentialLookup
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Stack
+import kotlin.sequences.generateSequence
 
 class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
     val selfResolver = SelfResolverCompanion()
@@ -651,9 +652,13 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                             is SemanticSymbol.Const -> symbol.type.get()
                             else -> {
                                 // first try interpreting as function header
-                                val func = (sequentialLookup(segment.name, currentScope(), { it.functionST }))
-                                if (func != null)
-                                    return (func.symbol as SemanticSymbol.Function).getFunctionHeader()
+                                val func = generateSequence(currentScope()) { it.parent }
+                                    .mapNotNull { scopePointer ->
+                                        val symbol = scopePointer.functionST.symbols[segment.name]
+                                        symbol as? SemanticSymbol.Function
+                                    }
+                                    .firstOrNull { it.selfParam.getOrNull() == null }
+                                if (func != null) return func.getFunctionHeader()
                                 // then try interpreting as struct/enum/trait type
                                 val typeSym = (sequentialLookup(segment.name, currentScope(), { it.typeST }))
                                     ?: throw CompileError("Unresolved variable, constant, function, or type: ${segment.name}")

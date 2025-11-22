@@ -20,6 +20,7 @@ import space.norb.llvm.builder.IRBuilder
 import space.norb.llvm.enums.LinkageType
 import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.TypeUtils
+import rusty.core.CompilerPointer
 
 class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     private val staticResolver = StaticResolverCompanion(ctx, SelfResolverCompanion())
@@ -35,6 +36,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             declareVariable = this::declareVariable,
             emitFunctionReturn = this::emitFunctionReturn,
             currentEnv = this::currentEnv,
+            addBlockComment = this::insertBlockComment,
         )
     }
 
@@ -46,9 +48,9 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             return
         }
         scopeMaintainer.withNextScope { funcScope ->
-            val plan = IRContext.functionPlans[symbol] ?: FunctionPlanBuilder.build(symbol).also {
-                IRContext.functionPlans[symbol] = it
-            }
+            val renamer = IRContext.renamerFor(symbol)
+            val plan = IRContext.functionPlans[symbol]
+                ?: throw IllegalStateException("Function plan missing for ${symbol.identifier}")
             val fn = IRContext.functionLookup[symbol]
                 ?: IRContext.module.registerFunction(plan.name.identifier, plan.type, LinkageType.INTERNAL, false).also {
                     IRContext.functionLookup[symbol] = it
@@ -60,20 +62,22 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             if (fn.basicBlocks.isNotEmpty()) return@withNextScope
 
             val builder = IRBuilder(IRContext.module)
-            val entry = fn.insertBasicBlock("entry", setAsEntrypoint = true)
+            val entry = fn.insertBasicBlock(Name.block(renamer).identifier, setAsEntrypoint = true)
             builder.positionAtEnd(entry)
             val returnSlot = if (!plan.returnsByPointer && plan.returnType != SemanticType.UnitType) {
-                builder.insertAlloca(plan.returnType.toIRType(), Name.auxTemp("ret").identifier)
+                builder.insertAlloca(plan.returnType.toIRType(), Name.auxTemp("ret", renamer).identifier)
             } else null
             val env = FunctionEnvironment(
                 builder = builder,
                 plan = plan,
                 function = fn,
                 scope = funcScope,
+                renamer = renamer,
                 returnSlot = returnSlot,
             )
             env.locals.addLast(mutableMapOf())
             envStack.addLast(env)
+            insertBlockComment(node.pointer, "entry")
             bindParameters(symbol, plan)
 
             val result = emitBlock(body)
@@ -93,7 +97,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val arg = args[idx]
             val selfSymbol = env.scope.variableST.resolve("self") as? SemanticSymbol.Variable
                 ?: throw IllegalStateException("Self symbol not found for ${symbol.identifier}")
-            val slot = declareVariable(selfSymbol, Name.auxSelf())
+            val slot = declareVariable(selfSymbol, Name.auxTemp("self", env.renamer))
             env.builder.insertStore(arg, slot)
         }
 
@@ -111,7 +115,10 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     private fun declareVariable(symbol: SemanticSymbol.Variable, nameOverride: Name? = null): space.norb.llvm.core.Value {
         val env = currentEnv()
         val storageType = symbol.type.get().toIRType()
-        val slot = env.builder.insertAlloca(storageType, (nameOverride ?: Name.ofVariable(symbol)).identifier)
+        val slot = env.builder.insertAlloca(
+            storageType,
+            (nameOverride ?: Name.ofVariable(symbol, env.renamer)).identifier
+        )
         env.locals.last()[symbol] = slot
         return slot
     }
@@ -120,7 +127,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val env = currentEnv()
         val slot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] }
             ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
-        val loaded = env.builder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol).identifier)
+        val loaded = env.builder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
         return GeneratedValue(loaded, symbol.type.get())
     }
 
@@ -172,6 +179,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val value = node.expressionNode?.let { exprEmitter.emitExpression(it) }
         boundSymbols.forEach { sym ->
             val slot = declareVariable(sym)
+            insertLetComment(node.pointer, sym.identifier)
             value?.let { env.builder.insertStore(it.value, slot) }
         }
     }
@@ -187,7 +195,11 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             }
             value != null -> env.builder.insertRet(value.value)
             env.returnSlot != null -> {
-                val loaded = env.builder.insertLoad(plan.returnType.toIRType(), env.returnSlot, Name.auxTemp("ret.load").identifier)
+                val loaded = env.builder.insertLoad(
+                    plan.returnType.toIRType(),
+                    env.returnSlot,
+                    Name.auxTemp("ret.load", env.renamer).identifier
+                )
                 env.builder.insertRet(loaded)
             }
             plan.returnType == SemanticType.UnitType -> {
@@ -201,4 +213,14 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         }
         env.terminated = true
     }
+
+    private fun insertBlockComment(pointer: CompilerPointer, label: String) {
+        currentEnv().builder.insertComment("${formatPointer(pointer)} $label", ";")
+    }
+
+    private fun insertLetComment(pointer: CompilerPointer, variableName: String) {
+        currentEnv().builder.insertComment("${formatPointer(pointer)} let $variableName", ";")
+    }
+
+    private fun formatPointer(pointer: CompilerPointer): String = "[${pointer.line}:${pointer.column}]"
 }

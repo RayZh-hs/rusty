@@ -8,7 +8,8 @@ while sticking to the naming and pointer model in `docs/ir-gen.md`.
 ## High-level pipeline
 
 1. **Reset IR context** – start every run with a fresh `Module`, builder helpers,
-   and lookup maps (struct types, function names, cached globals).
+   lookup maps (struct types, function names, cached globals), and a cleared
+   renamer cache.
 2. **Struct registration** – walk the scope tree (skipping prelude when requested)
    to declare opaque LLVM structs, then fill their fields. Empty structs get an
    `i8` filler to stay well-defined.
@@ -25,23 +26,34 @@ while sticking to the naming and pointer model in `docs/ir-gen.md`.
 
 ## Naming strategy
 
-Follow `<holder>.<type>.<name>(.<serial>)`:
-- **holder**: `user` for user code, `prelude` for built-ins, `aux` for temporaries.
-- **type**: `struct`, `func`, `var`, `block`.
-- **serial**: generated only for variables/blocks through an internal renamer to
-  keep names unique and stable for debugging.
+All IR identifiers follow `<holder>.<type>.<name>(.<serial>)`. Holders are
+`user` (user-defined), `prelude` (built-ins), or `aux` (compiler-generated).
+Types are `struct`, `func`, `var`, or `block`. Serials come from the LLVM
+`Renamer` and only apply where SSA demands uniqueness.
 
-Helpers in `Name` generate:
-- `ofStruct(id)`
-- `ofFunction(symbol, ownerName?)`
-- `ofVariable(symbol, allowSerial = true)`
-- `auxTemp(prefix)` for anonymous temps
-- `ofBlock(scopePath)` mirroring the scope tree
+Principles and helpers:
+- Cache names in `IRContext` so downstream passes reuse the same strings.
+- Use the `Renamer` for anything that might need disambiguation across SSA
+  values: basic blocks, user parameters, lets, and aux variables with names.
+- Call `Renamer.clear(baseName)` when starting a new function to reset block and
+  variable counters for that function scope.
+- Structs: `user.struct.<name>` (or `prelude.struct.<name>`), no serial.
+- Functions:
+  - Inherent impl: `user.func.<Type>.<function_name>`
+  - Free function: `user.func.<function_name>`
+  - Nested functions: join with `$`, e.g. `user.func.Type.outer$inner`
+  - Prelude/built-ins swap the `user` holder for `prelude`.
+- Parameters/locals: `user.var.<ident>.<serial>` via the renamer.
+- Special parameters: `aux.var.self`, `aux.var.ret` (no serial).
+- Block-return temps: `aux.var.blockret.<serial>`; other intermediates pass
+  `null` to emit anonymous temps.
+- Basic blocks: `aux.block.<serial>`, with the counter cleared per function.
 
 ## Return/value model
 
 - IR values use `SemanticType.toIRType()` for the in-SSA representation. Structs,
-  arrays, strings, and references all appear as `ptr` in SSA form.
+  arrays, strings, and references all appear as `ptr` in SSA form; unit/never
+  lower to `i8` padding with value 0.
 - Every local variable gets its own `alloca` of **value type** (so structs are
   stored as `ptr`, integers as `i{1|8|32}`), enabling mutation and `&` borrows.
 - Struct payloads live in separately allocated storage of the concrete struct
@@ -56,7 +68,7 @@ Helpers in `Name` generate:
 
 - **Blocks** allocate an `aux` slot (only when the block can produce a value) to
   hold the trailing expression result. Branches store into the aux slot and jump
-  to the merge block.
+  to the merge block. Names use `aux.var.blockret.<serial>`.
 - **If** lowers to the standard `cond → then/else → merge` shape, writing the
   chosen branch value into the aux slot.
 - **Loop/while** create `guard`, `body`, and `exit` blocks. `break` jumps to
@@ -68,7 +80,7 @@ Helpers in `Name` generate:
 
 - **Literals**: mapped to LLVM constants using `BuilderUtils` and cached globals
   for string/cstring literals (null-terminated arrays with `getelementptr` to
-  the first element).
+  the first element). Constants are inlined and unnamed.
 - **Paths**: resolve through the semantic scope; variables load from their slot,
   consts translate to IR constants, functions fetch the pre-registered `Function`.
 - **Struct literals**: allocate concrete struct storage, set each field with GEP
@@ -81,6 +93,9 @@ Helpers in `Name` generate:
 - **References/& and *:** `&expr` stores the address of an l-value; `*expr` loads
   from the pointer value. Auto-deref counts from semantic context are honored
   when available.
+- **Comments**: emit full-line comments at each basic block entry with
+  `[line:column] <label>` text, and inline comments for `let` bindings,
+  following the guidance in `docs/ir-gen.md`.
 
 ## State helpers
 

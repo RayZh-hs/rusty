@@ -14,7 +14,8 @@ class PreludeHandler(private val semanticContext: SemanticContext) {
         val preludeFunctions = semanticContext.scopeTree.functionST.symbols.values
             .filterIsInstance<SemanticSymbol.Function>()
         for (function in preludeFunctions) {
-            val plan = FunctionPlanBuilder.build(function, ownerName = null, paramNameExtractor = null)
+            val renamer = IRContext.renamerFor(function).also { it.clearAll() }
+            val plan = FunctionPlanBuilder.build(function, ownerName = null, renamer = renamer, paramNameExtractor = null)
             val fn = IRContext.module.declareExternalFunction(plan.name.identifier, plan.type)
             IRContext.functionPlans[function] = plan
             IRContext.functionNameLookup[function] = plan.name

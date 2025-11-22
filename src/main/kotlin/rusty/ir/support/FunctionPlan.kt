@@ -21,6 +21,7 @@ object FunctionPlanBuilder {
     fun build(
         symbol: SemanticSymbol.Function,
         ownerName: String? = null,
+        renamer: Renamer,
         paramNameExtractor: ParameterNameExtractor? = null,
     ): FunctionPlan {
         val semanticReturn = symbol.returnType.get()
@@ -54,7 +55,7 @@ object FunctionPlanBuilder {
                     identifier = "arg$index",
                     definedAt = param.pattern,
                 ),
-                allowSerial = false
+                renamer = renamer
             ).identifier
         }
 

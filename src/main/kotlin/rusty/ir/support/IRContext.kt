@@ -16,6 +16,7 @@ class IRContext {
         val functionNameLookup = mutableMapOf<SemanticSymbol.Function, Name>()
         val functionLookup = mutableMapOf<SemanticSymbol.Function, Function>()
         val functionPlans = mutableMapOf<SemanticSymbol.Function, FunctionPlan>()
+        val functionRenamers = mutableMapOf<SemanticSymbol.Function, Renamer>()
 
         // Original -> LLVM Struct Type
         val structTypeLookup = mutableMapOf<String, StructType.NamedStructType>()
@@ -24,12 +25,17 @@ class IRContext {
         val stringLiteralLookup = mutableMapOf<String, GlobalVariable>()
         val cStringLiteralLookup = mutableMapOf<String, GlobalVariable>()
 
+        fun renamerFor(function: SemanticSymbol.Function): Renamer {
+            return functionRenamers.getOrPut(function) { Renamer() }
+        }
+
         fun reset(moduleName: String = "rusty_generated_module") {
             module = Module(moduleName)
             enumIntegerLookup.clear()
             functionNameLookup.clear()
             functionLookup.clear()
             functionPlans.clear()
+            functionRenamers.clear()
             structTypeLookup.clear()
             stringLiteralLookup.clear()
             cStringLiteralLookup.clear()

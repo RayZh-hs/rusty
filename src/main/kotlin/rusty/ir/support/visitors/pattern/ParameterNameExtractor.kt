@@ -1,6 +1,7 @@
 package rusty.ir.support.visitors.pattern
 
 import rusty.ir.support.Name
+import rusty.ir.support.Renamer
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
@@ -11,6 +12,7 @@ import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
  */
 class ParameterNameExtractor(
     private val scope: Scope,
+    private val renamer: Renamer,
 ) {
     fun orderedParamNames(function: SemanticSymbol.Function): List<String> {
         val names = mutableListOf<String>()
@@ -22,7 +24,7 @@ class ParameterNameExtractor(
                     identifier = primary,
                     definedAt = param.pattern,
                 ),
-                allowSerial = false
+                renamer = renamer
             ).identifier
         }
         return names
