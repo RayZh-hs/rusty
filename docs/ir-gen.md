@@ -15,7 +15,7 @@ The `SemanticType` system has a corresponding IR type system:
 - Enums are represented as `i32` (discriminant only, C++ style).
 - Compound types are represented as pointers (`ptr`).
 - Other types (Unit Type, Never Type) are padded with `i8`.
-    -> This is to ensure that structs with unit fields are well-defined.\
+    -> This is to ensure that structs with unit fields are well-defined.
 - Traits have been removed.
 
 All structs are defined globally as `types` in llvm-ir at the beginning. If a struct type is empty, it is filled with a single `i8` field to ensure well-definedness.

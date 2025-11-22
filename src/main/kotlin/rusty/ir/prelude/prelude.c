@@ -1,5 +1,5 @@
-#include <cstdio>
-#include <cstdint>
+#include <stdio.h>
+#include <stdint.h>
 
 void __c_print_int(int32_t value) {
     printf("%d", value);

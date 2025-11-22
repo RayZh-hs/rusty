@@ -52,6 +52,7 @@ class ExpressionEmitter(
             is ExpressionNode.WithoutBlockExpressionNode.LiteralExpressionNode -> emitLiteral(node)
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> emitPath(node)
             is ExpressionNode.WithoutBlockExpressionNode.StructExpressionNode -> emitStructLiteral(node)
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> emitField(node)
             is ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode -> emitCall(node)
             is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> emitInfix(node)
             is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> emitPrefix(node)
@@ -135,9 +136,11 @@ class ExpressionEmitter(
                 linkage = LinkageType.PRIVATE,
             )
         }
+        val elementType = global.elementType
+            ?: throw IllegalStateException("Global literal missing element type")
         val builder = currentEnv().builder
         val gep = builder.insertGep(
-            global.type,
+            elementType,
             global,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
@@ -184,7 +187,7 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Struct type '$structName' not registered")
         val storage = env.builder.insertAlloca(structType, Name.ofStruct(structName).identifier)
         node.fields.forEachIndexed { index, field ->
-            val fieldType = symbol.fields[field.identifier]?.get()
+            symbol.fields[field.identifier]?.get()
                 ?: throw IllegalStateException("Unknown field ${field.identifier} on $structName")
             val value = when {
                 field.expressionNode != null -> emitExpression(field.expressionNode)
@@ -208,6 +211,39 @@ class ExpressionEmitter(
         }
         val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, Name.auxTemp("${structName}.ptr").identifier)
         return GeneratedValue(ptrValue, symbol.definesType)
+    }
+
+    private fun emitField(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): GeneratedValue? {
+        var base = emitExpression(node.base) ?: return null
+        var baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }
+
+        // Auto-dereference reference layers to reach the underlying struct pointer.
+        while (baseType is SemanticType.ReferenceType) {
+            val inner = baseType.type.getOrNull() ?: return null
+            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, Name.auxTemp("deref").identifier)
+            base = GeneratedValue(loaded, inner)
+            baseType = inner
+        }
+
+        val structType = baseType as? SemanticType.StructType ?: return null
+        val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
+            as? SemanticSymbol.Struct ?: return null
+        val fieldIndex = structSymbol.fields.keys.toList().indexOf(node.field)
+        if (fieldIndex == -1) return null
+
+        val fieldType = structSymbol.fields[node.field]?.get() ?: return null
+        val structIrType = IRContext.structTypeLookup[structType.identifier] ?: return null
+        val gep = currentEnv().builder.insertGep(
+            structIrType,
+            base.value,
+            listOf(
+                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
+            ),
+            Name.auxTemp("${structType.identifier}.${node.field}").identifier
+        )
+        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), gep, Name.auxTemp("${structType.identifier}.${node.field}.load").identifier)
+        return GeneratedValue(loaded, fieldType)
     }
 
     private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {

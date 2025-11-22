@@ -38,7 +38,9 @@ class AllRsResourceTests {
                     file.path.contains("/preprocessor/") -> "pre"
                     file.path.contains("/lexer/") -> "lex"
                     file.path.contains("/semantic/") -> "sem"
-                    else -> "parse"
+                    file.path.contains("/parser/") -> "parse"
+                    file.path.contains("/ir/") -> "ir"
+                    else -> "ir"
                 }
                 val args = arrayOf("-i", file.path, "-o", outFile.path, "-m", mode)
                 var threw = false
