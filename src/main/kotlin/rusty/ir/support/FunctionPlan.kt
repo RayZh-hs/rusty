@@ -24,7 +24,8 @@ object FunctionPlanBuilder {
         paramNameExtractor: ParameterNameExtractor? = null,
     ): FunctionPlan {
         val semanticReturn = symbol.returnType.get()
-        val returnsDirect = semanticReturn.toIRType() is IntegerType
+        val returnIrType = semanticReturn.toIRType()
+        val returnsDirect = returnIrType is IntegerType || returnIrType == TypeUtils.PTR
         val returnsByPointer = !returnsDirect && semanticReturn != SemanticType.UnitType
 
         val paramTypes = mutableListOf<space.norb.llvm.core.Type>()
@@ -57,8 +58,8 @@ object FunctionPlanBuilder {
             ).identifier
         }
 
-        val returnIrType = if (returnsByPointer) TypeUtils.VOID else semanticReturn.toIRType()
-        val fnType = FunctionType(returnIrType, paramTypes, false, paramNames)
+        val functionIrReturn = if (returnsByPointer) TypeUtils.VOID else returnIrType
+        val fnType = FunctionType(functionIrReturn, paramTypes, false, paramNames)
         val fnName = Name.ofFunction(symbol, ownerName)
 
         return FunctionPlan(

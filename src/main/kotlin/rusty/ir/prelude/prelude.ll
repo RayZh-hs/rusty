@@ -4,27 +4,44 @@ declare void @__c_println_int(i32)
 declare void @__c_print_str(ptr)
 declare void @__c_println_str(ptr)
 declare i32 @__c_get_int()
+declare void @__c_get_str(ptr)
 declare i32 @__c_strlen(ptr)
+declare i32 @user.func.main()
+declare void @exit(i32) nounwind
 
-; Bind to prelude functions
-define void @prelude.func.print(ptr %0) {
-entry:
+; Bind to prelude functions, () mapped to i8(0)
+define i8 @prelude.func.print(ptr %0) {
     call void @__c_print_str(ptr %0)
-    ret void
+    ret i8 0
 }
-define void @prelude.func.println(ptr %0) {
+define i8 @prelude.func.println(ptr %0) {
     call void @__c_println_str(ptr %0)
-    ret void
+    ret i8 0
 }
-define void @prelude.func.printInt(i32 %0) {
+define i8 @prelude.func.printInt(i32 %0) {
     call void @__c_print_int(i32 %0)
-    ret void
+    ret i8 0
 }
-define void @prelude.func.printlnInt(i32 %0) {
+define i8 @prelude.func.printlnInt(i32 %0) {
     call void @__c_println_int(i32 %0)
-    ret void
+    ret i8 0
 }
 define i32 @prelude.func.getInt() {
     %1 = call i32 @__c_get_int()
     ret i32 %1
+}
+define void @prelude.func.getStr(ptr %0) {
+    call void @__c_get_str(ptr %0)
+    ret void
+}
+define i32 @prelude.func.exit(i32 %code) nounwind noreturn {
+entry:
+  call void @exit(i32 %code)
+  unreachable
+}
+
+; Bind main function to user code
+define i32 @main() {
+    %retcode = call i32 @user.func.main()
+    ret i32 %retcode
 }

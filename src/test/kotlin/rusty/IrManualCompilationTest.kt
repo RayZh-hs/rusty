@@ -118,9 +118,30 @@ class IrManualCompilationTest {
             }
         }
 
-        val clangResult = runProcess(listOf(clangBinary, irOutput.toString(), "-o", exeOutput.toString()))
+        val preludeDir = Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude")
+        val preludeLl = preludeDir.resolve("prelude.ll")
+        val preludeCLl = preludeDir.resolve("prelude.c.ll")
+        listOf(preludeLl, preludeCLl).forEach {
+            require(Files.exists(it)) { "Prelude IR missing: $it" }
+        }
+
+        val clangArgs = listOf(
+            clangBinary,
+            irOutput.toString(),
+            preludeLl.toString(),
+            preludeCLl.toString(),
+            "-o",
+            exeOutput.toString()
+        )
+        val clangResult = runProcess(clangArgs)
         if (clangResult.exitCode != 0) {
-            fail("clang failed (exit ${clangResult.exitCode}) for $input. Output:\n${clangResult.output}")
+            fail(
+                buildString {
+                    append("clang failed (exit ${clangResult.exitCode}) for $input.\n")
+                    append("Command: ${clangArgs.joinToString(" ")}\n")
+                    append("Output:\n${clangResult.output}")
+                }
+            )
         }
 
         println("[IrManualCompilationTest] IR saved to $irOutput")

@@ -278,7 +278,8 @@ class ExpressionEmitter(
         }
         callArgs.addAll(userArgs)
 
-        val callInst = env.builder.insertCall(fn, callArgs, Name.auxTemp("call").identifier)
+        val callInstName = if (plan.returnsByPointer) "" else Name.auxTemp("call").identifier
+        val callInst = env.builder.insertCall(fn, callArgs, callInstName)
         return if (plan.returnsByPointer) {
             val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, Name.auxTemp("ret.load").identifier)
             GeneratedValue(loaded, plan.returnType)

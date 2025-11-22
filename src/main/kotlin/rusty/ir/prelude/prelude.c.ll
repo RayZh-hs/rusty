@@ -7,6 +7,7 @@ target triple = "x86_64-pc-linux-gnu"
 @.str.1 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 @.str.2 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
 @.str.3 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
+@stdin = external global ptr, align 8
 
 ; Function Attrs: noinline nounwind optnone uwtable
 define dso_local void @__c_print_int(i32 noundef %0) #0 {
@@ -55,6 +56,18 @@ define dso_local i32 @__c_get_int() #0 {
 }
 
 declare i32 @__isoc99_scanf(ptr noundef, ...) #1
+
+; Function Attrs: noinline nounwind optnone uwtable
+define dso_local void @__c_get_str(ptr noundef %0) #0 {
+  %2 = alloca ptr, align 8
+  store ptr %0, ptr %2, align 8
+  %3 = load ptr, ptr %2, align 8
+  %4 = load ptr, ptr @stdin, align 8
+  %5 = call ptr @fgets(ptr noundef %3, i32 noundef 1024, ptr noundef %4)
+  ret void
+}
+
+declare ptr @fgets(ptr noundef, i32 noundef, ptr noundef) #1
 
 ; Function Attrs: noinline nounwind optnone uwtable
 define dso_local i32 @__c_strlen(ptr noundef %0) #0 {

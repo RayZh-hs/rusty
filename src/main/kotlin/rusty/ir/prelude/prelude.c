@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#define FGETS_BUFFER_SIZE 1024
 
 void __c_print_int(int32_t value) {
     printf("%d", value);
@@ -21,6 +22,11 @@ int32_t __c_get_int() {
     int32_t value;
     scanf("%d", &value);
     return value;
+}
+
+void __c_get_str(char* buffer) {
+    // get line from stdin
+    fgets(buffer, FGETS_BUFFER_SIZE, stdin);
 }
 
 int32_t __c_strlen(const char* str) {
