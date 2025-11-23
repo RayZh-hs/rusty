@@ -202,16 +202,19 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             plan.returnsByPointer -> {
                 val dest = plan.retParamIndex?.let { env.function.parameters[it] }
                     ?: throw IllegalStateException("Return pointer missing for ${plan.name.identifier}")
-                if (value != null) {
-                    if (plan.returnType is SemanticType.StructType) {
-                        val storageType = plan.returnType.toStorageIRType()
-                        val loaded = env.builder.insertLoad(storageType, value.value, Name.auxTemp("ret.copy", env.renamer).identifier)
-                        env.builder.insertStore(loaded, dest)
-                    } else {
-                        env.builder.insertStore(value.value, dest)
-                    }
+                val storageType = plan.returnType.toStorageIRType()
+                val copyValue = if (value != null) {
+                    env.builder.insertLoad(
+                        storageType,
+                        value.value,
+                        Name.auxTemp("ret.copy", env.renamer).identifier
+                    )
+                } else {
+                    BuilderUtils.createZeroValue(storageType)
                 }
-                env.builder.insertRetVoid()
+                env.builder.insertStore(copyValue, dest)
+                val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
+                env.builder.insertRet(zero)
             }
             value != null -> env.builder.insertRet(value.value)
             env.returnSlot != null -> {

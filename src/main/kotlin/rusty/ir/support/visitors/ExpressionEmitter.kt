@@ -7,6 +7,7 @@ import rusty.ir.support.IRContext
 import rusty.ir.support.Name
 import rusty.ir.support.toIRType
 import rusty.ir.support.toStorageIRType
+import rusty.ir.support.unwrapReferences
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
@@ -257,8 +258,6 @@ class ExpressionEmitter(
         }
             as? SemanticType.ArrayType
             ?: throw IllegalStateException("Array literal type not resolved for $node")
-        val elementType = arrayType.elementType.getOrNull()
-            ?: throw IllegalStateException("Element type unresolved for $arrayType")
         val length = arrayType.length.getOrNull()
             ?: throw IllegalStateException("Array length unresolved for $arrayType")
         val storageType = arrayStorageType(arrayType)
@@ -345,22 +344,14 @@ class ExpressionEmitter(
             "Call argument mismatch for ${plan.name.identifier} at ${node.pointer.line}:${node.pointer.column}: expected $expectedArgs, got ${callArgs.size}"
         }
 
-        val callInstName = if (plan.returnsByPointer) "" else temp("call")
+        val callInstName = temp(if (plan.returnsByPointer) "call.discard" else "call")
         val callInst = env.builder.insertCall(fn, callArgs, callInstName)
-        return when {
-            plan.returnsByPointer && plan.returnType is SemanticType.StructType -> GeneratedValue(retSlot!!, plan.returnType)
-            plan.returnsByPointer -> {
-                val loaded = env.builder.insertLoad(plan.returnType.toIRType(), retSlot!!, temp("ret.load"))
-                GeneratedValue(loaded, plan.returnType)
-            }
-            plan.returnType is SemanticType.StructType -> {
-                val storage = env.builder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.struct"))
-                val structVal = env.builder.insertLoad(plan.returnType.toStorageIRType(), callInst, temp("ret.struct.load"))
-                env.builder.insertStore(structVal, storage)
-                GeneratedValue(storage, plan.returnType)
-            }
-            else -> GeneratedValue(callInst, plan.returnType)
+        if (plan.returnsByPointer) {
+            val slot = retSlot
+                ?: throw IllegalStateException("Return slot missing for pointer-returning call ${plan.name.identifier}")
+            return GeneratedValue(slot, plan.returnType)
         }
+        return GeneratedValue(callInst, plan.returnType)
     }
 
     private fun prepareMethodReceiver(
@@ -387,14 +378,6 @@ class ExpressionEmitter(
             .firstOrNull(predicate)
         if (scoped != null) return scoped
         return IRContext.functionPlans.keys.firstOrNull { it.identifier == name && predicate(it) }
-    }
-
-    private fun SemanticType.unwrapReferences(): SemanticType {
-        var ty: SemanticType = this
-        while (ty is SemanticType.ReferenceType) {
-            ty = ty.type.get()
-        }
-        return ty
     }
 
     private fun arrayStorageType(array: SemanticType.ArrayType): ArrayType {
@@ -479,6 +462,10 @@ class ExpressionEmitter(
             return GeneratedValue(result, SemanticType.UnitType)
         }
 
+        if (op == Token.O_DOUBLE_AND || op == Token.O_DOUBLE_OR) {
+            return emitLogicalInfix(node, op == Token.O_DOUBLE_OR)
+        }
+
         val left = emitExpression(node.left) ?: return null
         val right = emitExpression(node.right) ?: return null
         val arithmeticUnsigned = ctx.expressionTypeMemory.recall(node.left) { left.type }.isUnsignedInteger()
@@ -515,6 +502,40 @@ class ExpressionEmitter(
         }
     }
 
+    private fun emitLogicalInfix(
+        node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode,
+        shortCircuitOnTrue: Boolean
+    ): GeneratedValue? {
+        val env = currentEnv()
+        val fn = env.function
+        val left = emitExpression(node.left) ?: return null
+        val rhsBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        val shortBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        val mergeBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        val boolType = SemanticType.BoolType.toIRType()
+        val resultSlot = env.builder.insertAlloca(boolType, temp("logic.result"))
+
+        if (shortCircuitOnTrue) {
+            env.builder.insertCondBr(left.value, shortBlock, rhsBlock)
+            env.builder.positionAtEnd(shortBlock)
+            env.builder.insertStore(boolConstant(true), resultSlot)
+        } else {
+            env.builder.insertCondBr(left.value, rhsBlock, shortBlock)
+            env.builder.positionAtEnd(shortBlock)
+            env.builder.insertStore(boolConstant(false), resultSlot)
+        }
+        env.builder.insertBr(mergeBlock)
+
+        env.builder.positionAtEnd(rhsBlock)
+        val right = emitExpression(node.right) ?: return null
+        env.builder.insertStore(right.value, resultSlot)
+        env.builder.insertBr(mergeBlock)
+
+        env.builder.positionAtEnd(mergeBlock)
+        val loaded = env.builder.insertLoad(boolType, resultSlot, temp("logic.load"))
+        return GeneratedValue(loaded, SemanticType.BoolType)
+    }
+
     private fun compareInts(
         pred: IcmpPredicate,
         left: GeneratedValue,
@@ -549,7 +570,22 @@ class ExpressionEmitter(
         val slot = currentEnv().locals.asReversed().firstNotNullOfOrNull { map ->
             map[symbol] ?: map.entries.firstOrNull { it.key.identifier == symbol.identifier }?.value
         } ?: return null
-        return GeneratedValue(slot, SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(node.isMut)))
+        val symbolType = symbol.type.get()
+        val baseType = ctx.expressionTypeMemory.recall(node.expr) { symbolType }
+        val underlyingType = when (baseType) {
+            is SemanticType.ReferenceType -> baseType.type.getOrNull() ?: symbolType
+            else -> baseType
+        }
+        val pointerValue = when (underlyingType) {
+            is SemanticType.ArrayType,
+            is SemanticType.StructType -> currentEnv().builder.insertLoad(
+                symbolType.toIRType(),
+                slot,
+                temp("addr.load")
+            )
+            else -> slot
+        }
+        return GeneratedValue(pointerValue, SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(node.isMut)))
     }
 
     private fun emitDereference(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode): GeneratedValue? {
@@ -623,6 +659,9 @@ class ExpressionEmitter(
             else -> GeneratedValue(BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType), value.type)
         }
     }
+
+    private fun boolConstant(value: Boolean): Value =
+        BuilderUtils.getIntConstant(if (value) 1 else 0, TypeUtils.I1 as IntegerType)
 
     private fun Token.isAssignmentVariant(): Boolean = this in setOf(
         Token.O_EQ, Token.O_PLUS_EQ, Token.O_MINUS_EQ, Token.O_STAR_EQ, Token.O_DIV_EQ,

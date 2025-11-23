@@ -6,10 +6,22 @@ declare void @__c_println_str(ptr)
 declare i32 @__c_get_int()
 declare void @__c_get_str(ptr)
 declare i32 @__c_strlen(ptr)
+declare void @__c_memcpy(ptr, ptr, i32)
+declare void @__c_itoa(i32, ptr)
 declare i32 @user.func.main()
 declare void @exit(i32) nounwind
 
-; Bind to prelude functions, () mapped to i8(0)
+; The String class is expected to hold a single pointer to a C-style string
+%prelude.struct.String = type { ptr }
+define i32 @prelude.String.len(ptr %aux.var.self) {
+entry:
+  %self_ptr = getelementptr inbounds %prelude.struct.String, ptr %aux.var.self, i32 0, i32 0
+  %str_ptr = load ptr, ptr %self_ptr
+  %len = call i32 @__c_strlen(ptr noundef %str_ptr)
+  ret i32 %len
+}
+
+; Bindings for prelude functions, () mapped to i8(0)
 define i8 @prelude.func.print(ptr %0) {
     call void @__c_print_str(ptr %0)
     ret i8 0
@@ -30,14 +42,24 @@ define i32 @prelude.func.getInt() {
     %1 = call i32 @__c_get_int()
     ret i32 %1
 }
-define void @prelude.func.getStr(ptr %0) {
+define i8 @prelude.func.getString(ptr %0) {
     call void @__c_get_str(ptr %0)
-    ret void
+    ret i8 0
 }
 define i32 @prelude.func.exit(i32 %code) nounwind noreturn {
 entry:
   call void @exit(i32 %code)
   unreachable
+}
+
+; Bindings for C api functions
+define void @aux.func.memcpy(ptr %from.ptr, ptr %to.ptr, i32 %size) {
+    call void @__c_memcpy(ptr noundef %to.ptr, ptr noundef %from.ptr, i32 noundef %size)
+    ret void
+}
+define void @aux.func.itoa(i32 %value, ptr %out.ptr) {
+    call void @__c_itoa(i32 noundef %value, ptr noundef %out.ptr)
+    ret void
 }
 
 ; Bind main function to user code

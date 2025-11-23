@@ -87,3 +87,21 @@ fun SemanticType.toStorageIRType(): IRType {
         else -> this.toIRType()
     }
 }
+
+fun SemanticType.unwrapReferences(): SemanticType {
+    var current: SemanticType = this
+    while (current is SemanticType.ReferenceType) {
+        val next = current.type.getOrNull() ?: break
+        current = next
+    }
+    return current
+}
+
+fun SemanticType.requiresReturnPointer(): Boolean {
+    if (this is SemanticType.ReferenceType) return false
+    return when (unwrapReferences()) {
+        is SemanticType.StructType,
+        is SemanticType.ArrayType -> true
+        else -> false
+    }
+}

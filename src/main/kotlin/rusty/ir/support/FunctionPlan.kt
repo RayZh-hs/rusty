@@ -4,7 +4,6 @@ import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.ir.support.visitors.pattern.ParameterNameExtractor
 import space.norb.llvm.types.FunctionType
-import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.TypeUtils
 
 data class FunctionPlan(
@@ -26,8 +25,7 @@ object FunctionPlanBuilder {
     ): FunctionPlan {
         val semanticReturn = symbol.returnType.get()
         val returnIrType = semanticReturn.toIRType()
-        val returnsDirect = returnIrType is IntegerType || returnIrType == TypeUtils.PTR
-        val returnsByPointer = !returnsDirect && semanticReturn != SemanticType.UnitType
+        val returnsByPointer = semanticReturn.requiresReturnPointer()
 
         val paramTypes = mutableListOf<space.norb.llvm.core.Type>()
         val paramNames = mutableListOf<String>()
@@ -43,10 +41,10 @@ object FunctionPlanBuilder {
         if (returnsByPointer) {
             retIndex = paramTypes.size
             paramTypes += TypeUtils.PTR
-        paramNames += Name.auxReturn().identifier
-    }
+            paramNames += Name.auxReturn().identifier
+        }
 
-    val extractedNames = paramNameExtractor?.orderedParamNames(symbol) ?: emptyList()
+        val extractedNames = paramNameExtractor?.orderedParamNames(symbol) ?: emptyList()
         symbol.funcParams.getOrNull()?.forEachIndexed { index, param ->
             paramTypes += param.type.get().toIRType()
             val userName = extractedNames.getOrNull(index)
@@ -59,7 +57,7 @@ object FunctionPlanBuilder {
             ).identifier
         }
 
-        val functionIrReturn = if (returnsByPointer) TypeUtils.VOID else returnIrType
+        val functionIrReturn = if (returnsByPointer) TypeUtils.I8 else returnIrType
         val fnType = FunctionType(functionIrReturn, paramTypes, false, paramNames)
         val fnName = Name.ofFunction(symbol, ownerName)
 
