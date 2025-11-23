@@ -12,17 +12,21 @@ while sticking to the naming and pointer model in `docs/ir-gen.md`.
    renamer cache.
 2. **Struct registration** – walk the scope tree (skipping prelude when requested)
    to declare opaque LLVM structs, then fill their fields. Empty structs get an
-   `i8` filler to stay well-defined.
-3. **Prelude declarations** – declare external functions for prelude entries
+   `i8` filler to stay well-defined. Field types use the canonical LLVM storage
+   type (structs, nested arrays, etc.) so that later passes see the true layout.
+3. **Struct sizeof helpers** – after struct bodies are finalized, generate
+   `aux.func.sizeof.<StructName>` helpers that return the runtime size in bytes
+   using the `getelementptr %Struct, ptr null, i32 1` trick.
+4. **Prelude declarations** – declare external functions for prelude entries
    (`print`, `println`, `printInt`, `printlnInt`, `getString`, `getInt`, `exit`)
    so calls can be lowered without providing bodies.
-4. **Function collection** – traverse items to create LLVM function declarations
+5. **Function collection** – traverse items to create LLVM function declarations
    for every user function/method. Map the semantic symbol to a mangled name and
    a `Function` instance stored in `IRContext`.
-5. **Body generation** – revisit functions with bodies and emit instructions:
+6. **Body generation** – revisit functions with bodies and emit instructions:
    build entry block, bind parameters, materialize locals/temps, translate
    expressions/statements, and stitch control flow.
-6. **Dump** – complete all blocks and emit `module.toIRString()`.
+7. **Dump** – complete all blocks and emit `module.toIRString()`.
 
 ## Naming strategy
 
@@ -53,7 +57,9 @@ Principles and helpers:
 
 - IR values use `SemanticType.toIRType()` for the in-SSA representation. Structs,
   arrays, strings, and references all appear as `ptr` in SSA form; unit/never
-  lower to `i8` padding with value 0.
+  lower to `i8` padding with value 0. Whenever the bytes of an aggregate are
+  needed (struct copies, array fills), we materialize canonical storage based on
+  the LLVM struct/array types tracked in `IRContext`.
 - Every local variable gets its own `alloca` of **value type** (so structs are
   stored as `ptr`, integers as `i{1|8|32}`), enabling mutation and `&` borrows.
 - Struct payloads live in separately allocated storage of the concrete struct
@@ -85,6 +91,10 @@ Principles and helpers:
   consts translate to IR constants, functions fetch the pre-registered `Function`.
 - **Struct literals**: allocate concrete struct storage, set each field with GEP
   + store, then yield the pointer to that storage.
+- **Array literals**: allocate storage for the final array plus a temporary
+  pattern buffer, populate the buffer once, and call `aux.func.memfill` to copy
+  the pattern across the destination. Struct element sizes come from the generated
+  `aux.func.sizeof.*` helpers.
 - **Binary ops**: arithmetic via `add/sub/mul/sdiv`, comparisons via `icmp`
   signed predicates, bitwise via `and/or/xor`. Assignment variants load/compute
   then store back, yielding unit.

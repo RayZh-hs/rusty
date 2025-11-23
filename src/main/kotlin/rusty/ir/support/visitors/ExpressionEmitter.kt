@@ -242,14 +242,34 @@ class ExpressionEmitter(
 
     private fun emitField(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): GeneratedValue? {
         val (ptr, fieldType) = emitFieldPointer(node) ?: return null
-        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), ptr, temp("${node.field}.load"))
-        return GeneratedValue(loaded, fieldType)
+        val underlying = fieldType.unwrapReferences()
+        val needsLoad = when (underlying) {
+            is SemanticType.StructType,
+            is SemanticType.ArrayType -> false
+            else -> true
+        }
+        val value = if (needsLoad) {
+            currentEnv().builder.insertLoad(fieldType.toIRType(), ptr, temp("${node.field}.load"))
+        } else {
+            ptr
+        }
+        return GeneratedValue(value, fieldType)
     }
 
     private fun emitIndex(node: ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode): GeneratedValue? {
         val (ptr, elementType) = emitIndexPointer(node) ?: return null
-        val loaded = currentEnv().builder.insertLoad(elementType.toIRType(), ptr, temp("index.load"))
-        return GeneratedValue(loaded, elementType)
+        val underlying = elementType.unwrapReferences()
+        val needsLoad = when (underlying) {
+            is SemanticType.StructType,
+            is SemanticType.ArrayType -> false
+            else -> true
+        }
+        val value = if (needsLoad) {
+            currentEnv().builder.insertLoad(elementType.toIRType(), ptr, temp("index.load"))
+        } else {
+            ptr
+        }
+        return GeneratedValue(value, elementType)
     }
 
     private fun emitArrayLiteral(node: ExpressionNode.WithoutBlockExpressionNode.ArrayExpressionNode): GeneratedValue {
@@ -260,6 +280,8 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Array literal type not resolved for $node")
         val length = arrayType.length.getOrNull()
             ?: throw IllegalStateException("Array length unresolved for $arrayType")
+        val elementType = arrayType.elementType.getOrNull()
+            ?: throw IllegalStateException("Array element type unresolved for $arrayType")
         val storageType = arrayStorageType(arrayType)
 
         val env = currentEnv()
@@ -272,17 +294,27 @@ class ExpressionEmitter(
             "Array literal length mismatch: elements=$elementCount, length=$totalLength"
         }
 
-        var position = 0L
-        var repeatCursor = 0L
-        while (repeatCursor < repeat) {
-            node.elements.forEach { elementExpr ->
-                val value = emitExpression(elementExpr)
-                    ?: throw IllegalStateException("Failed to emit array element at $position for $arrayType")
-                storeArrayElement(storageType, storage, position, value)
-                position++
-            }
-            repeatCursor++
+        val patternType = ArrayType(elementCount, storageType.elementType)
+        val patternStorage = env.builder.insertAlloca(patternType, temp("array.pattern"))
+        node.elements.forEachIndexed { index, elementExpr ->
+            val value = emitExpression(elementExpr)
+                ?: throw IllegalStateException("Failed to emit array element at $index for $arrayType")
+            storeArrayElement(patternType, patternStorage, index.toLong(), value, elementType)
         }
+
+        val builder = env.builder
+        val destPtr = builder.insertBitcast(storage, TypeUtils.PTR, temp("array.dest"))
+        val patternPtr = builder.insertBitcast(patternStorage, TypeUtils.PTR, temp("array.pattern.ptr"))
+        val elementSize = emitTypeSizeBytes(elementType)
+        val i32Type = TypeUtils.I32 as IntegerType
+        val chunkSize = if (elementCount == 1) {
+            elementSize
+        } else {
+            val elemCountConst = BuilderUtils.getIntConstant(elementCount.toLong(), i32Type)
+            builder.insertMul(elementSize, elemCountConst, temp("array.chunk.size"))
+        }
+        val repeatValue = BuilderUtils.getIntConstant(repeat, i32Type)
+        callMemfill(destPtr, patternPtr, chunkSize, repeatValue)
 
         val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("array.ptr"))
         return GeneratedValue(ptrValue, arrayType)
@@ -400,7 +432,7 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Array length unresolved for $array")
         val lengthInt = length.value.toLong()
         require(lengthInt <= Int.MAX_VALUE) { "Array length too large for IR: $lengthInt" }
-        return ArrayType(lengthInt.toInt(), elementType.toIRType())
+        return ArrayType(lengthInt.toInt(), elementType.toStorageIRType())
     }
 
     private fun storeArrayElement(
@@ -408,6 +440,7 @@ class ExpressionEmitter(
         storage: space.norb.llvm.core.Value,
         index: Long,
         value: GeneratedValue,
+        elementSemanticType: SemanticType,
     ) {
         val builder = currentEnv().builder
         val gep = builder.insertGep(
@@ -419,7 +452,16 @@ class ExpressionEmitter(
             ),
             temp("array.elem")
         )
-        builder.insertStore(value.value, gep)
+        val storedValue = when (elementSemanticType) {
+            is SemanticType.StructType,
+            is SemanticType.ArrayType -> builder.insertLoad(
+                elementSemanticType.toStorageIRType(),
+                value.value,
+                temp("array.elem.load")
+            )
+            else -> value.value
+        }
+        builder.insertStore(storedValue, gep)
     }
 
     private fun SemanticType.isUnsignedInteger(): Boolean = when (unwrapReferences()) {
@@ -792,6 +834,59 @@ class ExpressionEmitter(
         )
         currentEnv().builder.insertCall(sprintfFn, listOf(buffer, formatLiteral.value, value.value), temp("sprintf"))
         return GeneratedValue(buffer, SemanticType.StringStructType)
+    }
+
+    private fun emitTypeSizeBytes(type: SemanticType): Value {
+        val builder = currentEnv().builder
+        val i32Type = TypeUtils.I32 as IntegerType
+        return when (type) {
+            is SemanticType.ReferenceType -> BuilderUtils.getIntConstant(8L, i32Type)
+            SemanticType.StrType,
+            SemanticType.CStrType -> BuilderUtils.getIntConstant(8L, i32Type)
+            SemanticType.BoolType -> BuilderUtils.getIntConstant(1, i32Type)
+            SemanticType.CharType -> BuilderUtils.getIntConstant(1, i32Type)
+            SemanticType.UnitType,
+            SemanticType.NeverType -> BuilderUtils.getIntConstant(1, i32Type)
+            SemanticType.I32Type,
+            SemanticType.U32Type,
+            SemanticType.ISizeType,
+            SemanticType.USizeType,
+            SemanticType.AnyIntType,
+            SemanticType.AnyUnsignedIntType,
+            SemanticType.AnySignedIntType,
+            SemanticType.ExitType -> BuilderUtils.getIntConstant(4, i32Type)
+            is SemanticType.EnumType -> BuilderUtils.getIntConstant(4, i32Type)
+            is SemanticType.StructType -> {
+                val fn = IRContext.structSizeFunctionLookup[type.identifier]
+                    ?: throw IllegalStateException("Struct size helper missing for ${type.identifier}")
+                builder.insertCall(fn, emptyList(), temp("sizeof.${type.identifier}"))
+            }
+            is SemanticType.ArrayType -> {
+                val element = type.elementType.getOrNull()
+                    ?: throw IllegalStateException("Array element type unresolved for $type")
+                val len = type.length.getOrNull()
+                    ?: throw IllegalStateException("Array length unresolved for $type")
+                val elementSize = emitTypeSizeBytes(element)
+                val lenConst = BuilderUtils.getIntConstant(len.value.toLong(), i32Type)
+                builder.insertMul(elementSize, lenConst, temp("sizeof.array"))
+            }
+            else -> BuilderUtils.getIntConstant(8L, i32Type)
+        }
+    }
+
+    private fun callMemfill(
+        destPtr: Value,
+        srcPtr: Value,
+        chunkSize: Value,
+        repeatCount: Value,
+    ) {
+        val fn = ensureExternalFunction(
+            "aux.func.memfill.iter",
+            TypeUtils.I8,
+            listOf(TypeUtils.PTR, TypeUtils.PTR, TypeUtils.I32, TypeUtils.I32),
+            false
+        )
+        currentEnv().builder.insertCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount), null)
     }
 
     private fun ensureExternalFunction(

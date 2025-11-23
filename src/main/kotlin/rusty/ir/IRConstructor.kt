@@ -5,6 +5,7 @@ import rusty.ir.support.visitors.FunctionRegistrar
 import rusty.ir.support.visitors.FunctionBodyGenerator
 import rusty.ir.support.visitors.PreludeHandler
 import rusty.ir.support.visitors.StructHandler
+import rusty.ir.support.visitors.StructSizeFunctionGenerator
 import rusty.semantic.support.SemanticContext
 
 class IRConstructor {
@@ -14,6 +15,7 @@ class IRConstructor {
             val module = IRContext.module.also {
                 PreludeHandler(semanticContext).run()
                 StructHandler(semanticContext).run()
+                StructSizeFunctionGenerator().run()
                 FunctionRegistrar(semanticContext).run()
                 FunctionBodyGenerator(semanticContext).run()
             }

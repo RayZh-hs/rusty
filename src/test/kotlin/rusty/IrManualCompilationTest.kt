@@ -29,9 +29,6 @@ class IrManualCompilationTest {
 
     @TestFactory
     fun compileIrResourcesIndividually(): Collection<DynamicTest> {
-        val shouldRunAll = System.getProperty(PROP_RUN_ALL)?.equals("true", ignoreCase = true) == true
-        assumeTrue(shouldRunAll) { "Skipping IR clang-all run: set -D$PROP_RUN_ALL=true to enable" }
-
         val baseDir = Paths.get("src", "test", "resources", "ir")
         require(Files.isDirectory(baseDir)) { "IR resource directory missing: $baseDir" }
 
@@ -66,7 +63,6 @@ class IrManualCompilationTest {
     companion object {
         private const val PROP_FILE = "customIrFile"
         private const val PROP_CLANG = "customIrClang"
-        private const val PROP_RUN_ALL = "irClangAll"
     }
 
     private val skipClang: Boolean =

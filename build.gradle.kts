@@ -103,8 +103,6 @@ tasks.test {
             if (localMode != null) systemProperty("localTestMode", localMode)
         }
         // Bridge Gradle properties to system properties for IR/clang runs
-        val irClangAll = (findProperty("irClangAll") ?: System.getProperty("irClangAll"))?.toString()
-        if (irClangAll != null) systemProperty("irClangAll", irClangAll)
         val customIrClang = (findProperty("customIrClang") ?: System.getProperty("customIrClang"))?.toString()
         if (customIrClang != null) systemProperty("customIrClang", customIrClang)
         val customIrFile = (findProperty("customIrFile") ?: System.getProperty("customIrFile"))?.toString()

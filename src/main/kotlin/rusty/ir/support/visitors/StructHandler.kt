@@ -2,7 +2,7 @@ package rusty.ir.support.visitors
 
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
-import rusty.ir.support.toIRType
+import rusty.ir.support.toStorageIRType
 import rusty.semantic.support.Scope
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
@@ -45,7 +45,7 @@ class StructHandler(val semanticContext: SemanticContext) {
                 for ((fieldName, fieldTypeSlot) in symbol.fields) {
                     val fieldType = fieldTypeSlot.getOrNull()
                         ?: throw IllegalStateException("Struct field type is not resolved: ${symbol.identifier}.$fieldName")
-                    add(fieldType.toIRType())
+                    add(fieldType.toStorageIRType())
                 }
             }.ifEmpty { listOf(TypeUtils.I8) }
 

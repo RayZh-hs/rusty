@@ -13,12 +13,16 @@ The `SemanticType` system has a corresponding IR type system:
     - Bool -> `i1`
     - Char -> `i8`
 - Enums are represented as `i32` (discriminant only, C++ style).
-- Compound types are represented as pointers (`ptr`).
+- Structs use the llvm types definition.
+- Arrays follow the llvm array type definition.
+- Reference types are represented as pointers (`ptr`) to the values.
 - Other types (Unit Type, Never Type) are padded with `i8`, with inherent value 0.
     -> This is to ensure that structs with unit fields are well-defined, and that unit types can be passed around. We assume that it will be optimized away later in the compilation process.
 - Traits have been removed.
 
 All structs are defined globally as `types` in llvm-ir at the beginning. If a struct type is empty, it is filled with a single `i8` field to ensure well-definedness.
+
+When initializing arrays, use the prelude function `aux.func.memfill` to fill in arrays. Never manually fill in them element by element, which leads to long and unreadable ir code.
 
 ## Naming Conventions
 
@@ -130,6 +134,56 @@ aux.block.3:
     ; after
 }
 ```
+
+### Prelude Management Tools
+
+In the prelude phase, you will find the following aux functions:
+
+```
+define void @aux.func.memfill(ptr %dest, ptr %src, i32 %elsize, i32 %elcount) {
+    ; esize comes in bytes, the number of bytes to view as a whole
+    ; memcpy is memfill with elcount = 1
+    call void @__c_memfill(ptr noundef %dest, ptr noundef %src, i32 noundef %elsize, i32 noundef %elcount)
+    ret void
+}
+define void @aux.func.itoa(i32 %value, ptr %out.ptr) {
+    call void @__c_itoa(i32 noundef %value, ptr noundef %out.ptr)
+    ret void
+}
+```
+
+Use memfill to copy memory from one location to another for many times. When initializing arrays, use this to fill the array with a specific value. You can also use it to copy structs and arrays.
+
+You can implement integer to string conversion by calling `aux.func.itoa`.
+
+### Getting the Size of Types
+
+Use ptrtoint to obtain the size of types at runtime. For example:
+
+```
+%MyStruct = type { i32, i8, i32 }
+
+define i32 @get_struct_size() {
+    ; 1. Create a pointer to the imaginary element at index 1 starting from null
+    ;    (Mathematically: 0 + 1 * sizeof(%MyStruct))
+    %size_ptr = getelementptr %MyStruct, %MyStruct* null, i32 1
+
+    ; 2. Cast that pointer to an integer to get the byte value
+    %size_bytes = ptrtoint %MyStruct* %size_ptr to i32
+
+    ret i32 %size_bytes
+}
+```
+
+At the beginning of the ir generation phase, after all the struct types are defined, generate functions:
+
+```
+define i32 @aux.func.sizeof.<StructName>() {
+    ; body as above
+}
+```
+
+And call these functions whenever you need to get the size of a struct type. This can be useful when you wish to figure out size for memfill. Array sizes are size * element_size, which can be calculated directly.
 
 ## Comments
 

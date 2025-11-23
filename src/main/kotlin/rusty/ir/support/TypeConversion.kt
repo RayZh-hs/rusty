@@ -82,7 +82,7 @@ fun SemanticType.toStorageIRType(): IRType {
                 ?: throw IllegalStateException("Array length is not resolved: $this")
             val lengthInt = len.value.toLong()
             require(lengthInt <= Int.MAX_VALUE) { "Array length too large for IR: $lengthInt" }
-            ArrayType(lengthInt.toInt(), element.toIRType())
+            ArrayType(lengthInt.toInt(), element.toStorageIRType())
         }
         else -> this.toIRType()
     }

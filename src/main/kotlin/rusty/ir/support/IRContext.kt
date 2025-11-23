@@ -20,6 +20,7 @@ class IRContext {
 
         // Original -> LLVM Struct Type
         val structTypeLookup = mutableMapOf<String, StructType.NamedStructType>()
+        val structSizeFunctionLookup = mutableMapOf<String, Function>()
 
         // Literal caches
         val stringLiteralLookup = mutableMapOf<String, GlobalVariable>()
@@ -37,6 +38,7 @@ class IRContext {
             functionPlans.clear()
             functionRenamers.clear()
             structTypeLookup.clear()
+            structSizeFunctionLookup.clear()
             stringLiteralLookup.clear()
             cStringLiteralLookup.clear()
             Name.reset()
