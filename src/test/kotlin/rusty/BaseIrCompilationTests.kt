@@ -2,6 +2,9 @@ package rusty
 
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
+import org.opentest4j.AssertionFailedError
+import java.time.Duration
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -22,6 +25,9 @@ import kotlin.test.fail
 abstract class BaseIrCompilationTests {
 
     abstract val baseResourcePath: String
+
+    open val compileTimeoutSeconds: Long = 5
+    open val executionTimeoutSeconds: Long = 5
 
     private data class IrCase(
         val name: String,
@@ -57,9 +63,12 @@ abstract class BaseIrCompilationTests {
                 val artifacts = IrPipeline.artifactPathsFor(c.source, targetDir)
 
                 val compileThrowable = try {
-                    IrPipeline.emitIr(c.source, artifacts.irOutput)
+                    assertTimeoutPreemptively(Duration.ofSeconds(compileTimeoutSeconds)) {
+                        IrPipeline.emitIr(c.source, artifacts.irOutput)
+                    }
                     null
                 } catch (t: Throwable) {
+                    if (t is AssertionFailedError) throw t
                     t
                 }
 
@@ -103,7 +112,9 @@ abstract class BaseIrCompilationTests {
                 }
 
                 val stdinContent = c.input?.takeIf { Files.exists(it) }?.readText() ?: ""
-                val runResult = IrPipeline.runExecutable(artifacts.exeOutput, stdinContent)
+                val runResult = assertTimeoutPreemptively<IrPipeline.ProcessResult>(Duration.ofSeconds(executionTimeoutSeconds)) {
+                    IrPipeline.runExecutable(artifacts.exeOutput, stdinContent)
+                }
                 val expectedRunExit = c.expectedRunExit ?: 0
                 if (runResult.exitCode != expectedRunExit) {
                     fail(
