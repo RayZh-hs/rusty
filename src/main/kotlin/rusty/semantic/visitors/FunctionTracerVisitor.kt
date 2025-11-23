@@ -177,14 +177,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 })
 
             is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> {
-                // validate that the index is usize
-                val indexType = resolveExpression(node.index)
-                try {
-                    ExpressionAnalyzer.tryImplicitCast(indexType, SemanticType.USizeType)
-                } catch (e: CompileError) {
-                    throw e.with(node).at(node.pointer)
-                }
-                enforceIntegerExpectation(node.index, SemanticType.USizeType)
+                node.index.ensureIsIndexInteger("Index expression")
                 val baseType = resolveLeftValueExpression(node.base, autoDeref = true)
                 val (derefBaseType, isReference) = mutDerefType(baseType)
                 when (derefBaseType) {
@@ -328,7 +321,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 return resolveCallExpression(node)
             }
             is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> {
-                node.index.ensureIsOfType(SemanticType.USizeType, "Index expression")
+                node.index.ensureIsIndexInteger("Index expression")
                 var baseType = resolveExpression(node.base)
                 while (baseType is SemanticType.ReferenceType) {
                     baseType = baseType.type.get()
@@ -770,6 +763,16 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 .with(this).at(this.pointer).with(e)
         }
         enforceIntegerExpectation(this, expected)
+    }
+
+    private fun ExpressionNode.ensureIsIndexInteger(name: String) {
+        val exprType = resolveExpression(this)
+        val isInteger = exprType.isConcreteInteger() || exprType.isAnyIntFamily()
+        if (!isInteger) {
+            throw CompileError("$name must be an integer type, got $exprType")
+                .with(this).at(this.pointer)
+        }
+        enforceIntegerExpectation(this, exprType)
     }
 
     private fun List<ExpressionNode>.ensureAllIsOfType(expected: SemanticType) {

@@ -65,9 +65,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val builder = IRBuilder(IRContext.module)
             val entry = fn.insertBasicBlock(Name.block(renamer).identifier, setAsEntrypoint = true)
             builder.positionAtEnd(entry)
-            val returnSlot = if (!plan.returnsByPointer && plan.returnType != SemanticType.UnitType) {
-                builder.insertAlloca(plan.returnType.toIRType(), Name.auxTemp("ret", renamer).identifier)
-            } else null
+            val returnSlot = null
             val env = FunctionEnvironment(
                 builder = builder,
                 plan = plan,

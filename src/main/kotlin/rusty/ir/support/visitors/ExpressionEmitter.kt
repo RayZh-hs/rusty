@@ -16,10 +16,13 @@ import rusty.semantic.visitors.companions.StaticResolverCompanion
 import rusty.semantic.visitors.utils.sequentialLookup
 import rusty.lexer.Token
 import rusty.parser.nodes.ExpressionNode
+import space.norb.llvm.core.Value
 import space.norb.llvm.builder.BuilderUtils
 import space.norb.llvm.enums.IcmpPredicate
 import space.norb.llvm.enums.LinkageType
+import space.norb.llvm.structure.Function
 import space.norb.llvm.types.ArrayType
+import space.norb.llvm.types.FunctionType
 import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.TypeUtils
 import space.norb.llvm.values.constants.ArrayConstant
@@ -43,6 +46,7 @@ class ExpressionEmitter(
         currentEnv = currentEnv,
         addBlockComment = addBlockComment,
     )
+    private val externalFunctions = mutableMapOf<String, Function>()
 
     private fun temp(prefix: String): String = Name.auxTemp(prefix, currentEnv().renamer).identifier
 
@@ -236,64 +240,14 @@ class ExpressionEmitter(
     }
 
     private fun emitField(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): GeneratedValue? {
-        var base = emitExpression(node.base) ?: return null
-        var baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }
-
-        // Auto-dereference reference layers to reach the underlying struct pointer.
-        while (baseType is SemanticType.ReferenceType) {
-            val inner = baseType.type.getOrNull() ?: return null
-            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, temp("deref"))
-            base = GeneratedValue(loaded, inner)
-            baseType = inner
-        }
-
-        val structType = baseType as? SemanticType.StructType
-            ?: throw IllegalStateException("Field base is not struct for '${node.field}': $baseType")
-        val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
-            as? SemanticSymbol.Struct ?: throw IllegalStateException("Struct '${structType.identifier}' not resolved in field access")
-        val fieldIndex = structSymbol.fields.keys.toList().indexOf(node.field)
-        if (fieldIndex == -1) throw IllegalStateException("Field '${node.field}' not found on struct '${structType.identifier}'")
-
-        val fieldType = structSymbol.fields[node.field]?.get()
-            ?: throw IllegalStateException("Field type for '${node.field}' not resolved on ${structType.identifier}")
-        val structIrType = IRContext.structTypeLookup[structType.identifier]
-            ?: throw IllegalStateException("Struct IR type for '${structType.identifier}' missing")
-        val gep = currentEnv().builder.insertGep(
-            structIrType,
-            base.value,
-            listOf(
-                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
-            ),
-            temp("${structType.identifier}.${node.field}")
-        )
-        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), gep, temp("${structType.identifier}.${node.field}.load"))
+        val (ptr, fieldType) = emitFieldPointer(node) ?: return null
+        val loaded = currentEnv().builder.insertLoad(fieldType.toIRType(), ptr, temp("${node.field}.load"))
         return GeneratedValue(loaded, fieldType)
     }
 
     private fun emitIndex(node: ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode): GeneratedValue? {
-        val base = emitExpression(node.base) ?: return null
-        val baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }.unwrapReferences()
-        val arrayType = baseType as? SemanticType.ArrayType
-            ?: throw IllegalStateException("Index base is not array for '${node.base}': $baseType")
-        val elementType = arrayType.elementType.getOrNull()
-            ?: throw IllegalStateException("Array element type unresolved for $arrayType")
-        val length = arrayType.length.getOrNull()
-            ?: throw IllegalStateException("Array length unresolved for $arrayType")
-        val storageType = arrayStorageType(arrayType)
-
-        val index = emitExpression(node.index) ?: return null
-        val gep = currentEnv().builder.insertGep(
-            storageType,
-            base.value,
-            listOf(
-                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                index.value
-            ),
-            temp("index")
-        )
-        val elementIr = elementType.toIRType()
-        val loaded = currentEnv().builder.insertLoad(elementIr, gep, temp("index.load"))
+        val (ptr, elementType) = emitIndexPointer(node) ?: return null
+        val loaded = currentEnv().builder.insertLoad(elementType.toIRType(), ptr, temp("index.load"))
         return GeneratedValue(loaded, elementType)
     }
 
@@ -347,13 +301,18 @@ class ExpressionEmitter(
                 Target(symbol, null)
             }
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
-                val base = emitExpression(callee.base) ?: return null
-                val baseType = base.type.unwrapReferences()
+                val calleeType = ctx.expressionTypeMemory.recall(callee) { SemanticType.UnitType }
+                val baseValue = emitExpression(callee.base) ?: return null
+                val builtinHeader = calleeType as? SemanticType.FunctionHeader
+                if (builtinHeader != null && builtinHeader.identifier == "to_string") {
+                    return emitBuiltinToString(callee.base, baseValue)
+                }
+                val (selfValue, baseType) = prepareMethodReceiver(callee.base, baseValue)
                 val symbol = resolveFunction(callee.field) { fn ->
                     val selfType = fn.selfParam.getOrNull()?.type?.getOrNull()?.unwrapReferences()
                     selfType != null && selfType == baseType
                 } ?: return null
-                Target(symbol, base.value)
+                Target(symbol, selfValue.value)
             }
             else -> return null
         }
@@ -402,6 +361,21 @@ class ExpressionEmitter(
             }
             else -> GeneratedValue(callInst, plan.returnType)
         }
+    }
+
+    private fun prepareMethodReceiver(
+        baseExpr: ExpressionNode,
+        initialValue: GeneratedValue
+    ): Pair<GeneratedValue, SemanticType> {
+        var currentValue = initialValue
+        var currentType = ctx.expressionTypeMemory.recall(baseExpr) { currentValue.type }
+        while (currentType is SemanticType.ReferenceType) {
+            val inner = currentType.type.getOrNull() ?: break
+            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), currentValue.value, temp("self.deref"))
+            currentValue = GeneratedValue(loaded, inner)
+            currentType = inner
+        }
+        return currentValue to currentType.unwrapReferences()
     }
 
     private fun resolveFunction(
@@ -466,22 +440,16 @@ class ExpressionEmitter(
         val env = currentEnv()
         val op = node.op
         if (op.isAssignmentVariant()) {
-            val target = node.left as? ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode
-                ?: return null
-            val symbolName = target.pathInExpressionNode.path.first().name ?: return null
-            val symbol = sequentialLookup(symbolName, scopeMaintainer.currentScope) { it.variableST }?.symbol
-                as? SemanticSymbol.Variable ?: return null
-            val lhsSlot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] }
-                ?: return null
+            val (lhsPtr, lhsType) = emitAssignmentPointer(node.left) ?: return null
             val rhs = emitExpression(node.right) ?: return null
 
             if (op == Token.O_EQ) {
-                env.builder.insertStore(rhs.value, lhsSlot)
+                env.builder.insertStore(rhs.value, lhsPtr)
                 return GeneratedValue(rhs.value, SemanticType.UnitType)
             }
 
-            val lhsValue = env.builder.insertLoad(symbol.type.get().toIRType(), lhsSlot, temp("load.assign"))
-            val lhsUnsigned = symbol.type.get().isUnsignedInteger()
+            val lhsValue = env.builder.insertLoad(lhsType.toIRType(), lhsPtr, temp("load.assign"))
+            val lhsUnsigned = lhsType.isUnsignedInteger()
             val result = when (op) {
                 Token.O_PLUS_EQ -> env.builder.insertAdd(lhsValue, rhs.value, temp("add"))
                 Token.O_MINUS_EQ -> env.builder.insertSub(lhsValue, rhs.value, temp("sub"))
@@ -507,7 +475,7 @@ class ExpressionEmitter(
                 }
                 else -> TODO("Compound assignment operator $op not yet supported")
             }
-            env.builder.insertStore(result, lhsSlot)
+            env.builder.insertStore(result, lhsPtr)
             return GeneratedValue(result, SemanticType.UnitType)
         }
 
@@ -660,4 +628,133 @@ class ExpressionEmitter(
         Token.O_EQ, Token.O_PLUS_EQ, Token.O_MINUS_EQ, Token.O_STAR_EQ, Token.O_DIV_EQ,
         Token.O_PERCENT_EQ, Token.O_AND_EQ, Token.O_OR_EQ, Token.O_XOR_EQ, Token.O_SLFT_EQ, Token.O_SRIT_EQ,
     )
+
+    private fun emitAssignmentPointer(node: ExpressionNode): Pair<Value, SemanticType>? {
+        val env = currentEnv()
+        return when (node) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+                val name = node.pathInExpressionNode.path.first().name ?: return null
+                val symbol = env.locals.asReversed()
+                    .flatMap { it.keys }
+                    .firstOrNull { it.identifier == name }
+                    ?: sequentialLookup(name, scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
+                    ?: return null
+                val slot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] } ?: return null
+                Pair(slot, symbol.type.get())
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> emitFieldPointer(node)
+            is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> emitIndexPointer(node)
+            is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
+                val base = emitExpression(node.expr) ?: return null
+                val refType = ctx.expressionTypeMemory.recall(node.expr) { base.type } as? SemanticType.ReferenceType
+                    ?: return null
+                Pair(base.value, refType.type.get())
+            }
+            else -> null
+        }
+    }
+
+    private fun emitFieldPointer(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): Pair<Value, SemanticType>? {
+        var base = emitExpression(node.base) ?: return null
+        var baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }
+        while (baseType is SemanticType.ReferenceType) {
+            val inner = baseType.type.getOrNull() ?: return null
+            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, temp("deref"))
+            base = GeneratedValue(loaded, inner)
+            baseType = inner
+        }
+        val structType = baseType as? SemanticType.StructType ?: return null
+        val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
+            as? SemanticSymbol.Struct ?: return null
+        val fieldIndex = structSymbol.fields.keys.toList().indexOf(node.field)
+        if (fieldIndex == -1) return null
+        val fieldType = structSymbol.fields[node.field]?.get() ?: return null
+        val structIrType = IRContext.structTypeLookup[structType.identifier] ?: return null
+        val gep = currentEnv().builder.insertGep(
+            structIrType,
+            base.value,
+            listOf(
+                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
+            ),
+            temp("${node.field}.addr")
+        )
+        return Pair(gep, fieldType)
+    }
+
+    private fun emitIndexPointer(node: ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode): Pair<Value, SemanticType>? {
+        val base = emitExpression(node.base) ?: return null
+        val baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }.unwrapReferences()
+        val arrayType = baseType as? SemanticType.ArrayType ?: return null
+        val elementType = arrayType.elementType.getOrNull() ?: return null
+        val storageType = arrayStorageType(arrayType)
+        val indexValue = emitExpression(node.index) ?: return null
+        val gep = currentEnv().builder.insertGep(
+            storageType,
+            base.value,
+            listOf(
+                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                indexValue.value
+            ),
+            temp("index.addr")
+        )
+        return Pair(gep, elementType)
+    }
+
+    private fun emitBuiltinToString(baseExpr: ExpressionNode, baseValue: GeneratedValue): GeneratedValue? {
+        var currentValue = baseValue
+        var currentType = ctx.expressionTypeMemory.recall(baseExpr) { baseValue.type }
+        while (currentType is SemanticType.ReferenceType) {
+            val inner = currentType.type.getOrNull() ?: return null
+            if (inner == SemanticType.StrType || inner == SemanticType.CStrType) {
+                currentType = inner
+                break
+            }
+            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), currentValue.value, temp("deref"))
+            currentValue = GeneratedValue(loaded, inner)
+            currentType = inner
+        }
+        return when (currentType) {
+            is SemanticType.StrType -> GeneratedValue(currentValue.value, SemanticType.StringStructType)
+            is SemanticType.StructType -> {
+                if (currentType.identifier == "String") GeneratedValue(currentValue.value, SemanticType.StringStructType) else null
+            }
+            is SemanticType.I32Type, is SemanticType.ISizeType -> emitIntToString(currentValue, signed = true)
+            is SemanticType.U32Type, is SemanticType.USizeType -> emitIntToString(currentValue, signed = false)
+            else -> null
+        }
+    }
+
+    private fun emitIntToString(value: GeneratedValue, signed: Boolean): GeneratedValue {
+        val mallocFn = ensureExternalFunction(
+            "malloc",
+            TypeUtils.PTR,
+            listOf(TypeUtils.I64),
+            false
+        )
+        val sizeConst = BuilderUtils.getIntConstant(32L, TypeUtils.I64 as IntegerType)
+        val buffer = currentEnv().builder.insertCall(mallocFn, listOf(sizeConst), temp("str.alloc"))
+        val formatLiteral = if (signed) emitStringLiteral("%d", true, SemanticType.CStrType)
+        else emitStringLiteral("%u", true, SemanticType.CStrType)
+        val sprintfFn = ensureExternalFunction(
+            "sprintf",
+            TypeUtils.I32,
+            listOf(TypeUtils.PTR, TypeUtils.PTR),
+            true
+        )
+        currentEnv().builder.insertCall(sprintfFn, listOf(buffer, formatLiteral.value, value.value), temp("sprintf"))
+        return GeneratedValue(buffer, SemanticType.StringStructType)
+    }
+
+    private fun ensureExternalFunction(
+        name: String,
+        returnType: space.norb.llvm.core.Type,
+        paramTypes: List<space.norb.llvm.core.Type>,
+        isVarArg: Boolean
+    ): Function {
+        return externalFunctions.getOrPut(name) {
+            val fnType = FunctionType(returnType, paramTypes, isVarArg, emptyList())
+            IRContext.module.registerFunction(name, fnType, LinkageType.EXTERNAL, isVarArg)
+        }
+    }
 }

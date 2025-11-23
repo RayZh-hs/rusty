@@ -116,6 +116,7 @@ class ExpressionAnalyzer {
             if (from == SemanticType.NeverType) return to
             if (from == to) return from
             if (to == SemanticType.WildcardType) return from
+            if (to == SemanticType.ExitType && from == SemanticType.UnitType) return SemanticType.ExitType
 
             return when (from) {
                 is SemanticType.AnyIntType -> when (to) {
@@ -181,6 +182,26 @@ class ExpressionAnalyzer {
                         }
                     }
                     throw CompileError("No implicit cast from $from to $to")
+                }
+
+                is SemanticType.StructType -> when (to) {
+                    is SemanticType.StructType -> {
+                        if (from.identifier != to.identifier)
+                            throw CompileError("No implicit cast from struct ${from.identifier} to ${to.identifier}")
+                        to
+                    }
+
+                    is SemanticType.ReferenceType -> {
+                        val target = to.type.getOrNull()
+                        val immut = to.isMutable.getOrNull() ?: false
+                        if (from.identifier == "String" && target == SemanticType.StrType && !immut) {
+                            SemanticType.RefStrType
+                        } else {
+                            throw CompileError("No implicit cast from $from to $to")
+                        }
+                    }
+
+                    else -> throw CompileError("No implicit cast from $from to $to")
                 }
 
                 else -> throw CompileError("No implicit cast from $from to $to")
@@ -455,6 +476,15 @@ class ExpressionAnalyzer {
                         }
                         to
                     }
+                    is SemanticType.ReferenceType -> {
+                        val target = to.type.getOrNull()
+                        val immut = to.isMutable.getOrNull() ?: false
+                        if (from.identifier == "String" && target == SemanticType.StrType && !immut) {
+                            SemanticType.RefStrType
+                        } else {
+                            throw CompileError("Cannot cast $from to $to explicitly")
+                        }
+                    }
 
                     else -> throw CompileError("Cannot cast $from to $to explicitly")
                 }
@@ -501,35 +531,43 @@ class ExpressionAnalyzer {
         }
 
         fun resolveBuiltinMethod(base: SemanticType, field: String): SemanticType.FunctionHeader? {
-            when (field) {
+            val derefBase = if (base is SemanticType.ReferenceType) {
+                base.type.getOrNull() ?: return null
+            } else base
+
+            fun header(name: String, returnType: SemanticType): SemanticType.FunctionHeader =
+                SemanticType.FunctionHeader(
+                    identifier = name,
+                    selfParamType = SemanticType.ReferenceType(Slot(base), isMutable = Slot(false)),
+                    paramTypes = emptyList(),
+                    returnType = returnType,
+                )
+
+            val isStringStruct = derefBase == SemanticType.StringStructType
+
+            return when (field) {
                 "to_string" -> {
-                    return if (canImplicitlyCast(base, SemanticType.U32Type) || canImplicitlyCast(base, SemanticType.U32Type)) {
-                        SemanticType.FunctionHeader(
-                            identifier = "to_string",
-                            selfParamType = SemanticType.ReferenceType(Slot(base), isMutable = Slot(false)),
-                            paramTypes = emptyList(),
-                            returnType = SemanticType.StringStructType,
-                        )
-                    } else null
-                }
-                "len" -> {
-                    val derefBase = if (base is SemanticType.ReferenceType) {
-                        base.type.getOrNull() ?: return null
-                    } else base
-                    return when(derefBase) {
-                        is SemanticType.ArrayType, SemanticType.StrType, SemanticType.StringStructType -> {
-                            SemanticType.FunctionHeader(
-                                identifier = "len",
-                                selfParamType = SemanticType.ReferenceType(Slot(base), isMutable = Slot(false)),
-                                paramTypes = emptyList(),
-                                returnType = SemanticType.USizeType,
-                            )
-                        }
-                        else -> null
+                    val supports = when (derefBase) {
+                        is SemanticType.StrType,
+                        is SemanticType.I32Type,
+                        is SemanticType.U32Type,
+                        is SemanticType.ISizeType,
+                        is SemanticType.USizeType,
+                        is SemanticType.AnyIntType,
+                        is SemanticType.AnySignedIntType,
+                        is SemanticType.AnyUnsignedIntType -> true
+                        else -> isStringStruct
                     }
+                    if (supports) header("to_string", SemanticType.StringStructType) else null
                 }
 
-                else -> return null
+                "len" -> when (derefBase) {
+                    is SemanticType.ArrayType,
+                    is SemanticType.StrType -> header("len", SemanticType.USizeType)
+                    else -> if (isStringStruct) header("len", SemanticType.USizeType) else null
+                }
+
+                else -> null
             }
         }
 
