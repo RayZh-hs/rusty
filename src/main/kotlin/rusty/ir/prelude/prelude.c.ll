@@ -144,23 +144,71 @@ define dso_local void @__c_strcpy(ptr noundef %0, ptr noundef %1) #0 {
 }
 
 ; Function Attrs: noinline nounwind optnone uwtable
-define dso_local void @__c_memcpy(ptr noundef %0, ptr noundef %1, i32 noundef %2) #0 {
-  %4 = alloca ptr, align 8
+define dso_local void @__c_memfill(ptr noundef %0, ptr noundef %1, i32 noundef %2, i32 noundef %3) #0 {
   %5 = alloca ptr, align 8
-  %6 = alloca i32, align 4
-  store ptr %0, ptr %4, align 8
-  store ptr %1, ptr %5, align 8
-  store i32 %2, ptr %6, align 4
-  %7 = load ptr, ptr %4, align 8
-  %8 = load ptr, ptr %5, align 8
-  %9 = load i32, ptr %6, align 4
-  %10 = sext i32 %9 to i64
-  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %7, ptr align 1 %8, i64 %10, i1 false)
+  %6 = alloca ptr, align 8
+  %7 = alloca i32, align 4
+  %8 = alloca i32, align 4
+  %9 = alloca i32, align 4
+  %10 = alloca i32, align 4
+  store ptr %0, ptr %5, align 8
+  store ptr %1, ptr %6, align 8
+  store i32 %2, ptr %7, align 4
+  store i32 %3, ptr %8, align 4
+  store i32 0, ptr %9, align 4
+  br label %11
+
+11:                                               ; preds = %38, %4
+  %12 = load i32, ptr %9, align 4
+  %13 = load i32, ptr %8, align 4
+  %14 = icmp slt i32 %12, %13
+  br i1 %14, label %15, label %41
+
+15:                                               ; preds = %11
+  store i32 0, ptr %10, align 4
+  br label %16
+
+16:                                               ; preds = %34, %15
+  %17 = load i32, ptr %10, align 4
+  %18 = load i32, ptr %7, align 4
+  %19 = icmp slt i32 %17, %18
+  br i1 %19, label %20, label %37
+
+20:                                               ; preds = %16
+  %21 = load ptr, ptr %6, align 8
+  %22 = load i32, ptr %10, align 4
+  %23 = sext i32 %22 to i64
+  %24 = getelementptr inbounds i8, ptr %21, i64 %23
+  %25 = load i8, ptr %24, align 1
+  %26 = load ptr, ptr %5, align 8
+  %27 = load i32, ptr %9, align 4
+  %28 = load i32, ptr %7, align 4
+  %29 = mul nsw i32 %27, %28
+  %30 = load i32, ptr %10, align 4
+  %31 = add nsw i32 %29, %30
+  %32 = sext i32 %31 to i64
+  %33 = getelementptr inbounds i8, ptr %26, i64 %32
+  store i8 %25, ptr %33, align 1
+  br label %34
+
+34:                                               ; preds = %20
+  %35 = load i32, ptr %10, align 4
+  %36 = add nsw i32 %35, 1
+  store i32 %36, ptr %10, align 4
+  br label %16, !llvm.loop !9
+
+37:                                               ; preds = %16
+  br label %38
+
+38:                                               ; preds = %37
+  %39 = load i32, ptr %9, align 4
+  %40 = add nsw i32 %39, 1
+  store i32 %40, ptr %9, align 4
+  br label %11, !llvm.loop !10
+
+41:                                               ; preds = %11
   ret void
 }
-
-; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias nocapture readonly, i64, i1 immarg) #2
 
 ; Function Attrs: noinline nounwind optnone uwtable
 define dso_local void @__c_itoa(i32 noundef %0, ptr noundef %1) #0 {
@@ -170,18 +218,17 @@ define dso_local void @__c_itoa(i32 noundef %0, ptr noundef %1) #0 {
   store ptr %1, ptr %4, align 8
   %5 = load ptr, ptr %4, align 8
   %6 = load i32, ptr %3, align 4
-  %7 = call i32 (ptr, ptr, ...) @sprintf(ptr noundef %5, ptr noundef @.str, i32 noundef %6) #4
+  %7 = call i32 (ptr, ptr, ...) @sprintf(ptr noundef %5, ptr noundef @.str, i32 noundef %6) #3
   ret void
 }
 
 ; Function Attrs: nounwind
-declare i32 @sprintf(ptr noundef, ptr noundef, ...) #3
+declare i32 @sprintf(ptr noundef, ptr noundef, ...) #2
 
 attributes #0 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
 attributes #1 = { "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
-attributes #2 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
-attributes #3 = { nounwind "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
-attributes #4 = { nounwind }
+attributes #2 = { nounwind "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
+attributes #3 = { nounwind }
 
 !llvm.module.flags = !{!0, !1, !2, !3, !4}
 !llvm.ident = !{!5}
@@ -195,3 +242,5 @@ attributes #4 = { nounwind }
 !6 = distinct !{!6, !7}
 !7 = !{!"llvm.loop.mustprogress"}
 !8 = distinct !{!8, !7}
+!9 = distinct !{!9, !7}
+!10 = distinct !{!10, !7}

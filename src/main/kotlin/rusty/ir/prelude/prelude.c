@@ -47,8 +47,12 @@ void __c_strcpy(char* dest, const char* src) {
     dest[i] = '\0';
 }
 
-void __c_memcpy(char* dest, const char* src, int32_t n) {
-    memcpy(dest, src, n);
+void __c_memfill(char* dest, const char* src, int32_t element_size_in_bytes, int32_t element_count) {
+    for (int32_t i = 0; i < element_count; i++) {
+        for (int32_t j = 0; j < element_size_in_bytes; j++) {
+            dest[i * element_size_in_bytes + j] = src[j];
+        }
+    }
 }
 
 void __c_itoa(int32_t value, char* str) {

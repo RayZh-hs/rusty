@@ -6,7 +6,7 @@ declare void @__c_println_str(ptr)
 declare i32 @__c_get_int()
 declare void @__c_get_str(ptr)
 declare i32 @__c_strlen(ptr)
-declare void @__c_memcpy(ptr, ptr, i32)
+declare void @__c_memfill(ptr, ptr, i32, i32)
 declare void @__c_itoa(i32, ptr)
 declare i32 @user.func.main()
 declare void @exit(i32) nounwind
@@ -53,8 +53,10 @@ entry:
 }
 
 ; Bindings for C api functions
-define void @aux.func.memcpy(ptr %from.ptr, ptr %to.ptr, i32 %size) {
-    call void @__c_memcpy(ptr noundef %to.ptr, ptr noundef %from.ptr, i32 noundef %size)
+define void @aux.func.memfill(ptr %dest, ptr %src, i32 %elsize, i32 %elcount) {
+    ; esize comes in bytes, the number of bytes to view as a whole
+    ; memcpy is memfill with elsize = 1
+    call void @__c_memfill(ptr noundef %dest, ptr noundef %src, i32 noundef %elsize, i32 noundef %elcount)
     ret void
 }
 define void @aux.func.itoa(i32 %value, ptr %out.ptr) {

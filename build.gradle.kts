@@ -20,7 +20,7 @@ java {
 dependencies {
     implementation(kotlin("stdlib"))
     testImplementation(kotlin("test")) // Kotlin test assertions
-    implementation("space.norb:llvm:1.2.6")
+    implementation("space.norb:llvm:1.2.7")
 
     // Explicit JUnit Jupiter dependencies to avoid deprecated automatic framework loading
     val junitVersion = "5.10.2"
