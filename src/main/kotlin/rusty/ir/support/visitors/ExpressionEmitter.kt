@@ -60,6 +60,8 @@ class ExpressionEmitter(
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> emitPath(node)
             is ExpressionNode.WithoutBlockExpressionNode.StructExpressionNode -> emitStructLiteral(node)
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> emitField(node)
+            is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> emitIndex(node)
+            is ExpressionNode.WithoutBlockExpressionNode.ArrayExpressionNode -> emitArrayLiteral(node)
             is ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode -> emitCall(node)
             is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> emitInfix(node)
             is ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode -> emitPrefix(node)
@@ -269,6 +271,70 @@ class ExpressionEmitter(
         return GeneratedValue(loaded, fieldType)
     }
 
+    private fun emitIndex(node: ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode): GeneratedValue? {
+        val base = emitExpression(node.base) ?: return null
+        val baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }.unwrapReferences()
+        val arrayType = baseType as? SemanticType.ArrayType
+            ?: throw IllegalStateException("Index base is not array for '${node.base}': $baseType")
+        val elementType = arrayType.elementType.getOrNull()
+            ?: throw IllegalStateException("Array element type unresolved for $arrayType")
+        val length = arrayType.length.getOrNull()
+            ?: throw IllegalStateException("Array length unresolved for $arrayType")
+        val storageType = arrayStorageType(arrayType)
+
+        val index = emitExpression(node.index) ?: return null
+        val gep = currentEnv().builder.insertGep(
+            storageType,
+            base.value,
+            listOf(
+                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                index.value
+            ),
+            temp("index")
+        )
+        val elementIr = elementType.toIRType()
+        val loaded = currentEnv().builder.insertLoad(elementIr, gep, temp("index.load"))
+        return GeneratedValue(loaded, elementType)
+    }
+
+    private fun emitArrayLiteral(node: ExpressionNode.WithoutBlockExpressionNode.ArrayExpressionNode): GeneratedValue {
+        val arrayType = ctx.expressionTypeMemory.recall(node) {
+            throw IllegalStateException("Array literal type missing for $node")
+        }
+            as? SemanticType.ArrayType
+            ?: throw IllegalStateException("Array literal type not resolved for $node")
+        val elementType = arrayType.elementType.getOrNull()
+            ?: throw IllegalStateException("Element type unresolved for $arrayType")
+        val length = arrayType.length.getOrNull()
+            ?: throw IllegalStateException("Array length unresolved for $arrayType")
+        val storageType = arrayStorageType(arrayType)
+
+        val env = currentEnv()
+        val storage = env.builder.insertAlloca(storageType, temp("array.alloc"))
+        val elementCount = node.elements.size.takeIf { it > 0 }
+            ?: throw IllegalStateException("Array literal missing elements for $arrayType")
+        val totalLength = length.value.toLong()
+        val repeat = totalLength / elementCount
+        require(repeat * elementCount == totalLength) {
+            "Array literal length mismatch: elements=$elementCount, length=$totalLength"
+        }
+
+        var position = 0L
+        var repeatCursor = 0L
+        while (repeatCursor < repeat) {
+            node.elements.forEach { elementExpr ->
+                val value = emitExpression(elementExpr)
+                    ?: throw IllegalStateException("Failed to emit array element at $position for $arrayType")
+                storeArrayElement(storageType, storage, position, value)
+                position++
+            }
+            repeatCursor++
+        }
+
+        val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("array.ptr"))
+        return GeneratedValue(ptrValue, arrayType)
+    }
+
     private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {
         val callee = node.callee
 
@@ -315,6 +381,11 @@ class ExpressionEmitter(
         }
         callArgs.addAll(userArgs)
 
+        val expectedArgs = plan.type.paramTypes.size
+        require(callArgs.size == expectedArgs) {
+            "Call argument mismatch for ${plan.name.identifier} at ${node.pointer.line}:${node.pointer.column}: expected $expectedArgs, got ${callArgs.size}"
+        }
+
         val callInstName = if (plan.returnsByPointer) "" else temp("call")
         val callInst = env.builder.insertCall(fn, callArgs, callInstName)
         return when {
@@ -350,6 +421,35 @@ class ExpressionEmitter(
             ty = ty.type.get()
         }
         return ty
+    }
+
+    private fun arrayStorageType(array: SemanticType.ArrayType): ArrayType {
+        val elementType = array.elementType.getOrNull()
+            ?: throw IllegalStateException("Array element type unresolved for $array")
+        val length = array.length.getOrNull()
+            ?: throw IllegalStateException("Array length unresolved for $array")
+        val lengthInt = length.value.toLong()
+        require(lengthInt <= Int.MAX_VALUE) { "Array length too large for IR: $lengthInt" }
+        return ArrayType(lengthInt.toInt(), elementType.toIRType())
+    }
+
+    private fun storeArrayElement(
+        storageType: ArrayType,
+        storage: space.norb.llvm.core.Value,
+        index: Long,
+        value: GeneratedValue,
+    ) {
+        val builder = currentEnv().builder
+        val gep = builder.insertGep(
+            storageType,
+            storage,
+            listOf(
+                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                BuilderUtils.getIntConstant(index, TypeUtils.I32 as IntegerType),
+            ),
+            temp("array.elem")
+        )
+        builder.insertStore(value.value, gep)
     }
 
     private fun SemanticType.isUnsignedInteger(): Boolean = when (unwrapReferences()) {
@@ -472,9 +572,15 @@ class ExpressionEmitter(
     private fun emitReference(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode): GeneratedValue? {
         val base = node.expr as? ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ?: return null
         val symbolName = base.pathInExpressionNode.path.first().name ?: return null
-        val symbol = sequentialLookup(symbolName, scopeMaintainer.currentScope) { it.variableST }?.symbol
-                as? SemanticSymbol.Variable ?: return null
-        val slot = currentEnv().locals.asReversed().firstNotNullOfOrNull { it[symbol] } ?: return null
+        val localMatch = currentEnv().locals.asReversed()
+            .flatMap { it.keys }
+            .firstOrNull { it.identifier == symbolName }
+        val symbol = localMatch
+            ?: sequentialLookup(symbolName, scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
+            ?: return null
+        val slot = currentEnv().locals.asReversed().firstNotNullOfOrNull { map ->
+            map[symbol] ?: map.entries.firstOrNull { it.key.identifier == symbol.identifier }?.value
+        } ?: return null
         return GeneratedValue(slot, SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(node.isMut)))
     }
 

@@ -29,6 +29,10 @@ class ScopeMaintainerCompanion(ctx: SemanticContext) {
     }
 
     fun <R> withNextScope(block: (Scope) -> R): R {
+        if (curStack.peek() >= currentScope.children.size) {
+            // Semantic scopes exhausted; reuse current scope to keep IR generation progressing.
+            return block(currentScope)
+        }
         enterScope()
         return block(currentScope).afterWhich {
             exitScope()

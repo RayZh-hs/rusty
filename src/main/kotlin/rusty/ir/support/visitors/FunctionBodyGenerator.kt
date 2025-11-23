@@ -126,8 +126,9 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
 
     private fun resolveVariable(symbol: SemanticSymbol.Variable): GeneratedValue {
         val env = currentEnv()
-        val slot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] }
-            ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
+        val slot = env.locals.asReversed().firstNotNullOfOrNull { map ->
+            map[symbol] ?: map.entries.firstOrNull { it.key.identifier == symbol.identifier }?.value
+        } ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
         val loaded = env.builder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
         return GeneratedValue(loaded, symbol.type.get())
     }
@@ -169,16 +170,13 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     private fun emitLet(node: rusty.parser.nodes.StatementNode.LetStatementNode) {
         val env = currentEnv()
         val expectedType = node.typeNode?.let { staticResolver.resolveTypeNode(it, currentScope()) }
-        val names = extractSymbolsFromTypedPattern(
+        val symbols = extractSymbolsFromTypedPattern(
             node.patternNode,
             expectedType ?: SemanticType.WildcardType,
             currentScope()
-        ).map { it.identifier }
-        val boundSymbols = names.mapNotNull {
-            currentScope().variableST.resolve(it) as? SemanticSymbol.Variable
-        }
+        )
         val value = node.expressionNode?.let { exprEmitter.emitExpression(it) }
-        boundSymbols.forEach { sym ->
+        symbols.forEach { sym ->
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
             value?.let { env.builder.insertStore(it.value, slot) }

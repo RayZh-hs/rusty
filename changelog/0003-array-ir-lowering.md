@@ -1,0 +1,4 @@
+- (src/main/kotlin/rusty/ir/support/visitors/ExpressionEmitter.kt:49) fix: add IR lowering for array literals/indexing and guard call emissions with argument-count checks to avoid invalid LLVM calls.
+- (src/main/kotlin/rusty/ir/support/TypeConversion.kt:67) fix: map unresolved integer-like semantic types to `i32` during IR conversion so array storage emits reliably.
+- (src/main/kotlin/rusty/ir/support/visitors/FunctionBodyGenerator.kt:170) fix: bind let variables from pattern extraction and relax local slot lookups by identifier to keep block-scoped symbols reachable in IR.
+- (src/main/kotlin/rusty/semantic/visitors/companions/ScopeMaintainerCompanion.kt:31) fix: fall back to the current scope when semantic scope traversal is exhausted to keep IR generation from aborting.

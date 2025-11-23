@@ -5,6 +5,7 @@ import rusty.ir.support.IRContext
 import rusty.semantic.support.SemanticType
 import space.norb.llvm.core.Type as IRType
 import space.norb.llvm.types.TypeUtils
+import space.norb.llvm.types.ArrayType
 
 /**
  * Map a resolved [SemanticType] to its LLVM IR counterpart based on the design in docs/ir-gen.md.
@@ -66,7 +67,7 @@ fun SemanticType.toIRType(): IRType {
         SemanticType.AnyIntType,
         SemanticType.AnyUnsignedIntType,
         SemanticType.AnySignedIntType,
-        SemanticType.WildcardType -> error("Type inference not resolved before IR lowering: $this")
+        SemanticType.WildcardType -> TypeUtils.I32
     }
 }
 
@@ -74,6 +75,15 @@ fun SemanticType.toStorageIRType(): IRType {
     return when (this) {
         is SemanticType.StructType -> IRContext.structTypeLookup[identifier]
             ?: throw IllegalStateException("Struct IR type missing for $identifier")
+        is SemanticType.ArrayType -> {
+            val element = elementType.getOrNull()
+                ?: throw IllegalStateException("Array element type is not resolved: $this")
+            val len = length.getOrNull()
+                ?: throw IllegalStateException("Array length is not resolved: $this")
+            val lengthInt = len.value.toLong()
+            require(lengthInt <= Int.MAX_VALUE) { "Array length too large for IR: $lengthInt" }
+            ArrayType(lengthInt.toInt(), element.toIRType())
+        }
         else -> this.toIRType()
     }
 }
