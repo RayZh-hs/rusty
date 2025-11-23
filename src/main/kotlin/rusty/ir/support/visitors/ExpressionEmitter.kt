@@ -357,12 +357,25 @@ class ExpressionEmitter(
     private fun prepareMethodReceiver(
         baseExpr: ExpressionNode,
         initialValue: GeneratedValue
+    ): Pair<GeneratedValue, SemanticType> =
+        unwrapReferenceValue(baseExpr, initialValue, stopAtPointerTypes = true)
+
+    private fun unwrapReferenceValue(
+        baseExpr: ExpressionNode,
+        initialValue: GeneratedValue,
+        stopAtPointerTypes: Boolean,
     ): Pair<GeneratedValue, SemanticType> {
         var currentValue = initialValue
         var currentType = ctx.expressionTypeMemory.recall(baseExpr) { currentValue.type }
         while (currentType is SemanticType.ReferenceType) {
             val inner = currentType.type.getOrNull() ?: break
-            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), currentValue.value, temp("self.deref"))
+            val innerIr = inner.toIRType()
+            if (stopAtPointerTypes && inner !is SemanticType.ReferenceType && innerIr == TypeUtils.PTR) {
+                currentType = inner
+                currentValue = GeneratedValue(currentValue.value, inner)
+                break
+            }
+            val loaded = currentEnv().builder.insertLoad(innerIr, currentValue.value, temp("self.deref"))
             currentValue = GeneratedValue(loaded, inner)
             currentType = inner
         }
@@ -589,11 +602,13 @@ class ExpressionEmitter(
     }
 
     private fun emitDereference(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode): GeneratedValue? {
-        val base = emitExpression(node.expr) ?: return null
-        val targetType = (ctx.expressionTypeMemory.recall(node.expr) { base.type } as? SemanticType.ReferenceType)?.type?.get()
-            ?: base.type
-        val loaded = currentEnv().builder.insertLoad(targetType.toIRType(), base.value, temp("deref"))
-        return GeneratedValue(loaded, targetType)
+        val baseValue = emitExpression(node.expr) ?: return null
+        val (resolved, resolvedType) = unwrapReferenceValue(node.expr, baseValue, stopAtPointerTypes = true)
+        if (resolvedType.toIRType() == TypeUtils.PTR && resolvedType !is SemanticType.ReferenceType) {
+            return GeneratedValue(resolved.value, resolvedType)
+        }
+        val loaded = currentEnv().builder.insertLoad(resolvedType.toIRType(), resolved.value, temp("deref"))
+        return GeneratedValue(loaded, resolvedType)
     }
 
     private fun emitCast(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode): GeneratedValue? {
@@ -694,15 +709,9 @@ class ExpressionEmitter(
     }
 
     private fun emitFieldPointer(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): Pair<Value, SemanticType>? {
-        var base = emitExpression(node.base) ?: return null
-        var baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }
-        while (baseType is SemanticType.ReferenceType) {
-            val inner = baseType.type.getOrNull() ?: return null
-            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), base.value, temp("deref"))
-            base = GeneratedValue(loaded, inner)
-            baseType = inner
-        }
-        val structType = baseType as? SemanticType.StructType ?: return null
+        val baseValue = emitExpression(node.base) ?: return null
+        val (resolvedBase, resolvedType) = unwrapReferenceValue(node.base, baseValue, stopAtPointerTypes = true)
+        val structType = resolvedType as? SemanticType.StructType ?: return null
         val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
             as? SemanticSymbol.Struct ?: return null
         val fieldIndex = structSymbol.fields.keys.toList().indexOf(node.field)
@@ -711,7 +720,7 @@ class ExpressionEmitter(
         val structIrType = IRContext.structTypeLookup[structType.identifier] ?: return null
         val gep = currentEnv().builder.insertGep(
             structIrType,
-            base.value,
+            resolvedBase.value,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
                 BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
@@ -722,15 +731,15 @@ class ExpressionEmitter(
     }
 
     private fun emitIndexPointer(node: ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode): Pair<Value, SemanticType>? {
-        val base = emitExpression(node.base) ?: return null
-        val baseType = ctx.expressionTypeMemory.recall(node.base) { base.type }.unwrapReferences()
-        val arrayType = baseType as? SemanticType.ArrayType ?: return null
+        val baseValue = emitExpression(node.base) ?: return null
+        val (resolvedBase, resolvedType) = unwrapReferenceValue(node.base, baseValue, stopAtPointerTypes = true)
+        val arrayType = resolvedType as? SemanticType.ArrayType ?: return null
         val elementType = arrayType.elementType.getOrNull() ?: return null
         val storageType = arrayStorageType(arrayType)
         val indexValue = emitExpression(node.index) ?: return null
         val gep = currentEnv().builder.insertGep(
             storageType,
-            base.value,
+            resolvedBase.value,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
                 indexValue.value
