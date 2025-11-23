@@ -352,6 +352,16 @@ class ExpressionEmitter(
         return ty
     }
 
+    private fun SemanticType.isUnsignedInteger(): Boolean = when (unwrapReferences()) {
+        is SemanticType.U32Type, is SemanticType.USizeType -> true
+        else -> false
+    }
+
+    private fun SemanticType.prefersZeroExtension(): Boolean = when (unwrapReferences()) {
+        is SemanticType.U32Type, is SemanticType.USizeType, SemanticType.BoolType, SemanticType.CharType -> true
+        else -> false
+    }
+
     private fun emitInfix(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode): GeneratedValue? {
         val env = currentEnv()
         val op = node.op
@@ -371,17 +381,30 @@ class ExpressionEmitter(
             }
 
             val lhsValue = env.builder.insertLoad(symbol.type.get().toIRType(), lhsSlot, temp("load.assign"))
+            val lhsUnsigned = symbol.type.get().isUnsignedInteger()
             val result = when (op) {
                 Token.O_PLUS_EQ -> env.builder.insertAdd(lhsValue, rhs.value, temp("add"))
                 Token.O_MINUS_EQ -> env.builder.insertSub(lhsValue, rhs.value, temp("sub"))
                 Token.O_STAR_EQ -> env.builder.insertMul(lhsValue, rhs.value, temp("mul"))
-                Token.O_DIV_EQ -> env.builder.insertSDiv(lhsValue, rhs.value, temp("div"))
+                Token.O_DIV_EQ -> if (lhsUnsigned) {
+                    env.builder.insertUDiv(lhsValue, rhs.value, temp("div"))
+                } else {
+                    env.builder.insertSDiv(lhsValue, rhs.value, temp("div"))
+                }
                 Token.O_AND_EQ -> env.builder.insertAnd(lhsValue, rhs.value, temp("and"))
                 Token.O_OR_EQ -> env.builder.insertOr(lhsValue, rhs.value, temp("or"))
                 Token.O_XOR_EQ -> env.builder.insertXor(lhsValue, rhs.value, temp("xor"))
                 Token.O_SLFT_EQ -> env.builder.insertShl(lhsValue, rhs.value, temp("shl"))
-                Token.O_SRIT_EQ -> env.builder.insertAShr(lhsValue, rhs.value, temp("ashr"))
-                Token.O_PERCENT_EQ -> env.builder.insertSRem(lhsValue, rhs.value, temp("rem"))
+                Token.O_SRIT_EQ -> if (lhsUnsigned) {
+                    env.builder.insertLShr(lhsValue, rhs.value, temp("lshr"))
+                } else {
+                    env.builder.insertAShr(lhsValue, rhs.value, temp("ashr"))
+                }
+                Token.O_PERCENT_EQ -> if (lhsUnsigned) {
+                    env.builder.insertURem(lhsValue, rhs.value, temp("rem"))
+                } else {
+                    env.builder.insertSRem(lhsValue, rhs.value, temp("rem"))
+                }
                 else -> TODO("Compound assignment operator $op not yet supported")
             }
             env.builder.insertStore(result, lhsSlot)
@@ -390,17 +413,30 @@ class ExpressionEmitter(
 
         val left = emitExpression(node.left) ?: return null
         val right = emitExpression(node.right) ?: return null
+        val arithmeticUnsigned = ctx.expressionTypeMemory.recall(node.left) { left.type }.isUnsignedInteger()
         return when (op) {
             Token.O_PLUS -> GeneratedValue(env.builder.insertAdd(left.value, right.value, temp("add")), left.type)
             Token.O_MINUS -> GeneratedValue(env.builder.insertSub(left.value, right.value, temp("sub")), left.type)
             Token.O_STAR -> GeneratedValue(env.builder.insertMul(left.value, right.value, temp("mul")), left.type)
-            Token.O_DIV -> GeneratedValue(env.builder.insertSDiv(left.value, right.value, temp("div")), left.type)
+            Token.O_DIV -> GeneratedValue(
+                if (arithmeticUnsigned) env.builder.insertUDiv(left.value, right.value, temp("div"))
+                else env.builder.insertSDiv(left.value, right.value, temp("div")),
+                left.type
+            )
             Token.O_AND -> GeneratedValue(env.builder.insertAnd(left.value, right.value, temp("and")), left.type)
             Token.O_OR -> GeneratedValue(env.builder.insertOr(left.value, right.value, temp("or")), left.type)
             Token.O_BIT_XOR -> GeneratedValue(env.builder.insertXor(left.value, right.value, temp("xor")), left.type)
             Token.O_SLFT -> GeneratedValue(env.builder.insertShl(left.value, right.value, temp("shl")), left.type)
-            Token.O_SRIT -> GeneratedValue(env.builder.insertAShr(left.value, right.value, temp("ashr")), left.type)
-            Token.O_PERCENT -> GeneratedValue(env.builder.insertSRem(left.value, right.value, temp("rem")), left.type)
+            Token.O_SRIT -> GeneratedValue(
+                if (arithmeticUnsigned) env.builder.insertLShr(left.value, right.value, temp("lshr"))
+                else env.builder.insertAShr(left.value, right.value, temp("ashr")),
+                left.type
+            )
+            Token.O_PERCENT -> GeneratedValue(
+                if (arithmeticUnsigned) env.builder.insertURem(left.value, right.value, temp("rem"))
+                else env.builder.insertSRem(left.value, right.value, temp("rem")),
+                left.type
+            )
             Token.O_DOUBLE_EQ -> compareInts(IcmpPredicate.EQ, left, right)
             Token.O_NEQ -> compareInts(IcmpPredicate.NE, left, right)
             Token.O_LANG -> compareInts(IcmpPredicate.SLT, left, right)
@@ -455,12 +491,20 @@ class ExpressionEmitter(
         val targetType = staticResolver.resolveTypeNode(node.targetType, scopeMaintainer.currentScope)
         val targetIr = targetType.toIRType()
         val sourceIr = expr.type.toIRType()
+        val sourceType = ctx.expressionTypeMemory.recall(node.expr) { expr.type }
         if (sourceIr == targetIr) return GeneratedValue(expr.value, targetType)
         val builder = currentEnv().builder
         val casted = when (targetIr) {
             TypeUtils.I1 -> builder.insertTrunc(expr.value, TypeUtils.I1 as IntegerType, temp("trunc"))
             TypeUtils.I8 -> builder.insertTrunc(expr.value, TypeUtils.I8 as IntegerType, temp("trunc"))
-            TypeUtils.I32 -> builder.insertSExt(expr.value, TypeUtils.I32 as IntegerType, temp("sext"))
+            TypeUtils.I32 -> {
+                val zeroExtend = sourceType.prefersZeroExtension()
+                if (zeroExtend) {
+                    builder.insertZExt(expr.value, TypeUtils.I32 as IntegerType, temp("zext"))
+                } else {
+                    builder.insertSExt(expr.value, TypeUtils.I32 as IntegerType, temp("sext"))
+                }
+            }
             else -> builder.insertBitcast(expr.value, targetIr, temp("bitcast"))
         }
         return GeneratedValue(casted, targetType)
