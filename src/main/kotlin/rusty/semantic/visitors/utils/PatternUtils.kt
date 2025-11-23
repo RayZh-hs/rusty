@@ -66,7 +66,9 @@ fun extractSymbolsFromTypedPattern(pattern: PatternNode, semanticType: SemanticT
                     // If it's a reference binding, 'mut' applies to the reference; the binding itself isn't reassignable.
                     // Otherwise, 'mut' applies to the variable's reassignability.
                     it.mutable.set(if (p.isRef) false else p.isMut)
-                    it.type.set(boundType)
+                    if (boundType != SemanticType.WildcardType) {
+                        it.type.set(boundType)
+                    }
                 }
 
                 val extended = p.extendedByPatternNode?.let { sub -> extract(destructPattern(sub), ty) } ?: emptyList()

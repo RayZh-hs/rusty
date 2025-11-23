@@ -176,6 +176,21 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             currentScope()
         )
         val value = node.expressionNode?.let { exprEmitter.emitExpression(it) }
+        val initializerType = value?.type
+        if (initializerType != null) {
+            symbols.forEach { symbol ->
+                when (val current = symbol.type.getOrNull()) {
+                    null -> symbol.type.set(initializerType)
+                    is SemanticType.ReferenceType -> {
+                        val inner = current.type.getOrNull()
+                        if (inner == null || inner == SemanticType.WildcardType) {
+                            current.type.set(initializerType)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
         symbols.forEach { sym ->
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
