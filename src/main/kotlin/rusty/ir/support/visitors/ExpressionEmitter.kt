@@ -364,8 +364,28 @@ class ExpressionEmitter(
             val lhsSlot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] }
                 ?: return null
             val rhs = emitExpression(node.right) ?: return null
-            env.builder.insertStore(rhs.value, lhsSlot)
-            return GeneratedValue(rhs.value, SemanticType.UnitType)
+
+            if (op == Token.O_EQ) {
+                env.builder.insertStore(rhs.value, lhsSlot)
+                return GeneratedValue(rhs.value, SemanticType.UnitType)
+            }
+
+            val lhsValue = env.builder.insertLoad(symbol.type.get().toIRType(), lhsSlot, temp("load.assign"))
+            val result = when (op) {
+                Token.O_PLUS_EQ -> env.builder.insertAdd(lhsValue, rhs.value, temp("add"))
+                Token.O_MINUS_EQ -> env.builder.insertSub(lhsValue, rhs.value, temp("sub"))
+                Token.O_STAR_EQ -> env.builder.insertMul(lhsValue, rhs.value, temp("mul"))
+                Token.O_DIV_EQ -> env.builder.insertSDiv(lhsValue, rhs.value, temp("div"))
+                Token.O_AND_EQ -> env.builder.insertAnd(lhsValue, rhs.value, temp("and"))
+                Token.O_OR_EQ -> env.builder.insertOr(lhsValue, rhs.value, temp("or"))
+                Token.O_XOR_EQ -> env.builder.insertXor(lhsValue, rhs.value, temp("xor"))
+                Token.O_SLFT_EQ -> env.builder.insertShl(lhsValue, rhs.value, temp("shl"))
+                Token.O_SRIT_EQ -> env.builder.insertAShr(lhsValue, rhs.value, temp("ashr"))
+                Token.O_PERCENT_EQ -> env.builder.insertSRem(lhsValue, rhs.value, temp("rem"))
+                else -> TODO("Compound assignment operator $op not yet supported")
+            }
+            env.builder.insertStore(result, lhsSlot)
+            return GeneratedValue(result, SemanticType.UnitType)
         }
 
         val left = emitExpression(node.left) ?: return null
@@ -375,6 +395,12 @@ class ExpressionEmitter(
             Token.O_MINUS -> GeneratedValue(env.builder.insertSub(left.value, right.value, temp("sub")), left.type)
             Token.O_STAR -> GeneratedValue(env.builder.insertMul(left.value, right.value, temp("mul")), left.type)
             Token.O_DIV -> GeneratedValue(env.builder.insertSDiv(left.value, right.value, temp("div")), left.type)
+            Token.O_AND -> GeneratedValue(env.builder.insertAnd(left.value, right.value, temp("and")), left.type)
+            Token.O_OR -> GeneratedValue(env.builder.insertOr(left.value, right.value, temp("or")), left.type)
+            Token.O_BIT_XOR -> GeneratedValue(env.builder.insertXor(left.value, right.value, temp("xor")), left.type)
+            Token.O_SLFT -> GeneratedValue(env.builder.insertShl(left.value, right.value, temp("shl")), left.type)
+            Token.O_SRIT -> GeneratedValue(env.builder.insertAShr(left.value, right.value, temp("ashr")), left.type)
+            Token.O_PERCENT -> GeneratedValue(env.builder.insertSRem(left.value, right.value, temp("rem")), left.type)
             Token.O_DOUBLE_EQ -> compareInts(IcmpPredicate.EQ, left, right)
             Token.O_NEQ -> compareInts(IcmpPredicate.NE, left, right)
             Token.O_LANG -> compareInts(IcmpPredicate.SLT, left, right)
