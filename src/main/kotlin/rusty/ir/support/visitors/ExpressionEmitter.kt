@@ -214,7 +214,7 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Struct type '$structName' not registered")
         val storage = env.builder.insertAlloca(structType, temp("struct.$structName"))
         node.fields.forEachIndexed { index, field ->
-            symbol.fields[field.identifier]?.get()
+            val fieldType = symbol.fields[field.identifier]?.get()
                 ?: throw IllegalStateException("Unknown field ${field.identifier} on $structName")
             val value = when {
                 field.expressionNode != null -> emitExpression(field.expressionNode)
@@ -234,7 +234,7 @@ class ExpressionEmitter(
                 ),
                 temp("$structName.${field.identifier}")
             )
-            env.builder.insertStore(value.value, gep)
+            storeValueInto(fieldType, value, gep, "$structName.${field.identifier}")
         }
         val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("$structName.ptr"))
         return GeneratedValue(ptrValue, symbol.definesType)
@@ -464,6 +464,33 @@ class ExpressionEmitter(
         builder.insertStore(storedValue, gep)
     }
 
+    private fun storeValueInto(
+        targetType: SemanticType,
+        sourceValue: GeneratedValue,
+        destinationPtr: Value,
+        label: String,
+    ) {
+        val env = currentEnv()
+        val underlying = targetType.unwrapReferences()
+        val storedValue = if (targetType.requiresAggregateStorageCopy()) {
+            env.builder.insertLoad(
+                underlying.toStorageIRType(),
+                sourceValue.value,
+                temp("$label.copy")
+            )
+        } else {
+            sourceValue.value
+        }
+        env.builder.insertStore(storedValue, destinationPtr)
+    }
+
+    private fun SemanticType.requiresAggregateStorageCopy(): Boolean =
+        this !is SemanticType.ReferenceType && when (unwrapReferences()) {
+            is SemanticType.StructType,
+            is SemanticType.ArrayType -> true
+            else -> false
+        }
+
     private fun SemanticType.isUnsignedInteger(): Boolean = when (unwrapReferences()) {
         is SemanticType.U32Type, is SemanticType.USizeType -> true
         else -> false
@@ -482,7 +509,14 @@ class ExpressionEmitter(
             val rhs = emitExpression(node.right) ?: return null
 
             if (op == Token.O_EQ) {
-                env.builder.insertStore(rhs.value, lhsPtr)
+                val needsAggregateCopy =
+                    node.left !is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode &&
+                        lhsType.requiresAggregateStorageCopy()
+                if (needsAggregateCopy) {
+                    storeValueInto(lhsType, rhs, lhsPtr, "assign")
+                } else {
+                    env.builder.insertStore(rhs.value, lhsPtr)
+                }
                 return GeneratedValue(rhs.value, SemanticType.UnitType)
             }
 
@@ -646,11 +680,7 @@ class ExpressionEmitter(
     private fun emitDereference(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode): GeneratedValue? {
         val baseValue = emitExpression(node.expr) ?: return null
         val (resolved, resolvedType) = unwrapReferenceValue(node.expr, baseValue, stopAtPointerTypes = true)
-        if (resolvedType.toIRType() == TypeUtils.PTR && resolvedType !is SemanticType.ReferenceType) {
-            return GeneratedValue(resolved.value, resolvedType)
-        }
-        val loaded = currentEnv().builder.insertLoad(resolvedType.toIRType(), resolved.value, temp("deref"))
-        return GeneratedValue(loaded, resolvedType)
+        return GeneratedValue(resolved.value, resolvedType)
     }
 
     private fun emitCast(node: ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode): GeneratedValue? {

@@ -8,6 +8,7 @@ import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticType
 import rusty.parser.nodes.ExpressionNode
 import rusty.core.CompilerPointer
+import space.norb.llvm.structure.BasicBlock
 
 class ControlFlowEmitter(
     private val ctx: SemanticContext,
@@ -20,32 +21,50 @@ class ControlFlowEmitter(
         val fn = env.function
         val resultType = ctx.expressionTypeMemory.recall(node) { SemanticType.UnitType }
         val needsValue = resultType != SemanticType.UnitType
-        val auxSlot = if (needsValue) env.builder.insertAlloca(resultType.toIRType(), Name.blockResult(env.renamer).identifier) else null
-
-        val thenBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-        val elseBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        val auxSlot = if (needsValue) {
+            env.builder.insertAlloca(resultType.toIRType(), Name.blockResult(env.renamer).identifier)
+        } else {
+            null
+        }
         val merge = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
 
-        val cond = emitExpr(node.ifs.first().condition.expression) ?: return null
-        env.builder.insertCondBr(cond.value, thenBlock, elseBlock)
+        val firstGuard = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        env.builder.insertBr(firstGuard)
+        var nextGuardBlock: BasicBlock = firstGuard
+        node.ifs.forEachIndexed { index, clause ->
+            env.builder.positionAtEnd(nextGuardBlock)
+            env.terminated = false
+            addBlockComment(clause.condition.expression.pointer, if (index == 0) "if-guard" else "else-if-guard")
+            val condValue = emitExpr(clause.condition.expression) ?: return null
+            val thenBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+            val elseBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+            env.builder.insertCondBr(condValue.value, thenBlock, elseBlock)
 
-        env.builder.positionAtEnd(thenBlock)
-        addBlockComment(node.ifs.first().then.pointer, "then-block")
-        val thenVal = emitExpr(node.ifs.first().then)
-        if (auxSlot != null && thenVal != null) env.builder.insertStore(thenVal.value, auxSlot)
-        if (!env.terminated) env.builder.insertBr(merge)
-        env.terminated = false
+            env.builder.positionAtEnd(thenBlock)
+            addBlockComment(clause.then.pointer, "then-block")
+            val thenVal = emitExpr(clause.then)
+            if (auxSlot != null && thenVal != null) env.builder.insertStore(thenVal.value, auxSlot)
+            if (!env.terminated) env.builder.insertBr(merge)
+            env.terminated = false
 
-        env.builder.positionAtEnd(elseBlock)
-        node.elseBranch?.let { addBlockComment(it.pointer, "else-block") } ?: addBlockComment(node.pointer, "else-block")
-        val elseVal = node.elseBranch?.let { emitExpr(it) }
-        if (auxSlot != null && elseVal != null) env.builder.insertStore(elseVal.value, auxSlot)
+            nextGuardBlock = elseBlock
+        }
+
+        val finalElseBlock = nextGuardBlock
+        env.builder.positionAtEnd(finalElseBlock)
+        node.elseBranch?.let {
+            addBlockComment(it.pointer, "else-block")
+            val elseVal = emitExpr(it)
+            if (auxSlot != null && elseVal != null) env.builder.insertStore(elseVal.value, auxSlot)
+        } ?: addBlockComment(node.pointer, "else-block")
         if (!env.terminated) env.builder.insertBr(merge)
         env.terminated = false
 
         env.builder.positionAtEnd(merge)
         addBlockComment(node.pointer, "end-if")
-        return auxSlot?.let { GeneratedValue(env.builder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier), resultType) }
+        return auxSlot?.let {
+            GeneratedValue(env.builder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier), resultType)
+        }
     }
 
     fun emitWhile(node: ExpressionNode.WithBlockExpressionNode.WhileBlockExpressionNode): GeneratedValue? {
