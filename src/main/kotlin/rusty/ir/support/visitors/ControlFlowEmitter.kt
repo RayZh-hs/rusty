@@ -22,7 +22,7 @@ class ControlFlowEmitter(
         val resultType = ctx.expressionTypeMemory.recall(node) { SemanticType.UnitType }
         val needsValue = resultType != SemanticType.UnitType
         val auxSlot = if (needsValue) {
-            env.builder.insertAlloca(resultType.toIRType(), Name.blockResult(env.renamer).identifier)
+            env.allocaBuilder.insertAlloca(resultType.toIRType(), Name.blockResult(env.renamer).identifier)
         } else {
             null
         }

@@ -16,6 +16,9 @@ data class LoopFrame(
 
 data class FunctionEnvironment(
     val builder: IRBuilder,
+    val allocaBuilder: IRBuilder,
+    val entryBlock: BasicBlock,
+    val bodyEntryBlock: BasicBlock,
     val plan: FunctionPlan,
     val function: Function,
     val scope: Scope,

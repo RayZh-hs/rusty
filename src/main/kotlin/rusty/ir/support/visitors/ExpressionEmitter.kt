@@ -209,7 +209,7 @@ class ExpressionEmitter(
             ?: throw IllegalStateException("Struct '$structName' not found")
         val structType = IRContext.structTypeLookup[structName]
             ?: throw IllegalStateException("Struct type '$structName' not registered")
-        val storage = env.builder.insertAlloca(structType, temp("struct.$structName"))
+        val storage = env.allocaBuilder.insertAlloca(structType, temp("struct.$structName"))
         node.fields.forEachIndexed { index, field ->
             val fieldType = symbol.fields[field.identifier]?.get()
                 ?: throw IllegalStateException("Unknown field ${field.identifier} on $structName")
@@ -282,7 +282,7 @@ class ExpressionEmitter(
         val storageType = arrayStorageType(arrayType)
 
         val env = currentEnv()
-        val storage = env.builder.insertAlloca(storageType, temp("array.alloc"))
+        val storage = env.allocaBuilder.insertAlloca(storageType, temp("array.alloc"))
         val elementCount = node.elements.size.takeIf { it > 0 }
             ?: throw IllegalStateException("Array literal missing elements for $arrayType")
         val totalLength = length.value.toLong()
@@ -292,7 +292,7 @@ class ExpressionEmitter(
         }
 
         val patternType = ArrayType(elementCount, storageType.elementType)
-        val patternStorage = env.builder.insertAlloca(patternType, temp("array.pattern"))
+        val patternStorage = env.allocaBuilder.insertAlloca(patternType, temp("array.pattern"))
         node.elements.forEachIndexed { index, elementExpr ->
             val value = emitExpression(elementExpr)
                 ?: throw IllegalStateException("Failed to emit array element at $index for $arrayType")
@@ -348,8 +348,14 @@ class ExpressionEmitter(
         val fn = IRContext.functionLookup[target.symbol] ?: return null
 
         val env = currentEnv()
-        val userArgs = node.arguments.mapNotNull { emitExpression(it)?.value }
-        val callArgs = mutableListOf<space.norb.llvm.core.Value>()
+        val userArgs = node.arguments.mapIndexed { index, argument ->
+            emitExpression(argument)?.value
+                ?: throw IllegalStateException(
+                    "Failed to emit argument ${index + 1} for ${plan.name.identifier} " +
+                        "at ${node.pointer.line}:${node.pointer.column}"
+                )
+        }
+        val callArgs = mutableListOf<Value>()
 
         plan.selfParamIndex?.let { idx ->
             while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
@@ -357,9 +363,9 @@ class ExpressionEmitter(
             callArgs.add(idx, self)
         }
 
-        var retSlot: space.norb.llvm.core.Value? = null
+        var retSlot: Value? = null
         if (plan.returnsByPointer) {
-            retSlot = env.builder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.slot"))
+            retSlot = env.allocaBuilder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.slot"))
             plan.retParamIndex?.let { idx ->
                 while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
                 callArgs.add(idx, retSlot)
@@ -638,7 +644,7 @@ class ExpressionEmitter(
         val shortBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
         val mergeBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
         val boolType = SemanticType.BoolType.toIRType()
-        val resultSlot = env.builder.insertAlloca(boolType, temp("logic.result"))
+        val resultSlot = env.allocaBuilder.insertAlloca(boolType, temp("logic.result"))
 
         if (shortCircuitOnTrue) {
             env.builder.insertCondBr(left.value, shortBlock, rhsBlock)
@@ -694,6 +700,22 @@ class ExpressionEmitter(
         return when (val base = node.expr) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
                 emitPathReference(base, cachedType, node.isMut)
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
+                val (ptr, fieldType) = emitFieldPointer(base) ?: return null
+                val referenceType = cachedType ?: SemanticType.ReferenceType(
+                    rusty.core.utils.Slot(fieldType),
+                    rusty.core.utils.Slot(node.isMut)
+                )
+                GeneratedValue(ptr, referenceType)
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> {
+                val (ptr, elementType) = emitIndexPointer(base) ?: return null
+                val referenceType = cachedType ?: SemanticType.ReferenceType(
+                    rusty.core.utils.Slot(elementType),
+                    rusty.core.utils.Slot(node.isMut)
+                )
+                GeneratedValue(ptr, referenceType)
+            }
             is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
                 val inner = emitExpression(base.expr) ?: return null
                 val referenceType = cachedType ?: SemanticType.ReferenceType(
@@ -974,7 +996,7 @@ class ExpressionEmitter(
             listOf(TypeUtils.PTR, TypeUtils.PTR, TypeUtils.I32, TypeUtils.I32),
             false
         )
-        currentEnv().builder.insertCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount), null)
+        currentEnv().builder.insertCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount), temp("memfill"))
     }
 
     private fun ensureExternalFunction(

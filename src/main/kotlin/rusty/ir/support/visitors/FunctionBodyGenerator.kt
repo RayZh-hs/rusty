@@ -64,11 +64,17 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             if (fn.basicBlocks.isNotEmpty()) return@withNextScope
 
             val builder = IRBuilder(IRContext.module)
-            val entry = fn.insertBasicBlock(Name.block(renamer).identifier, setAsEntrypoint = true)
-            builder.positionAtEnd(entry)
+            val entryBlock = fn.insertBasicBlock(Name.block(renamer).identifier, setAsEntrypoint = true)
+            val bodyBlock = fn.insertBasicBlock(Name.block(renamer).identifier, setAsEntrypoint = false)
+            builder.positionAtEnd(bodyBlock)
+            val allocaBuilder = IRBuilder(IRContext.module)
+            allocaBuilder.positionAtEnd(entryBlock)
             val returnSlot = null
             val env = FunctionEnvironment(
                 builder = builder,
+                allocaBuilder = allocaBuilder,
+                entryBlock = entryBlock,
+                bodyEntryBlock = bodyBlock,
                 plan = plan,
                 function = fn,
                 scope = funcScope,
@@ -82,6 +88,11 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
 
             val result = emitBlock(body)
             if (!env.terminated) emitFunctionReturn(plan, result)
+
+            if (entryBlock.terminator == null) {
+                allocaBuilder.positionAtEnd(entryBlock)
+                allocaBuilder.insertBr(bodyBlock)
+            }
 
             envStack.removeLast()
         }
@@ -115,7 +126,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     private fun declareVariable(symbol: SemanticSymbol.Variable, nameOverride: Name? = null): space.norb.llvm.core.Value {
         val env = currentEnv()
         val storageType = symbol.type.get().toIRType()
-        val slot = env.builder.insertAlloca(
+        val slot = env.allocaBuilder.insertAlloca(
             storageType,
             (nameOverride ?: Name.ofVariable(symbol, env.renamer)).identifier
         )
@@ -196,7 +207,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                 val resolvedType = sym.type.getOrNull() ?: initializerType
                 if (resolvedType != null && resolvedType.requiresAggregateValueCopy()) {
                     val storageType = resolvedType.unwrapReferences().toStorageIRType()
-                    val storageAlloca = env.builder.insertAlloca(
+                    val storageAlloca = env.allocaBuilder.insertAlloca(
                         storageType,
                         Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                     )
