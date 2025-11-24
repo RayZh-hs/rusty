@@ -24,4 +24,20 @@ data class FunctionEnvironment(
     val loopStack: ArrayDeque<LoopFrame> = ArrayDeque(),
     var terminated: Boolean = false,
     val returnSlot: Value? = null,
-)
+) {
+    fun findLocalSymbol(identifier: String): SemanticSymbol.Variable? {
+        return locals.asReversed().firstNotNullOfOrNull { table ->
+            table.entries.toList().asReversed()
+                .firstOrNull { it.key.identifier == identifier }
+                ?.key
+        }
+    }
+
+    fun findLocalSlot(symbol: SemanticSymbol.Variable): Value? {
+        return locals.asReversed().firstNotNullOfOrNull { table ->
+            table[symbol] ?: table.entries.toList().asReversed()
+                .firstOrNull { it.key.identifier == symbol.identifier }
+                ?.value
+        }
+    }
+}

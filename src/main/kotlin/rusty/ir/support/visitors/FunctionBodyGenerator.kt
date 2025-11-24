@@ -124,9 +124,8 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
 
     private fun resolveVariable(symbol: SemanticSymbol.Variable): GeneratedValue {
         val env = currentEnv()
-        val slot = env.locals.asReversed().firstNotNullOfOrNull { map ->
-            map[symbol] ?: map.entries.firstOrNull { it.key.identifier == symbol.identifier }?.value
-        } ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
+        val slot = env.findLocalSlot(symbol)
+            ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
         val loaded = env.builder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
         return GeneratedValue(loaded, symbol.type.get())
     }

@@ -169,19 +169,16 @@ class ExpressionEmitter(
         val path = node.pathInExpressionNode.path
         if (path.isEmpty()) return null
         val seg = path.last()
+        val env = currentEnv()
         if (seg.token == Token.K_SELF) {
-            val selfVar = currentEnv().locals.asReversed()
-                .flatMap { it.keys }
-                .firstOrNull { it.identifier == "self" }
+            val selfVar = env.findLocalSymbol("self")
                 ?: sequentialLookup("self", scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
                 ?: throw IllegalStateException("Self not bound in IR generation")
             return resolveVariable(selfVar)
         }
         val identifier = seg.name ?: return null
 
-        val localMatch = currentEnv().locals.asReversed()
-            .flatMap { it.keys }
-            .firstOrNull { it.identifier == identifier }
+        val localMatch = env.findLocalSymbol(identifier)
         if (localMatch != null) return resolveVariable(localMatch)
 
         val resolvedVar = sequentialLookup(identifier, scopeMaintainer.currentScope) { it.variableST }?.symbol
@@ -650,15 +647,12 @@ class ExpressionEmitter(
     private fun emitReference(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode): GeneratedValue? {
         val base = node.expr as? ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ?: return null
         val symbolName = base.pathInExpressionNode.path.first().name ?: return null
-        val localMatch = currentEnv().locals.asReversed()
-            .flatMap { it.keys }
-            .firstOrNull { it.identifier == symbolName }
+        val env = currentEnv()
+        val localMatch = env.findLocalSymbol(symbolName)
         val symbol = localMatch
             ?: sequentialLookup(symbolName, scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
             ?: return null
-        val slot = currentEnv().locals.asReversed().firstNotNullOfOrNull { map ->
-            map[symbol] ?: map.entries.firstOrNull { it.key.identifier == symbol.identifier }?.value
-        } ?: return null
+        val slot = env.findLocalSlot(symbol) ?: return null
         val symbolType = symbol.type.get()
         val baseType = ctx.expressionTypeMemory.recall(node.expr) { symbolType }
         val underlyingType = when (baseType) {
@@ -760,12 +754,10 @@ class ExpressionEmitter(
         return when (node) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
                 val name = node.pathInExpressionNode.path.first().name ?: return null
-                val symbol = env.locals.asReversed()
-                    .flatMap { it.keys }
-                    .firstOrNull { it.identifier == name }
+                val symbol = env.findLocalSymbol(name)
                     ?: sequentialLookup(name, scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
                     ?: return null
-                val slot = env.locals.asReversed().firstNotNullOfOrNull { it[symbol] } ?: return null
+                val slot = env.findLocalSlot(symbol) ?: return null
                 Pair(slot, symbol.type.get())
             }
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> emitFieldPointer(node)
