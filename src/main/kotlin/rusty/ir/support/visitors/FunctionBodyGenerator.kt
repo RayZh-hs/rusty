@@ -8,6 +8,7 @@ import rusty.ir.support.IRContext
 import rusty.ir.support.Name
 import rusty.ir.support.toIRType
 import rusty.ir.support.toStorageIRType
+import rusty.ir.support.unwrapReferences
 import rusty.ir.support.visitors.pattern.ParameterBinder
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
@@ -191,7 +192,32 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         symbols.forEach { sym ->
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
-            value?.let { env.builder.insertStore(it.value, slot) }
+            value?.let { generated ->
+                val resolvedType = sym.type.getOrNull() ?: initializerType
+                if (resolvedType != null && resolvedType.requiresAggregateValueCopy()) {
+                    val storageType = resolvedType.unwrapReferences().toStorageIRType()
+                    val storageAlloca = env.builder.insertAlloca(
+                        storageType,
+                        Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
+                    )
+                    val copyName = Name.auxTemp("${sym.identifier}.copy", env.renamer).identifier
+                    val copiedValue = env.builder.insertLoad(storageType, generated.value, copyName)
+                    env.builder.insertStore(copiedValue, storageAlloca)
+                    env.builder.insertStore(storageAlloca, slot)
+                } else {
+                    env.builder.insertStore(generated.value, slot)
+                }
+            }
+        }
+    }
+
+    private fun SemanticType?.requiresAggregateValueCopy(): Boolean {
+        val current = this ?: return false
+        if (current is SemanticType.ReferenceType) return false
+        return when (current.unwrapReferences()) {
+            is SemanticType.StructType,
+            is SemanticType.ArrayType -> true
+            else -> false
         }
     }
 

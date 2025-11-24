@@ -17,6 +17,7 @@ import rusty.semantic.visitors.companions.StaticResolverCompanion
 import rusty.semantic.visitors.utils.sequentialLookup
 import rusty.lexer.Token
 import rusty.parser.nodes.ExpressionNode
+import rusty.parser.nodes.PathIndentSegmentNode
 import space.norb.llvm.core.Value
 import space.norb.llvm.builder.BuilderUtils
 import space.norb.llvm.enums.IcmpPredicate
@@ -190,10 +191,9 @@ class ExpressionEmitter(
             }
             else -> {}
         }
-        val resolvedFn = sequentialLookup(identifier, scopeMaintainer.currentScope) { it.functionST }?.symbol
-        if (resolvedFn is SemanticSymbol.Function) {
-            val fn = IRContext.functionLookup[resolvedFn] ?: return null
-            return GeneratedValue(fn, SemanticType.FunctionHeader(identifier, null, emptyList(), resolvedFn.returnType.get()))
+        resolvePathFunctionSymbol(node) { true }?.let { symbol ->
+            val fn = IRContext.functionLookup[symbol] ?: return null
+            return GeneratedValue(fn, buildFunctionHeader(symbol))
         }
         throw IllegalStateException("Unresolved path '$identifier' in IR generation")
     }
@@ -324,8 +324,7 @@ class ExpressionEmitter(
 
         val target: Target = when (callee) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
-                val name = callee.pathInExpressionNode.path.last().name ?: return null
-                val symbol = resolveFunction(name) { it.selfParam.getOrNull() == null } ?: return null
+                val symbol = resolvePathFunctionSymbol(callee) { it.selfParam.getOrNull() == null } ?: return null
                 Target(symbol, null)
             }
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
@@ -420,6 +419,46 @@ class ExpressionEmitter(
             .firstOrNull(predicate)
         if (scoped != null) return scoped
         return IRContext.functionPlans.keys.firstOrNull { it.identifier == name && predicate(it) }
+    }
+
+    private fun resolvePathFunctionSymbol(
+        node: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode,
+        predicate: (SemanticSymbol.Function) -> Boolean,
+    ): SemanticSymbol.Function? {
+        val path = node.pathInExpressionNode.path
+        if (path.isEmpty()) return null
+        if (path.size == 1) {
+            val identifier = path[0].name ?: return null
+            return resolveFunction(identifier, predicate)
+        }
+        val member = path[1]
+        val memberName = member.name ?: return null
+        val baseSymbol = resolveTypeOwnerSymbol(path[0]) ?: return null
+        val fn = when (baseSymbol) {
+            is SemanticSymbol.Struct -> baseSymbol.functions[memberName]
+            is SemanticSymbol.Enum -> baseSymbol.functions[memberName]
+            is SemanticSymbol.Trait -> baseSymbol.functions[memberName]
+            else -> null
+        } ?: return null
+        return fn.takeIf(predicate)
+    }
+
+    private fun resolveTypeOwnerSymbol(segment: PathIndentSegmentNode): SemanticSymbol? {
+        return when (segment.token) {
+            Token.I_IDENTIFIER -> {
+                val name = segment.name ?: return null
+                sequentialLookup(name, scopeMaintainer.currentScope) { it.typeST }?.symbol
+            }
+            Token.K_TYPE_SELF -> staticResolver.selfResolverRef.getSelf()
+            else -> null
+        }
+    }
+
+    private fun buildFunctionHeader(symbol: SemanticSymbol.Function): SemanticType.FunctionHeader {
+        val selfType = symbol.selfParam.getOrNull()?.type?.getOrNull()
+        val paramTypes = symbol.funcParams.getOrNull()?.map { it.type.getOrNull() ?: SemanticType.WildcardType } ?: emptyList()
+        val returnType = symbol.returnType.getOrNull() ?: SemanticType.UnitType
+        return SemanticType.FunctionHeader(symbol.identifier, selfType, paramTypes, returnType)
     }
 
     private fun arrayStorageType(array: SemanticType.ArrayType): ArrayType {
@@ -645,7 +684,33 @@ class ExpressionEmitter(
     }
 
     private fun emitReference(node: ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode): GeneratedValue? {
-        val base = node.expr as? ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ?: return null
+        val cachedType = ctx.expressionTypeMemory.recall(node) {
+            SemanticType.ReferenceType(
+                rusty.core.utils.Slot(SemanticType.WildcardType),
+                rusty.core.utils.Slot(node.isMut)
+            )
+        } as? SemanticType.ReferenceType
+
+        return when (val base = node.expr) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
+                emitPathReference(base, cachedType, node.isMut)
+            is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> {
+                val inner = emitExpression(base.expr) ?: return null
+                val referenceType = cachedType ?: SemanticType.ReferenceType(
+                    rusty.core.utils.Slot(ctx.expressionTypeMemory.recall(base.expr) { inner.type }),
+                    rusty.core.utils.Slot(node.isMut)
+                )
+                GeneratedValue(inner.value, referenceType)
+            }
+            else -> null
+        }
+    }
+
+    private fun emitPathReference(
+        base: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode,
+        resolvedType: SemanticType.ReferenceType?,
+        isMut: Boolean,
+    ): GeneratedValue? {
         val symbolName = base.pathInExpressionNode.path.first().name ?: return null
         val env = currentEnv()
         val localMatch = env.findLocalSymbol(symbolName)
@@ -654,7 +719,7 @@ class ExpressionEmitter(
             ?: return null
         val slot = env.findLocalSlot(symbol) ?: return null
         val symbolType = symbol.type.get()
-        val baseType = ctx.expressionTypeMemory.recall(node.expr) { symbolType }
+        val baseType = ctx.expressionTypeMemory.recall(base) { symbolType }
         val underlyingType = when (baseType) {
             is SemanticType.ReferenceType -> baseType.type.getOrNull() ?: symbolType
             else -> baseType
@@ -668,7 +733,8 @@ class ExpressionEmitter(
             )
             else -> slot
         }
-        return GeneratedValue(pointerValue, SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(node.isMut)))
+        val referenceType = resolvedType ?: SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(isMut))
+        return GeneratedValue(pointerValue, referenceType)
     }
 
     private fun emitDereference(node: ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode): GeneratedValue? {

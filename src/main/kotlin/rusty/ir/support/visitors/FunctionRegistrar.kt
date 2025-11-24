@@ -29,9 +29,10 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             when (val ty = self.type.getOrNull()) {
                 is SemanticType.StructType -> ty.identifier
                 is SemanticType.EnumType -> ty.identifier
+                is SemanticType.TraitType -> ty.identifier
                 else -> null
             }
-        }
+        } ?: findAssociatedOwner(symbol)
 
         val registerPlan: (rusty.semantic.support.Scope) -> Unit = { funcScope ->
             val extractor = ParameterNameExtractor(funcScope, renamer)
@@ -70,5 +71,27 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         scopeMaintainer.withNextScope {
             super.visitTraitImplItem(node)
         }
+    }
+
+    private fun findAssociatedOwner(symbol: SemanticSymbol.Function): String? {
+        fun search(scope: rusty.semantic.support.Scope): String? {
+            scope.typeST.symbols.values.forEach { typeSymbol ->
+                val functions = when (typeSymbol) {
+                    is SemanticSymbol.Struct -> typeSymbol.functions.values
+                    is SemanticSymbol.Enum -> typeSymbol.functions.values
+                    is SemanticSymbol.Trait -> typeSymbol.functions.values
+                    else -> null
+                }
+                if (functions != null && functions.any { it === symbol }) {
+                    return typeSymbol.identifier
+                }
+            }
+            scope.children.forEach { child ->
+                val match = search(child)
+                if (match != null) return match
+            }
+            return null
+        }
+        return search(ctx.scopeTree)
     }
 }
