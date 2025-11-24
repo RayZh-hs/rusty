@@ -484,11 +484,31 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
     // ignoreFinalVerdict is used for loops, where breaks contribute to the block type
     fun resolveBlockExpression(node: ExpressionNode.WithBlockExpressionNode.BlockExpressionNode, ignoreFinalVerdict: Boolean = false): SemanticType {
         return scopedVarMaintainer.withNextScope {
+            var flowTerminated = false
+
+            fun markTerminated(type: SemanticType) {
+                if (type == SemanticType.ExitType) {
+                    flowTerminated = true
+                }
+            }
+
+            fun ensureReachable(stmt: StatementNode) {
+                if (flowTerminated && stmt !is StatementNode.ItemStatementNode) {
+                    throw CompileError("Unreachable code after calling exit()")
+                        .with(stmt).at(stmt.pointer)
+                }
+            }
+
             // iterate through all statements
             for (stmt in node.statements) {
                 when (stmt) {
-                    is StatementNode.ExpressionStatementNode -> resolveExpression(stmt.expression)
+                    is StatementNode.ExpressionStatementNode -> {
+                        ensureReachable(stmt)
+                        val exprType = resolveExpression(stmt.expression)
+                        markTerminated(exprType)
+                    }
                     is StatementNode.LetStatementNode -> {
+                        ensureReachable(stmt)
                         val expectedType = when (stmt.typeNode) {
                             null -> SemanticType.WildcardType
                             else -> resolveType(stmt.typeNode)
@@ -506,6 +526,7 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                                     .with(stmt.expressionNode).at(stmt.expressionNode.pointer).with(e)
                             }
                             enforceIntegerExpectation(stmt.expressionNode, bindingType)
+                            markTerminated(exprType)
                         }
                         val symbols = extractSymbolsFromTypedPattern(
                             stmt.patternNode, bindingType, currentScope())
@@ -515,7 +536,9 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                         }
                     }
                     is StatementNode.ItemStatementNode -> visit(stmt.item)
-                    is StatementNode.NullStatementNode -> {}
+                    is StatementNode.NullStatementNode -> {
+                        ensureReachable(stmt)
+                    }
                 }
             }
             // handle trailing expression
@@ -557,7 +580,15 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                         if (ignoreFinalVerdict) SemanticType.WildcardType
                         else SemanticType.UnitType
                 }
-                else -> resolveExpression(node.trailingExpression)
+                else -> {
+                    if (flowTerminated) {
+                        throw CompileError("Unreachable trailing expression after calling exit()")
+                            .with(node.trailingExpression).at(node.trailingExpression.pointer)
+                    }
+                    val type = resolveExpression(node.trailingExpression)
+                    markTerminated(type)
+                    type
+                }
             }
         }
     }

@@ -116,7 +116,6 @@ class ExpressionAnalyzer {
             if (from == SemanticType.NeverType) return to
             if (from == to) return from
             if (to == SemanticType.WildcardType) return from
-            if (to == SemanticType.ExitType && from == SemanticType.UnitType) return SemanticType.ExitType
 
             return when (from) {
                 is SemanticType.AnyIntType -> when (to) {
