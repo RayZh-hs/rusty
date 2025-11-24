@@ -355,13 +355,14 @@ class ExpressionEmitter(
         val fn = IRContext.functionLookup[target.symbol] ?: return null
 
         val env = currentEnv()
-        val userArgs = node.arguments.mapIndexed { index, argument ->
-            emitExpression(argument)?.value
+        val argumentValues = node.arguments.mapIndexed { index, argument ->
+            emitExpression(argument)
                 ?: throw IllegalStateException(
                     "Failed to emit argument ${index + 1} for ${plan.name.identifier} " +
                         "at ${node.pointer.line}:${node.pointer.column}"
                 )
         }
+        val normalizedArgs = prepareCallArguments(argumentValues, target.symbol)
         val callArgs = mutableListOf<Value>()
 
         plan.selfParamIndex?.let { idx ->
@@ -378,7 +379,7 @@ class ExpressionEmitter(
                 callArgs.add(idx, retSlot)
             }
         }
-        callArgs.addAll(userArgs)
+        callArgs.addAll(normalizedArgs)
 
         val expectedArgs = plan.type.paramTypes.size
         require(callArgs.size == expectedArgs) {
@@ -393,6 +394,42 @@ class ExpressionEmitter(
             return GeneratedValue(slot, plan.returnType)
         }
         return GeneratedValue(callInst, plan.returnType)
+    }
+
+    private fun prepareCallArguments(
+        arguments: List<GeneratedValue>,
+        targetSymbol: SemanticSymbol.Function,
+    ): List<Value> {
+        val paramSymbols = targetSymbol.funcParams.getOrNull()
+        if (paramSymbols.isNullOrEmpty()) return arguments.map { it.value }
+        return arguments.mapIndexed { index, argument ->
+            val paramType = paramSymbols.getOrNull(index)?.type?.getOrNull()
+            if (paramType != null && paramType.requiresAggregateStorageCopy()) {
+                copyAggregateArgument(argument, paramType, index)
+            } else {
+                argument.value
+            }
+        }
+    }
+
+    private fun copyAggregateArgument(
+        argument: GeneratedValue,
+        paramType: SemanticType,
+        index: Int,
+    ): Value {
+        val env = currentEnv()
+        val storageType = paramType.unwrapReferences().toStorageIRType()
+        val tempAlloca = env.allocaBuilder.insertAlloca(
+            storageType,
+            temp("arg$index.copy.alloc")
+        )
+        val copiedValue = env.bodyBuilder.insertLoad(
+            storageType,
+            argument.value,
+            temp("arg$index.copy.load")
+        )
+        env.bodyBuilder.insertStore(copiedValue, tempAlloca)
+        return env.bodyBuilder.insertBitcast(tempAlloca, TypeUtils.PTR, temp("arg$index.copy.ptr"))
     }
 
     private fun prepareMethodReceiver(
