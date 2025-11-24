@@ -4,6 +4,7 @@ import rusty.ir.support.FunctionPlanBuilder
 import rusty.ir.support.IRContext
 import rusty.semantic.support.SemanticContext
 import rusty.semantic.support.SemanticSymbol
+import space.norb.llvm.types.PointerType
 
 /**
  * Declares prelude functions as external so they can be called from user code.
@@ -21,5 +22,11 @@ class PreludeHandler(private val semanticContext: SemanticContext) {
             IRContext.functionNameLookup[function] = plan.name
             IRContext.functionLookup[function] = fn
         }
+        val irStringStruct = IRContext.module.registerNamedStructType(
+            name = "prelude.struct.String",
+            elementTypes = listOf(PointerType),
+            isPacked = false,
+        )
+        IRContext.structTypeLookup["String"] = irStringStruct
     }
 }
