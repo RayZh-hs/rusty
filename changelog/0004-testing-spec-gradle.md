@@ -1,0 +1,2 @@
+- (build.gradle.kts:1) refactor: align Gradle test tasks with testing.md by forwarding the documented flags and removing the local test file shortcut hooks.
+  - Ensures `name` maps to `testFilter`, `clangPath` maps to `customIrClang`, and applies the same logic to the official semantic/IR tasks.

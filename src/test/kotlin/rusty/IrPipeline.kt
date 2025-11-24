@@ -11,8 +11,8 @@ import java.nio.file.Paths
  * official test suites generate comparable artifacts.
  */
 object IrPipeline {
-    const val PROP_CLANG = "customIrClang"
-    const val PROP_NO_CLANG = "irNoClang"
+    const val PROP_CLANG = "clangPath"
+    const val PROP_NO_CLANG = "noClang"
 
     data class ArtifactPaths(val irOutput: Path, val exeOutput: Path)
     data class ProcessResult(val exitCode: Int, val output: String, val args: List<String>)

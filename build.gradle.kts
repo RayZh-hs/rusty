@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     kotlin("jvm") version "1.9.22"
     application
@@ -36,83 +38,69 @@ testing {
     }
 }
 
-// On-demand official tests use the standard test sourceSet but are tagged
-tasks.register<Test>("officialTest") {
-    description = "Run official semantic tests (on-demand)."
-    group = "verification"
-    // Reuse compiled test classes and classpath
-    testClassesDirs = sourceSets["test"].output.classesDirs
-    classpath = sourceSets["test"].runtimeClasspath
-    useJUnitPlatform {
-        includeTags("official")
+private fun Test.configureTestBehavior() {
+    // Pass all system properties (like -Dname, -DirNoClang, -Doutput) to the test JVM
+    systemProperties(System.getProperties().mapKeys { it.key.toString() })
+    testLogging {
+        events("passed", "failed", "skipped")
+        showStandardStreams = false
     }
-    shouldRunAfter(tasks.test)
-}
-
-tasks.register<Test>("officialFixedTest") {
-    description = "Run official FIXED semantic tests (on-demand)."
-    group = "verification"
-    testClassesDirs = sourceSets["test"].output.classesDirs
-    classpath = sourceSets["test"].runtimeClasspath
-    useJUnitPlatform {
-        includeTags("official-fixed")
-    }
-    shouldRunAfter(tasks.test)
-}
-
-tasks.register<Test>("officialIrTest") {
-    description = "Run official IR tests (on-demand)."
-    group = "verification"
-    testClassesDirs = sourceSets["test"].output.classesDirs
-    classpath = sourceSets["test"].runtimeClasspath
-    useJUnitPlatform {
-        includeTags("official-ir")
-    }
-    shouldRunAfter(tasks.test)
-}
-
-tasks.register<Test>("officialFixedIrTest") {
-    description = "Run official FIXED IR tests (on-demand)."
-    group = "verification"
-    testClassesDirs = sourceSets["test"].output.classesDirs
-    classpath = sourceSets["test"].runtimeClasspath
-    useJUnitPlatform {
-        includeTags("official-fixed-ir")
-    }
-    shouldRunAfter(tasks.test)
 }
 
 tasks.test {
     useJUnitPlatform()
-    testLogging {
-        events("passed", "failed", "skipped")
-        val localFile = System.getProperty("localTestFile")
-        if (localFile != null) {
-            showStandardStreams = true
-        }
-    }
-    // Do not run @Tag("official") tests by default; run via :officialTest
+    configureTestBehavior()
     useJUnitPlatform {
-        excludeTags("official", "official-fixed", "official-ir", "official-fixed-ir")
+        excludeTags("official", "fixed")
     }
-    doFirst {
-        val localFile = System.getProperty("localTestFile")
-        if (localFile != null) {
-            systemProperty("localTestFile", localFile)
-            val localMode = System.getProperty("localTestMode")
-            if (localMode != null) systemProperty("localTestMode", localMode)
+}
+
+private fun Array<String>.toLowerCamelCase(): String {
+    return this.joinToString("") {
+        it.lowercase().replaceFirstChar { ch ->
+            ch.titlecase()
         }
-        // Bridge Gradle properties to system properties for IR/clang runs
-        val customIrClang = (findProperty("customIrClang") ?: System.getProperty("customIrClang"))?.toString()
-        if (customIrClang != null) systemProperty("customIrClang", customIrClang)
-        val customIrFile = (findProperty("customIrFile") ?: System.getProperty("customIrFile"))?.toString()
-        if (customIrFile != null) systemProperty("customIrFile", customIrFile)
-        val irNoClang = (findProperty("irNoClang") ?: System.getProperty("irNoClang"))?.toString()
-        if (irNoClang != null) systemProperty("irNoClang", irNoClang)
+    }.replaceFirstChar { it.lowercase() }
+}
+
+fun registerTask(stage: String, source: String) {
+    tasks.register<Test>(arrayOf(source, stage, "tests").toLowerCamelCase()) {
+        description = "Run $source tests for the $stage stage."
+        group = "verification"
+
+        // Reuse the standard compiled test classes
+        testClassesDirs = sourceSets["test"].output.classesDirs
+        classpath = sourceSets["test"].runtimeClasspath
+
+        configureTestBehavior()
+
+        useJUnitPlatform {
+            includeTags("$source&$stage")
+        }
     }
-    // If a local manual test file is specified, always rerun tests to show fresh dump output.
-    if (System.getProperty("localTestFile") != null) {
-        outputs.upToDateWhen { false }
+}
+
+for (stage in listOf("preprocessor", "lexer", "parser", "semantic", "ir")) {
+    registerTask(stage, source = "manual")
+}
+
+for (stage in listOf("semantic", "ir")) {
+    registerTask(stage, source = "official")
+    registerTask(stage, source = "fixed")
+}
+
+tasks.register<Test>("manualTests") {
+    description = "Run manual tests."
+    group = "verification"
+
+    // Reuse the standard compiled test classes
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+
+    configureTestBehavior()
+
+    useJUnitPlatform {
+        includeTags("manual")
     }
 }
 

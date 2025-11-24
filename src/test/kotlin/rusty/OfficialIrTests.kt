@@ -2,7 +2,9 @@ package rusty
 
 import org.junit.jupiter.api.Tag
 
-@Tag("official-ir")
-class OfficialIrTests : BaseIrCompilationTests() {
+@Tag("ir")
+@Tag("official")
+class OfficialIrTests : IrValidationTestBase() {
     override val baseResourcePath: String = "@official"
+    override val subdirectoryPrefix: String = "IR-"
 }
