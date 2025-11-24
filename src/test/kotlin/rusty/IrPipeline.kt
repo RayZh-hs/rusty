@@ -13,11 +13,13 @@ import java.nio.file.Paths
 object IrPipeline {
     const val PROP_CLANG = "clangPath"
     const val PROP_NO_CLANG = "noClang"
+    const val PROP_CLANG_ARGS = "clangArgs"
 
     data class ArtifactPaths(val irOutput: Path, val exeOutput: Path)
     data class ProcessResult(val exitCode: Int, val output: String, val args: List<String>)
 
     fun resolveClangBinary(): String = System.getProperty(PROP_CLANG) ?: "clang"
+    fun resolveClangArgs(): String = System.getProperty(PROP_CLANG_ARGS) ?: ""
 
     fun commandAvailable(binary: String): Boolean {
         return try {
@@ -60,8 +62,9 @@ object IrPipeline {
             irOutput.toString(),
             preludeLl.toString(),
             preludeCLl.toString(),
+            resolveClangArgs(),
             "-o",
-            exeOutput.toString()
+            exeOutput.toString(),
         )
         return runProcess(clangArgs)
     }
