@@ -13,4 +13,5 @@ fn main() {
         i = i + 1;
     }
     printlnInt(sum);
+    exit(0);
 }

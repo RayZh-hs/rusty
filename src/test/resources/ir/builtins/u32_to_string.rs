@@ -5,4 +5,5 @@ fn main() {
     
     let b: u32 = 0;
     println(b.to_string());
+    exit(0);
 }

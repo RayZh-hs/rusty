@@ -10,4 +10,5 @@ fn main() {
     total += x; // should use the new x (5)
 
     printlnInt(total);
+    exit(0);
 }
