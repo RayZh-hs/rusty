@@ -1,125 +1,61 @@
-# IR Generation Implementation Notes
+# IR Generation Implementation Guide
 
-This document captures the concrete design for the LLVM IR generator. It translates
-the semantic context into an LLVM `Module` by visiting the AST and emitting IR with
-`space.norb.llvm` primitives. The plan balances correctness with debuggability
-while sticking to the naming and pointer model in `docs/ir-gen.md`.
+This guide translates the core ideas from `docs/ir-gen.md` into a practical, step-by-step playbook you can follow while wiring new lowering logic or reviewing generated LLVM IR.
 
-## High-level pipeline
+## 1. Know the IR Flavor
+- **Single pointer type**: everything that behaves like an address uses `ptr`; there are no typed pointers.
+- **Primitive lowering**: map ints (i32/u32/isize/usize) to `i32`, bool to `i1`, char to `i8`, strings to `ptr`.
+- **Composite lowering**: structs mirror their LLVM layout (empty structs become `{ i8 }`), arrays use the LLVM array syntax, enums collapse to `i32` discriminants, references become `ptr`.
+- **Unit/never padding**: emit an `i8 0` placeholder so structs containing unit fields still have layout.
 
-1. **Reset IR context** – start every run with a fresh `Module`, builder helpers,
-   lookup maps (struct types, function names, cached globals), and a cleared
-   renamer cache.
-2. **Struct registration** – walk the scope tree (skipping prelude when requested)
-   to declare opaque LLVM structs, then fill their fields. Empty structs get an
-   `i8` filler to stay well-defined. Field types use the canonical LLVM storage
-   type (structs, nested arrays, etc.) so that later passes see the true layout.
-3. **Struct sizeof helpers** – after struct bodies are finalized, generate
-   `aux.func.sizeof.<StructName>` helpers that return the runtime size in bytes
-   using the `getelementptr %Struct, ptr null, i32 1` trick.
-4. **Prelude declarations** – declare external functions for prelude entries
-   (`print`, `println`, `printInt`, `printlnInt`, `getString`, `getInt`, `exit`)
-   so calls can be lowered without providing bodies.
-5. **Function collection** – traverse items to create LLVM function declarations
-   for every user function/method. Map the semantic symbol to a mangled name and
-   a `Function` instance stored in `IRContext`.
-6. **Body generation** – revisit functions with bodies and emit instructions:
-   build entry block, bind parameters, materialize locals/temps, translate
-   expressions/statements, and stitch control flow.
-7. **Dump** – complete all blocks and emit `module.toIRString()`.
+## 2. Pre-declare Everything
+Before emitting any function bodies:
+1. Define every struct as a global LLVM `type` (with the padding rule above).
+2. Emit one `aux.func.sizeof.<Struct>` helper per struct by using the `getelementptr null, 1` trick plus `ptrtoint`.
+3. Link in the prelude helpers: `aux.func.memfill` for copying/filling memory and `aux.func.itoa` for integer printing. Treat `memfill` as the default for array/struct initialization instead of manual element loops.
 
-## Naming strategy
+## 3. Naming Cheat Sheet
+| Thing | Pattern | Notes |
+| --- | --- | --- |
+| Struct type | `user.struct.<name>` | Cached in the IR context.
+| Function (free) | `user.func.<name>` | Nested functions join with `$` (e.g. `outer$inner`).
+| Function (impl) | `user.func.<impl_type>.<name>` | `self` always lives in `%aux.var.self`.
+| Basic block | `aux.block.<serial>` | Reset the serial per function via the Renamer.
+| Variables / lets | `user.var.<name>.<serial>` | Serial managed by the Renamer; inline `; [line:col] let name` comment.
+| Block temporaries | `aux.var.blockret.<serial>` | Used for `{ ... }` expression results.
+| Scratch temps | anonymous (`null` name) | LLVM handles the final `%` identifiers.
 
-All IR identifiers follow `<holder>.<type>.<name>(.<serial>)`. Holders are
-`user` (user-defined), `prelude` (built-ins), or `aux` (compiler-generated).
-Types are `struct`, `func`, `var`, or `block`. Serials come from the LLVM
-`Renamer` and only apply where SSA demands uniqueness.
+Always cache generated names so that SSA renaming, phi fixing, and debugging remain predictable. Call `Renamer.clear("base")` whenever you enter a new scope that should restart numbering.
 
-Principles and helpers:
-- Cache names in `IRContext` so downstream passes reuse the same strings.
-- Use the `Renamer` for anything that might need disambiguation across SSA
-  values: basic blocks, user parameters, lets, and aux variables with names.
-- Call `Renamer.clear(baseName)` when starting a new function to reset block and
-  variable counters for that function scope.
-- Structs: `user.struct.<name>` (or `prelude.struct.<name>`), no serial.
-- Functions:
-  - Inherent impl: `user.func.<Type>.<function_name>`
-  - Free function: `user.func.<function_name>`
-  - Nested functions: join with `$`, e.g. `user.func.Type.outer$inner`
-  - Prelude/built-ins swap the `user` holder for `prelude`.
-- Parameters/locals: `user.var.<ident>.<serial>` via the renamer.
-- Special parameters: `aux.var.self`, `aux.var.ret` (no serial).
-- Block-return temps: `aux.var.blockret.<serial>`; other intermediates pass
-  `null` to emit anonymous temps.
-- Basic blocks: `aux.block.<serial>`, with the counter cleared per function.
+## 4. Function Signatures and Special Parameters
+- All functions optionally start with `ptr %aux.var.self` when defined inside an `impl`.
+- Add `ptr %aux.var.ret` when the return type is not an immediate scalar (`i1/i8/i32`). The caller allocates space and passes it in, turning complex returns into out-parameters.
+- Scalar-returning functions skip the `ret` pointer and `ret` the value directly.
 
-## Return/value model
+## 5. Lowering Blocks and Control Flow
+1. **Allocate block result**: when a block is an expression, create `%aux.var.blockret.N = alloca <type>`.
+2. **Branching**: every `if/else`, loop, or match case owns its own `aux.block.<N>` with a leading comment `; [line:col] block <label>`.
+3. **Stores**: write the chosen branch result into the block result slot, then branch to the merge block.
+4. **Read back**: after the merge, `load` the block result into the destination variable (often a `let`).
 
-- IR values use `SemanticType.toIRType()` for the in-SSA representation. Structs,
-  arrays, strings, and references all appear as `ptr` in SSA form; unit/never
-  lower to `i8` padding with value 0. Whenever the bytes of an aggregate are
-  needed (struct copies, array fills), we materialize canonical storage based on
-  the LLVM struct/array types tracked in `IRContext`.
-- Every local variable gets its own `alloca` of **value type** (so structs are
-  stored as `ptr`, integers as `i{1|8|32}`), enabling mutation and `&` borrows.
-- Struct payloads live in separately allocated storage of the concrete struct
-  type; the `ptr` to that storage is the value stored in the variable slot.
-- Function returns:
-  - If the lowered return type is an integer (`i1/i8/i32`) → returned directly.
-  - Otherwise, prepend `ptr aux.var.ret` parameter and return `void`, storing the
-    real value through this pointer.
-  - Methods prepend `ptr aux.var.self` before the optional return pointer.
+This pattern keeps SSA tidy and mirrors the Rust semantics of block expressions.
 
-## Control-flow lowering
+## 6. Memory Operations and Arrays
+- Prefer `aux.func.memfill(dst, src, elsize, elcount)` to copy arrays/structs or broadcast a value.
+- For array initialization with a repeated literal, store one element, then call `memfill` with `elcount = array_len`.
+- For struct copies or move semantics, compute `size = sizeof(struct)` via the generated helper and pass it as `elsize`; keep `elcount = 1`.
 
-- **Blocks** allocate an `aux` slot (only when the block can produce a value) to
-  hold the trailing expression result. Branches store into the aux slot and jump
-  to the merge block. Names use `aux.var.blockret.<serial>`.
-- **If** lowers to the standard `cond → then/else → merge` shape, writing the
-  chosen branch value into the aux slot.
-- **Loop/while** create `guard`, `body`, and `exit` blocks. `break` jumps to
-  `exit` (optionally after storing the break value into the loop aux slot);
-  `continue` jumps back to the guard block.
-- **Logical &&/||** short-circuit via control flow to avoid eager evaluation.
+## 7. Comments for Debuggability
+- Each basic block starts with a comment indicating source position and role (then/else/loop body, etc.).
+- Every `let` store gets an inline comment `; [line:col] let <name>` so that IR dumps cross-reference to the source quickly.
+- When in doubt, add brief comments near tricky lowering steps (e.g., manual `ptrtoint` size queries) to save future debuggers time.
 
-## Expression lowering summary
+## 8. Quick Checklist When Implementing a New Construct
+1. **Types available?** Ensure all referenced struct/array types are declared.
+2. **Names registered?** Use the Renamer helpers; reset scopes properly.
+3. **Return convention handled?** Decide whether you need `%aux.var.ret`.
+4. **Block values stored?** Allocate/load via `aux.var.blockret.*` for expression blocks.
+5. **Memory copies?** Reach for `aux.func.memfill` before inventing loops.
+6. **Diagnostics?** Sprinkle the block/let comments for source traceability.
 
-- **Literals**: mapped to LLVM constants using `BuilderUtils` and cached globals
-  for string/cstring literals (null-terminated arrays with `getelementptr` to
-  the first element). Constants are inlined and unnamed.
-- **Paths**: resolve through the semantic scope; variables load from their slot,
-  consts translate to IR constants, functions fetch the pre-registered `Function`.
-- **Struct literals**: allocate concrete struct storage, set each field with GEP
-  + store, then yield the pointer to that storage.
-- **Array literals**: allocate storage for the final array plus a temporary
-  pattern buffer, populate the buffer once, and call `aux.func.memfill` to copy
-  the pattern across the destination. Struct element sizes come from the generated
-  `aux.func.sizeof.*` helpers.
-- **Binary ops**: arithmetic via `add/sub/mul/sdiv`, comparisons via `icmp`
-  signed predicates, bitwise via `and/or/xor`. Assignment variants load/compute
-  then store back, yielding unit.
-- **Casts**: support integer truncation/extension as needed to reach the target
-  width, plus bitcasts to `ptr` for reference-like casts.
-- **References/& and *:** `&expr` stores the address of an l-value; `*expr` loads
-  from the pointer value. Auto-deref counts from semantic context are honored
-  when available.
-- **Comments**: emit full-line comments at each basic block entry with
-  `[line:column] <label>` text, and inline comments for `let` bindings,
-  following the guidance in `docs/ir-gen.md`.
-
-## State helpers
-
-- **IRContext**: now resettable; holds module, struct lookup, function maps,
-  enum discriminants, renamer, and literal caches.
-- **GenerationEnvironment** (per function): current builder, function, return
-  policy, map from `SemanticSymbol.Variable` to its `alloca`, pending break
-  targets for loops, and the current block name stack for naming.
-- **Semantic bridges**: use `ScopeMaintainerCompanion` to walk the scope tree in
-  the same order as semantic passes; reuse `StaticResolverCompanion` where
-  possible to resolve constants and paths.
-
-## Open items / stretch goals
-
-- Add unsigned-friendly div/rem ops when the LLVM binding exposes them.
-- Expand match lowering once the language re-enables `match`.
-- Model prelude implementations more faithfully (currently extern stubs).
+Follow this sequence and the resulting LLVM IR stays consistent with the rest of the pipeline while remaining readable for future contributors.

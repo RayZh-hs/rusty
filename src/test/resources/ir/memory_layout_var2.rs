@@ -1,6 +1,6 @@
 fn main() {
     let a: &str = "Hello, world!";
-    let b: [i32; 5] = [1, 2, 3, 4, 5];
+    let b: [i32; 5] = [1; 5];
     if (true) {
         println(a);
     } else {

@@ -991,12 +991,12 @@ class ExpressionEmitter(
         repeatCount: Value,
     ) {
         val fn = ensureExternalFunction(
-            "aux.func.memfill.iter",
-            TypeUtils.I8,
+            "aux.func.memfill",
+            TypeUtils.VOID,
             listOf(TypeUtils.PTR, TypeUtils.PTR, TypeUtils.I32, TypeUtils.I32),
             false
         )
-        currentEnv().builder.insertCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount), temp("memfill"))
+        currentEnv().builder.insertVoidCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount))
     }
 
     private fun ensureExternalFunction(

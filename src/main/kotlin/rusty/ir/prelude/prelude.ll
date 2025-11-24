@@ -59,10 +59,6 @@ define void @aux.func.memfill(ptr %dest, ptr %src, i32 %elsize, i32 %elcount) {
     call void @__c_memfill(ptr noundef %dest, ptr noundef %src, i32 noundef %elsize, i32 noundef %elcount)
     ret void
 }
-define i8 @aux.func.memfill.iter(ptr %dest, ptr %src, i32 %elsize, i32 %elcount) {
-    call void @aux.func.memfill(ptr %dest, ptr %src, i32 %elsize, i32 %elcount)
-    ret i8 0
-}
 define void @aux.func.itoa(i32 %value, ptr %out.ptr) {
     call void @__c_itoa(i32 noundef %value, ptr noundef %out.ptr)
     ret void
