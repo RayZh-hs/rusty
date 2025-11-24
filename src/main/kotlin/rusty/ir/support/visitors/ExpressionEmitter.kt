@@ -153,7 +153,7 @@ class ExpressionEmitter(
         }
         val elementType = global.elementType
             ?: throw IllegalStateException("Global literal missing element type")
-        val builder = currentEnv().builder
+        val builder = currentEnv().bodyBuilder
         val gep = builder.insertGep(
             elementType,
             global,
@@ -222,7 +222,7 @@ class ExpressionEmitter(
                     resolveVariable(resolved)
                 }
             } ?: throw IllegalStateException("Failed to emit field ${field.identifier} from expr=${field.expressionNode}")
-            val gep = env.builder.insertGep(
+            val gep = env.bodyBuilder.insertGep(
                 structType,
                 storage,
                 listOf(
@@ -233,7 +233,7 @@ class ExpressionEmitter(
             )
             storeValueInto(fieldType, value, gep, "$structName.${field.identifier}")
         }
-        val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("$structName.ptr"))
+        val ptrValue = env.bodyBuilder.insertBitcast(storage, TypeUtils.PTR, temp("$structName.ptr"))
         return GeneratedValue(ptrValue, symbol.definesType)
     }
 
@@ -246,7 +246,7 @@ class ExpressionEmitter(
             else -> true
         }
         val value = if (needsLoad) {
-            currentEnv().builder.insertLoad(fieldType.toIRType(), ptr, temp("${node.field}.load"))
+            currentEnv().bodyBuilder.insertLoad(fieldType.toIRType(), ptr, temp("${node.field}.load"))
         } else {
             ptr
         }
@@ -262,7 +262,7 @@ class ExpressionEmitter(
             else -> true
         }
         val value = if (needsLoad) {
-            currentEnv().builder.insertLoad(elementType.toIRType(), ptr, temp("index.load"))
+            currentEnv().bodyBuilder.insertLoad(elementType.toIRType(), ptr, temp("index.load"))
         } else {
             ptr
         }
@@ -291,17 +291,7 @@ class ExpressionEmitter(
             "Array literal length mismatch: elements=$elementCount, length=$totalLength"
         }
 
-        val patternType = ArrayType(elementCount, storageType.elementType)
-        val patternStorage = env.allocaBuilder.insertAlloca(patternType, temp("array.pattern"))
-        node.elements.forEachIndexed { index, elementExpr ->
-            val value = emitExpression(elementExpr)
-                ?: throw IllegalStateException("Failed to emit array element at $index for $arrayType")
-            storeArrayElement(patternType, patternStorage, index.toLong(), value, elementType)
-        }
-
-        val builder = env.builder
-        val destPtr = builder.insertBitcast(storage, TypeUtils.PTR, temp("array.dest"))
-        val patternPtr = builder.insertBitcast(patternStorage, TypeUtils.PTR, temp("array.pattern.ptr"))
+        val builder = env.bodyBuilder
         val elementSize = emitTypeSizeBytes(elementType)
         val i32Type = TypeUtils.I32 as IntegerType
         val chunkSize = if (elementCount == 1) {
@@ -310,11 +300,28 @@ class ExpressionEmitter(
             val elemCountConst = BuilderUtils.getIntConstant(elementCount.toLong(), i32Type)
             builder.insertMul(elementSize, elemCountConst, temp("array.chunk.size"))
         }
-        val repeatValue = BuilderUtils.getIntConstant(repeat, i32Type)
-        callMemfill(destPtr, patternPtr, chunkSize, repeatValue)
+        node.elements.forEachIndexed { index, elementExpr ->
+            val value = emitExpression(elementExpr)
+                ?: throw IllegalStateException("Failed to emit array element at $index for $arrayType")
+            storeArrayElement(storageType, storage, index.toLong(), value, elementType)
+        }
 
-        val ptrValue = env.builder.insertBitcast(storage, TypeUtils.PTR, temp("array.ptr"))
-        return GeneratedValue(ptrValue, arrayType)
+        val destPtr = builder.insertBitcast(storage, TypeUtils.PTR, temp("array.ptr"))
+        if (repeat > 1) {
+            // The first chunk already lives in dest; memfill clones it across the tail.
+            val zero = BuilderUtils.getIntConstant(0, i32Type)
+            val chunkOffset = BuilderUtils.getIntConstant(elementCount.toLong(), i32Type)
+            val tailPtrTyped = builder.insertGep(
+                storageType,
+                storage,
+                listOf(zero, chunkOffset),
+                temp("array.tail")
+            )
+            val tailPtr = builder.insertBitcast(tailPtrTyped, TypeUtils.PTR, temp("array.tail.ptr"))
+            val repeatValue = BuilderUtils.getIntConstant(repeat - 1, i32Type)
+            callMemfill(tailPtr, destPtr, chunkSize, repeatValue)
+        }
+        return GeneratedValue(destPtr, arrayType)
     }
 
     private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {
@@ -379,7 +386,7 @@ class ExpressionEmitter(
         }
 
         val callInstName = temp(if (plan.returnsByPointer) "call.discard" else "call")
-        val callInst = env.builder.insertCall(fn, callArgs, callInstName)
+        val callInst = env.bodyBuilder.insertCall(fn, callArgs, callInstName)
         if (plan.returnsByPointer) {
             val slot = retSlot
                 ?: throw IllegalStateException("Return slot missing for pointer-returning call ${plan.name.identifier}")
@@ -409,7 +416,7 @@ class ExpressionEmitter(
                 currentValue = GeneratedValue(currentValue.value, inner)
                 break
             }
-            val loaded = currentEnv().builder.insertLoad(innerIr, currentValue.value, temp("self.deref"))
+            val loaded = currentEnv().bodyBuilder.insertLoad(innerIr, currentValue.value, temp("self.deref"))
             currentValue = GeneratedValue(loaded, inner)
             currentType = inner
         }
@@ -484,7 +491,7 @@ class ExpressionEmitter(
         value: GeneratedValue,
         elementSemanticType: SemanticType,
     ) {
-        val builder = currentEnv().builder
+        val builder = currentEnv().bodyBuilder
         val gep = builder.insertGep(
             storageType,
             storage,
@@ -515,7 +522,7 @@ class ExpressionEmitter(
         val env = currentEnv()
         val underlying = targetType.unwrapReferences()
         val storedValue = if (targetType.requiresAggregateStorageCopy()) {
-            env.builder.insertLoad(
+            env.bodyBuilder.insertLoad(
                 underlying.toStorageIRType(),
                 sourceValue.value,
                 temp("$label.copy")
@@ -523,7 +530,7 @@ class ExpressionEmitter(
         } else {
             sourceValue.value
         }
-        env.builder.insertStore(storedValue, destinationPtr)
+        env.bodyBuilder.insertStore(storedValue, destinationPtr)
     }
 
     private fun SemanticType.requiresAggregateStorageCopy(): Boolean =
@@ -557,39 +564,39 @@ class ExpressionEmitter(
                 if (needsAggregateCopy) {
                     storeValueInto(lhsType, rhs, lhsPtr, "assign")
                 } else {
-                    env.builder.insertStore(rhs.value, lhsPtr)
+                    env.bodyBuilder.insertStore(rhs.value, lhsPtr)
                 }
                 return GeneratedValue(rhs.value, SemanticType.UnitType)
             }
 
-            val lhsValue = env.builder.insertLoad(lhsType.toIRType(), lhsPtr, temp("load.assign"))
+            val lhsValue = env.bodyBuilder.insertLoad(lhsType.toIRType(), lhsPtr, temp("load.assign"))
             val lhsUnsigned = lhsType.isUnsignedInteger()
             val result = when (op) {
-                Token.O_PLUS_EQ -> env.builder.insertAdd(lhsValue, rhs.value, temp("add"))
-                Token.O_MINUS_EQ -> env.builder.insertSub(lhsValue, rhs.value, temp("sub"))
-                Token.O_STAR_EQ -> env.builder.insertMul(lhsValue, rhs.value, temp("mul"))
+                Token.O_PLUS_EQ -> env.bodyBuilder.insertAdd(lhsValue, rhs.value, temp("add"))
+                Token.O_MINUS_EQ -> env.bodyBuilder.insertSub(lhsValue, rhs.value, temp("sub"))
+                Token.O_STAR_EQ -> env.bodyBuilder.insertMul(lhsValue, rhs.value, temp("mul"))
                 Token.O_DIV_EQ -> if (lhsUnsigned) {
-                    env.builder.insertUDiv(lhsValue, rhs.value, temp("div"))
+                    env.bodyBuilder.insertUDiv(lhsValue, rhs.value, temp("div"))
                 } else {
-                    env.builder.insertSDiv(lhsValue, rhs.value, temp("div"))
+                    env.bodyBuilder.insertSDiv(lhsValue, rhs.value, temp("div"))
                 }
-                Token.O_AND_EQ -> env.builder.insertAnd(lhsValue, rhs.value, temp("and"))
-                Token.O_OR_EQ -> env.builder.insertOr(lhsValue, rhs.value, temp("or"))
-                Token.O_XOR_EQ -> env.builder.insertXor(lhsValue, rhs.value, temp("xor"))
-                Token.O_SLFT_EQ -> env.builder.insertShl(lhsValue, rhs.value, temp("shl"))
+                Token.O_AND_EQ -> env.bodyBuilder.insertAnd(lhsValue, rhs.value, temp("and"))
+                Token.O_OR_EQ -> env.bodyBuilder.insertOr(lhsValue, rhs.value, temp("or"))
+                Token.O_XOR_EQ -> env.bodyBuilder.insertXor(lhsValue, rhs.value, temp("xor"))
+                Token.O_SLFT_EQ -> env.bodyBuilder.insertShl(lhsValue, rhs.value, temp("shl"))
                 Token.O_SRIT_EQ -> if (lhsUnsigned) {
-                    env.builder.insertLShr(lhsValue, rhs.value, temp("lshr"))
+                    env.bodyBuilder.insertLShr(lhsValue, rhs.value, temp("lshr"))
                 } else {
-                    env.builder.insertAShr(lhsValue, rhs.value, temp("ashr"))
+                    env.bodyBuilder.insertAShr(lhsValue, rhs.value, temp("ashr"))
                 }
                 Token.O_PERCENT_EQ -> if (lhsUnsigned) {
-                    env.builder.insertURem(lhsValue, rhs.value, temp("rem"))
+                    env.bodyBuilder.insertURem(lhsValue, rhs.value, temp("rem"))
                 } else {
-                    env.builder.insertSRem(lhsValue, rhs.value, temp("rem"))
+                    env.bodyBuilder.insertSRem(lhsValue, rhs.value, temp("rem"))
                 }
                 else -> TODO("Compound assignment operator $op not yet supported")
             }
-            env.builder.insertStore(result, lhsPtr)
+            env.bodyBuilder.insertStore(result, lhsPtr)
             return GeneratedValue(result, SemanticType.UnitType)
         }
 
@@ -601,26 +608,26 @@ class ExpressionEmitter(
         val right = emitExpression(node.right) ?: return null
         val arithmeticUnsigned = ctx.expressionTypeMemory.recall(node.left) { left.type }.isUnsignedInteger()
         return when (op) {
-            Token.O_PLUS -> GeneratedValue(env.builder.insertAdd(left.value, right.value, temp("add")), left.type)
-            Token.O_MINUS -> GeneratedValue(env.builder.insertSub(left.value, right.value, temp("sub")), left.type)
-            Token.O_STAR -> GeneratedValue(env.builder.insertMul(left.value, right.value, temp("mul")), left.type)
+            Token.O_PLUS -> GeneratedValue(env.bodyBuilder.insertAdd(left.value, right.value, temp("add")), left.type)
+            Token.O_MINUS -> GeneratedValue(env.bodyBuilder.insertSub(left.value, right.value, temp("sub")), left.type)
+            Token.O_STAR -> GeneratedValue(env.bodyBuilder.insertMul(left.value, right.value, temp("mul")), left.type)
             Token.O_DIV -> GeneratedValue(
-                if (arithmeticUnsigned) env.builder.insertUDiv(left.value, right.value, temp("div"))
-                else env.builder.insertSDiv(left.value, right.value, temp("div")),
+                if (arithmeticUnsigned) env.bodyBuilder.insertUDiv(left.value, right.value, temp("div"))
+                else env.bodyBuilder.insertSDiv(left.value, right.value, temp("div")),
                 left.type
             )
-            Token.O_AND -> GeneratedValue(env.builder.insertAnd(left.value, right.value, temp("and")), left.type)
-            Token.O_OR -> GeneratedValue(env.builder.insertOr(left.value, right.value, temp("or")), left.type)
-            Token.O_BIT_XOR -> GeneratedValue(env.builder.insertXor(left.value, right.value, temp("xor")), left.type)
-            Token.O_SLFT -> GeneratedValue(env.builder.insertShl(left.value, right.value, temp("shl")), left.type)
+            Token.O_AND -> GeneratedValue(env.bodyBuilder.insertAnd(left.value, right.value, temp("and")), left.type)
+            Token.O_OR -> GeneratedValue(env.bodyBuilder.insertOr(left.value, right.value, temp("or")), left.type)
+            Token.O_BIT_XOR -> GeneratedValue(env.bodyBuilder.insertXor(left.value, right.value, temp("xor")), left.type)
+            Token.O_SLFT -> GeneratedValue(env.bodyBuilder.insertShl(left.value, right.value, temp("shl")), left.type)
             Token.O_SRIT -> GeneratedValue(
-                if (arithmeticUnsigned) env.builder.insertLShr(left.value, right.value, temp("lshr"))
-                else env.builder.insertAShr(left.value, right.value, temp("ashr")),
+                if (arithmeticUnsigned) env.bodyBuilder.insertLShr(left.value, right.value, temp("lshr"))
+                else env.bodyBuilder.insertAShr(left.value, right.value, temp("ashr")),
                 left.type
             )
             Token.O_PERCENT -> GeneratedValue(
-                if (arithmeticUnsigned) env.builder.insertURem(left.value, right.value, temp("rem"))
-                else env.builder.insertSRem(left.value, right.value, temp("rem")),
+                if (arithmeticUnsigned) env.bodyBuilder.insertURem(left.value, right.value, temp("rem"))
+                else env.bodyBuilder.insertSRem(left.value, right.value, temp("rem")),
                 left.type
             )
             Token.O_DOUBLE_EQ -> compareInts(IcmpPredicate.EQ, left, right)
@@ -647,23 +654,23 @@ class ExpressionEmitter(
         val resultSlot = env.allocaBuilder.insertAlloca(boolType, temp("logic.result"))
 
         if (shortCircuitOnTrue) {
-            env.builder.insertCondBr(left.value, shortBlock, rhsBlock)
-            env.builder.positionAtEnd(shortBlock)
-            env.builder.insertStore(boolConstant(true), resultSlot)
+            env.bodyBuilder.insertCondBr(left.value, shortBlock, rhsBlock)
+            env.bodyBuilder.positionAtEnd(shortBlock)
+            env.bodyBuilder.insertStore(boolConstant(true), resultSlot)
         } else {
-            env.builder.insertCondBr(left.value, rhsBlock, shortBlock)
-            env.builder.positionAtEnd(shortBlock)
-            env.builder.insertStore(boolConstant(false), resultSlot)
+            env.bodyBuilder.insertCondBr(left.value, rhsBlock, shortBlock)
+            env.bodyBuilder.positionAtEnd(shortBlock)
+            env.bodyBuilder.insertStore(boolConstant(false), resultSlot)
         }
-        env.builder.insertBr(mergeBlock)
+        env.bodyBuilder.insertBr(mergeBlock)
 
-        env.builder.positionAtEnd(rhsBlock)
+        env.bodyBuilder.positionAtEnd(rhsBlock)
         val right = emitExpression(node.right) ?: return null
-        env.builder.insertStore(right.value, resultSlot)
-        env.builder.insertBr(mergeBlock)
+        env.bodyBuilder.insertStore(right.value, resultSlot)
+        env.bodyBuilder.insertBr(mergeBlock)
 
-        env.builder.positionAtEnd(mergeBlock)
-        val loaded = env.builder.insertLoad(boolType, resultSlot, temp("logic.load"))
+        env.bodyBuilder.positionAtEnd(mergeBlock)
+        val loaded = env.bodyBuilder.insertLoad(boolType, resultSlot, temp("logic.load"))
         return GeneratedValue(loaded, SemanticType.BoolType)
     }
 
@@ -672,7 +679,7 @@ class ExpressionEmitter(
         left: GeneratedValue,
         right: GeneratedValue,
     ): GeneratedValue {
-        val cmp = currentEnv().builder.insertICmp(pred, left.value, right.value, temp("cmp"))
+        val cmp = currentEnv().bodyBuilder.insertICmp(pred, left.value, right.value, temp("cmp"))
         return GeneratedValue(cmp, SemanticType.BoolType)
     }
 
@@ -682,9 +689,9 @@ class ExpressionEmitter(
         return when (node.op) {
             Token.O_MINUS -> {
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType)
-                GeneratedValue(env.builder.insertSub(zero, expr.value, temp("neg")), expr.type)
+                GeneratedValue(env.bodyBuilder.insertSub(zero, expr.value, temp("neg")), expr.type)
             }
-            Token.O_NOT -> GeneratedValue(env.builder.insertNot(expr.value, temp("not")), expr.type)
+            Token.O_NOT -> GeneratedValue(env.bodyBuilder.insertNot(expr.value, temp("not")), expr.type)
             else -> expr
         }
     }
@@ -748,7 +755,7 @@ class ExpressionEmitter(
         }
         val pointerValue = when (underlyingType) {
             is SemanticType.ArrayType,
-            is SemanticType.StructType -> currentEnv().builder.insertLoad(
+            is SemanticType.StructType -> currentEnv().bodyBuilder.insertLoad(
                 symbolType.toIRType(),
                 slot,
                 temp("addr.load")
@@ -772,7 +779,7 @@ class ExpressionEmitter(
         val sourceIr = expr.type.toIRType()
         val sourceType = ctx.expressionTypeMemory.recall(node.expr) { expr.type }
         if (sourceIr == targetIr) return GeneratedValue(expr.value, targetType)
-        val builder = currentEnv().builder
+        val builder = currentEnv().bodyBuilder
         val casted = when (targetIr) {
             TypeUtils.I1 -> builder.insertTrunc(expr.value, TypeUtils.I1 as IntegerType, temp("trunc"))
             TypeUtils.I8 -> builder.insertTrunc(expr.value, TypeUtils.I8 as IntegerType, temp("trunc"))
@@ -870,7 +877,7 @@ class ExpressionEmitter(
         if (fieldIndex == -1) return null
         val fieldType = structSymbol.fields[node.field]?.get() ?: return null
         val structIrType = IRContext.structTypeLookup[structType.identifier] ?: return null
-        val gep = currentEnv().builder.insertGep(
+        val gep = currentEnv().bodyBuilder.insertGep(
             structIrType,
             resolvedBase.value,
             listOf(
@@ -889,7 +896,7 @@ class ExpressionEmitter(
         val elementType = arrayType.elementType.getOrNull() ?: return null
         val storageType = arrayStorageType(arrayType)
         val indexValue = emitExpression(node.index) ?: return null
-        val gep = currentEnv().builder.insertGep(
+        val gep = currentEnv().bodyBuilder.insertGep(
             storageType,
             resolvedBase.value,
             listOf(
@@ -910,7 +917,7 @@ class ExpressionEmitter(
                 currentType = inner
                 break
             }
-            val loaded = currentEnv().builder.insertLoad(inner.toIRType(), currentValue.value, temp("deref"))
+            val loaded = currentEnv().bodyBuilder.insertLoad(inner.toIRType(), currentValue.value, temp("deref"))
             currentValue = GeneratedValue(loaded, inner)
             currentType = inner
         }
@@ -933,7 +940,7 @@ class ExpressionEmitter(
             false
         )
         val sizeConst = BuilderUtils.getIntConstant(32L, TypeUtils.I64 as IntegerType)
-        val buffer = currentEnv().builder.insertCall(mallocFn, listOf(sizeConst), temp("str.alloc"))
+        val buffer = currentEnv().bodyBuilder.insertCall(mallocFn, listOf(sizeConst), temp("str.alloc"))
         val formatLiteral = if (signed) emitStringLiteral("%d", true, SemanticType.CStrType)
         else emitStringLiteral("%u", true, SemanticType.CStrType)
         val sprintfFn = ensureExternalFunction(
@@ -942,12 +949,12 @@ class ExpressionEmitter(
             listOf(TypeUtils.PTR, TypeUtils.PTR),
             true
         )
-        currentEnv().builder.insertCall(sprintfFn, listOf(buffer, formatLiteral.value, value.value), temp("sprintf"))
+        currentEnv().bodyBuilder.insertCall(sprintfFn, listOf(buffer, formatLiteral.value, value.value), temp("sprintf"))
         return GeneratedValue(buffer, SemanticType.StringStructType)
     }
 
     private fun emitTypeSizeBytes(type: SemanticType): Value {
-        val builder = currentEnv().builder
+        val builder = currentEnv().bodyBuilder
         val i32Type = TypeUtils.I32 as IntegerType
         return when (type) {
             is SemanticType.ReferenceType -> BuilderUtils.getIntConstant(8L, i32Type)
@@ -996,7 +1003,7 @@ class ExpressionEmitter(
             listOf(TypeUtils.PTR, TypeUtils.PTR, TypeUtils.I32, TypeUtils.I32),
             false
         )
-        currentEnv().builder.insertVoidCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount))
+        currentEnv().bodyBuilder.insertVoidCall(fn, listOf(destPtr, srcPtr, chunkSize, repeatCount))
     }
 
     private fun ensureExternalFunction(

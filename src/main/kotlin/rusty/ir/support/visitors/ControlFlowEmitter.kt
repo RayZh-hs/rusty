@@ -29,41 +29,41 @@ class ControlFlowEmitter(
         val merge = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
 
         val firstGuard = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-        env.builder.insertBr(firstGuard)
+        env.bodyBuilder.insertBr(firstGuard)
         var nextGuardBlock: BasicBlock = firstGuard
         node.ifs.forEachIndexed { index, clause ->
-            env.builder.positionAtEnd(nextGuardBlock)
+            env.bodyBuilder.positionAtEnd(nextGuardBlock)
             env.terminated = false
             addBlockComment(clause.condition.expression.pointer, if (index == 0) "if-guard" else "else-if-guard")
             val condValue = emitExpr(clause.condition.expression) ?: return null
             val thenBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
             val elseBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-            env.builder.insertCondBr(condValue.value, thenBlock, elseBlock)
+            env.bodyBuilder.insertCondBr(condValue.value, thenBlock, elseBlock)
 
-            env.builder.positionAtEnd(thenBlock)
+            env.bodyBuilder.positionAtEnd(thenBlock)
             addBlockComment(clause.then.pointer, "then-block")
             val thenVal = emitExpr(clause.then)
-            if (auxSlot != null && thenVal != null) env.builder.insertStore(thenVal.value, auxSlot)
-            if (!env.terminated) env.builder.insertBr(merge)
+            if (auxSlot != null && thenVal != null) env.bodyBuilder.insertStore(thenVal.value, auxSlot)
+            if (!env.terminated) env.bodyBuilder.insertBr(merge)
             env.terminated = false
 
             nextGuardBlock = elseBlock
         }
 
         val finalElseBlock = nextGuardBlock
-        env.builder.positionAtEnd(finalElseBlock)
+        env.bodyBuilder.positionAtEnd(finalElseBlock)
         node.elseBranch?.let {
             addBlockComment(it.pointer, "else-block")
             val elseVal = emitExpr(it)
-            if (auxSlot != null && elseVal != null) env.builder.insertStore(elseVal.value, auxSlot)
+            if (auxSlot != null && elseVal != null) env.bodyBuilder.insertStore(elseVal.value, auxSlot)
         } ?: addBlockComment(node.pointer, "else-block")
-        if (!env.terminated) env.builder.insertBr(merge)
+        if (!env.terminated) env.bodyBuilder.insertBr(merge)
         env.terminated = false
 
-        env.builder.positionAtEnd(merge)
+        env.bodyBuilder.positionAtEnd(merge)
         addBlockComment(node.pointer, "end-if")
         return auxSlot?.let {
-            GeneratedValue(env.builder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier), resultType)
+            GeneratedValue(env.bodyBuilder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier), resultType)
         }
     }
 
@@ -74,21 +74,21 @@ class ControlFlowEmitter(
         val body = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
         val exit = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
 
-        env.builder.insertBr(head)
-        env.builder.positionAtEnd(head)
+        env.bodyBuilder.insertBr(head)
+        env.bodyBuilder.positionAtEnd(head)
         addBlockComment(node.condition.expression.pointer, "while-guard")
         val cond = emitExpr(node.condition.expression) ?: return null
-        env.builder.insertCondBr(cond.value, body, exit)
+        env.bodyBuilder.insertCondBr(cond.value, body, exit)
 
-        env.builder.positionAtEnd(body)
+        env.bodyBuilder.positionAtEnd(body)
         addBlockComment(node.expression.pointer, "while-body")
         env.loopStack.addLast(LoopFrame(exit, head))
         emitExpr(node.expression)
-        if (!env.terminated) env.builder.insertBr(head)
+        if (!env.terminated) env.bodyBuilder.insertBr(head)
         env.loopStack.removeLast()
         env.terminated = false
 
-        env.builder.positionAtEnd(exit)
+        env.bodyBuilder.positionAtEnd(exit)
         addBlockComment(node.pointer, "while-exit")
         return null
     }
@@ -98,15 +98,15 @@ class ControlFlowEmitter(
         val fn = env.function
         val body = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
         val exit = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-        env.builder.insertBr(body)
-        env.builder.positionAtEnd(body)
+        env.bodyBuilder.insertBr(body)
+        env.bodyBuilder.positionAtEnd(body)
         addBlockComment(node.pointer, "loop-body")
         env.loopStack.addLast(LoopFrame(exit, body))
         emitExpr(node.expression)
-        if (!env.terminated) env.builder.insertBr(body)
+        if (!env.terminated) env.bodyBuilder.insertBr(body)
         env.loopStack.removeLast()
         env.terminated = false
-        env.builder.positionAtEnd(exit)
+        env.bodyBuilder.positionAtEnd(exit)
         addBlockComment(node.pointer, "loop-exit")
         return null
     }
@@ -115,14 +115,14 @@ class ControlFlowEmitter(
         val env = currentEnv()
         val frame = env.loopStack.lastOrNull() ?: return
         node.expr?.let { emitExpr(it) }
-        env.builder.insertBr(frame.breakTarget)
+        env.bodyBuilder.insertBr(frame.breakTarget)
         env.terminated = true
     }
 
     fun emitContinue() {
         val env = currentEnv()
         val frame = env.loopStack.lastOrNull() ?: return
-        env.builder.insertBr(frame.continueTarget)
+        env.bodyBuilder.insertBr(frame.continueTarget)
         env.terminated = true
     }
 }

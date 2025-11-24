@@ -6,7 +6,6 @@ import space.norb.llvm.builder.IRBuilder
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
-import rusty.ir.support.Renamer
 
 data class LoopFrame(
     val breakTarget: BasicBlock,
@@ -15,9 +14,9 @@ data class LoopFrame(
 )
 
 data class FunctionEnvironment(
-    val builder: IRBuilder,
+    val bodyBuilder: IRBuilder,
     val allocaBuilder: IRBuilder,
-    val entryBlock: BasicBlock,
+    val allocaEntryBlock: BasicBlock,
     val bodyEntryBlock: BasicBlock,
     val plan: FunctionPlan,
     val function: Function,

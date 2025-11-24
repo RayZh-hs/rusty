@@ -2,7 +2,6 @@ package rusty.ir.support.visitors
 
 import rusty.ir.support.FunctionEnvironment
 import rusty.ir.support.FunctionPlan
-import rusty.ir.support.FunctionPlanBuilder
 import rusty.ir.support.GeneratedValue
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
@@ -71,9 +70,9 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             allocaBuilder.positionAtEnd(entryBlock)
             val returnSlot = null
             val env = FunctionEnvironment(
-                builder = builder,
+                bodyBuilder = builder,
                 allocaBuilder = allocaBuilder,
-                entryBlock = entryBlock,
+                allocaEntryBlock = entryBlock,
                 bodyEntryBlock = bodyBlock,
                 plan = plan,
                 function = fn,
@@ -109,7 +108,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val selfSymbol = env.scope.variableST.resolve("self") as? SemanticSymbol.Variable
                 ?: throw IllegalStateException("Self symbol not found for ${symbol.identifier}")
             val slot = declareVariable(selfSymbol, Name.auxTemp("self", env.renamer))
-            env.builder.insertStore(arg, slot)
+            env.bodyBuilder.insertStore(arg, slot)
         }
 
         val userArgs = args.filterIndexed { index, _ ->
@@ -119,7 +118,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val paramSymbols = binder.orderedSymbols(symbol)
         paramSymbols.forEachIndexed { idx, paramSymbol ->
             val slot = declareVariable(paramSymbol)
-            env.builder.insertStore(userArgs[idx], slot)
+            env.bodyBuilder.insertStore(userArgs[idx], slot)
         }
     }
 
@@ -138,7 +137,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val env = currentEnv()
         val slot = env.findLocalSlot(symbol)
             ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
-        val loaded = env.builder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
+        val loaded = env.bodyBuilder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
         return GeneratedValue(loaded, symbol.type.get())
     }
 
@@ -212,11 +211,11 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                         Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                     )
                     val copyName = Name.auxTemp("${sym.identifier}.copy", env.renamer).identifier
-                    val copiedValue = env.builder.insertLoad(storageType, generated.value, copyName)
-                    env.builder.insertStore(copiedValue, storageAlloca)
-                    env.builder.insertStore(storageAlloca, slot)
+                    val copiedValue = env.bodyBuilder.insertLoad(storageType, generated.value, copyName)
+                    env.bodyBuilder.insertStore(copiedValue, storageAlloca)
+                    env.bodyBuilder.insertStore(storageAlloca, slot)
                 } else {
-                    env.builder.insertStore(generated.value, slot)
+                    env.bodyBuilder.insertStore(generated.value, slot)
                 }
             }
         }
@@ -240,7 +239,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                     ?: throw IllegalStateException("Return pointer missing for ${plan.name.identifier}")
                 val storageType = plan.returnType.toStorageIRType()
                 val copyValue = if (value != null) {
-                    env.builder.insertLoad(
+                    env.bodyBuilder.insertLoad(
                         storageType,
                         value.value,
                         Name.auxTemp("ret.copy", env.renamer).identifier
@@ -248,37 +247,37 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                 } else {
                     BuilderUtils.createZeroValue(storageType)
                 }
-                env.builder.insertStore(copyValue, dest)
+                env.bodyBuilder.insertStore(copyValue, dest)
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
-                env.builder.insertRet(zero)
+                env.bodyBuilder.insertRet(zero)
             }
-            value != null -> env.builder.insertRet(value.value)
+            value != null -> env.bodyBuilder.insertRet(value.value)
             env.returnSlot != null -> {
-                val loaded = env.builder.insertLoad(
+                val loaded = env.bodyBuilder.insertLoad(
                     plan.returnType.toIRType(),
                     env.returnSlot,
                     Name.auxTemp("ret.load", env.renamer).identifier
                 )
-                env.builder.insertRet(loaded)
+                env.bodyBuilder.insertRet(loaded)
             }
             plan.returnType == SemanticType.UnitType -> {
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
-                env.builder.insertRet(zero)
+                env.bodyBuilder.insertRet(zero)
             }
             else -> {
                 val zero = BuilderUtils.createZeroValue(plan.returnType.toIRType())
-                env.builder.insertRet(zero)
+                env.bodyBuilder.insertRet(zero)
             }
         }
         env.terminated = true
     }
 
     private fun insertBlockComment(pointer: CompilerPointer, label: String) {
-        currentEnv().builder.insertComment("${formatPointer(pointer)} block ${normalizeBlockLabel(label)}", ";")
+        currentEnv().bodyBuilder.insertComment("${formatPointer(pointer)} block ${normalizeBlockLabel(label)}", ";")
     }
 
     private fun insertLetComment(pointer: CompilerPointer, variableName: String) {
-        currentEnv().builder.insertComment("${formatPointer(pointer)} let $variableName", ";")
+        currentEnv().bodyBuilder.insertComment("${formatPointer(pointer)} let $variableName", ";")
     }
 
     private fun normalizeBlockLabel(label: String): String =
