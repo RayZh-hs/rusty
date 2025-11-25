@@ -28,7 +28,7 @@ Manual tests reside in `src/test/resources/<dir>/`, where `<dir>` does not start
 # Run only ir tests
 ./gradlew test --tests "rusty.ManualIrTests"
 
-# Run a single test with info
+# Use -Dname to filter by name (string inclusion)
 ./gradlew test --tests "rusty.ManualIrTests" -Dname=shadowing_redeclare --info
 ```
 
@@ -40,15 +40,13 @@ Official tests are located in `src/test/resources/@official/`, which can be run 
 
 ```
 # All official semantic tests
-./gradlew test --tests "rusty.OfficialSemanticTests"
-./gradlew officialSemanticTest # shorthand
+./gradlew officialSemanticTest
 
 # All official ir tests
-./gradlew test --tests "rusty.OfficialIrTests"
-./gradlew officialIrTest # shorthand
+./gradlew officialIrTest
 
 # Run a single official ir test
-./gradlew test --tests "rusty.OfficialIrTests" -Dname=comprehensive1
+./gradlew officialSemanticTest -Dname=comprehensive1
 ```
 
 ### Official Fixed Tests
