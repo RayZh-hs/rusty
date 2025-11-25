@@ -170,8 +170,18 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         when (node) {
             is rusty.parser.nodes.StatementNode.NullStatementNode -> Unit
             is rusty.parser.nodes.StatementNode.ExpressionStatementNode -> exprEmitter.emitExpression(node.expression)
-            is rusty.parser.nodes.StatementNode.ItemStatementNode -> Unit
+            is rusty.parser.nodes.StatementNode.ItemStatementNode -> emitItemStatement(node)
             is rusty.parser.nodes.StatementNode.LetStatementNode -> emitLet(node)
+        }
+    }
+
+    private fun emitItemStatement(node: rusty.parser.nodes.StatementNode.ItemStatementNode) {
+        when (val item = node.item) {
+            is rusty.parser.nodes.ItemNode.FunctionItemNode -> {
+                // Nested function: generate its body
+                visitFunctionItem(item)
+            }
+            else -> Unit // Other item types (const, struct, etc.) don't generate code here
         }
     }
 

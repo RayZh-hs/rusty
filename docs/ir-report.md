@@ -244,11 +244,14 @@ builder.insertRet(size32)
 3. Build `FunctionPlan` with proper naming
 4. Register function in LLVM module
 5. Store plan in `IRContext.functionPlans`
+6. **Continue visiting the function body** to register any nested functions
 
 **Naming Convention**:
 - Free functions: `user.func.<name>`
 - Methods: `user.func.<Type>.<name>`
 - Nested functions: `user.func.<outer>$<inner>`
+
+**Nested Function Support**: After registering a function, the registrar calls `visitFunctionInternal(node)` to continue traversing the function's body. This ensures nested functions defined inside another function body are also registered.
 
 ### Phase 5: Function Body Generation (`FunctionBodyGenerator`)
 
@@ -259,6 +262,8 @@ builder.insertRet(size32)
 2. Bind function parameters to local slots
 3. Emit statements and expressions
 4. Handle function return
+
+**Nested Function Support**: When encountering an `ItemStatementNode` containing a function definition, the `emitItemStatement` method recursively calls `visitFunctionItem` to generate the nested function's body.
 
 **Two-Block Pattern**:
 ```
@@ -402,7 +407,7 @@ merge:
 
 ### FunctionBodyGenerator
 
-**File**: `FunctionBodyGenerator.kt` (~290 lines)
+**File**: `FunctionBodyGenerator.kt` (~300 lines)
 
 Orchestrates function body emission.
 
@@ -413,7 +418,21 @@ Orchestrates function body emission.
 3. Manage lexical scopes with `withScope()`
 4. Emit statements via `emitStatement()`
 5. Handle let bindings with `emitLet()`
-6. Finalize function return with `emitFunctionReturn()`
+6. Handle nested function definitions via `emitItemStatement()`
+7. Finalize function return with `emitFunctionReturn()`
+
+**Nested Function Handling**:
+```kotlin
+private fun emitItemStatement(node: StatementNode.ItemStatementNode) {
+    when (val item = node.item) {
+        is ItemNode.FunctionItemNode -> {
+            // Nested function: generate its body
+            visitFunctionItem(item)
+        }
+        else -> Unit // Other item types don't generate code here
+    }
+}
+```
 
 **Parameter Binding Process**:
 ```kotlin

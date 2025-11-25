@@ -49,6 +49,8 @@ class FunctionRegistrar(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         try {
             scopeMaintainer.withNextScope { funcScope ->
                 registerPlan(funcScope)
+                // Continue visiting the function body to find nested functions
+                visitFunctionInternal(node)
             }
         } catch (e: CompileError) {
             registerPlan(containerScope)
