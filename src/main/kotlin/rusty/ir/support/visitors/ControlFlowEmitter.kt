@@ -31,6 +31,10 @@ class ControlFlowEmitter(
         val firstGuard = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
         env.bodyBuilder.insertBr(firstGuard)
         var nextGuardBlock: BasicBlock = firstGuard
+        
+        // Track whether all branches terminate (no branch reaches merge)
+        var allBranchesTerminate = true
+        
         node.ifs.forEachIndexed { index, clause ->
             env.bodyBuilder.positionAtEnd(nextGuardBlock)
             env.terminated = false
@@ -44,7 +48,10 @@ class ControlFlowEmitter(
             addBlockComment(clause.then.pointer, "then-block")
             val thenVal = emitExpr(clause.then)
             if (auxSlot != null && thenVal != null) env.bodyBuilder.insertStore(thenVal.value, auxSlot)
-            if (!env.terminated) env.bodyBuilder.insertBr(merge)
+            if (!env.terminated) {
+                env.bodyBuilder.insertBr(merge)
+                allBranchesTerminate = false
+            }
             env.terminated = false
 
             nextGuardBlock = elseBlock
@@ -57,9 +64,21 @@ class ControlFlowEmitter(
             val elseVal = emitExpr(it)
             if (auxSlot != null && elseVal != null) env.bodyBuilder.insertStore(elseVal.value, auxSlot)
         } ?: addBlockComment(node.pointer, "else-block")
-        if (!env.terminated) env.bodyBuilder.insertBr(merge)
-        env.terminated = false
+        if (!env.terminated) {
+            env.bodyBuilder.insertBr(merge)
+            allBranchesTerminate = false
+        }
 
+        // If all branches terminate, the merge block is unreachable
+        if (allBranchesTerminate) {
+            // Add unreachable instruction to the dead merge block to satisfy LLVM requirements
+            env.bodyBuilder.positionAtEnd(merge)
+            env.bodyBuilder.insertUnreachable()
+            env.terminated = true
+            return null
+        }
+
+        env.terminated = false
         env.bodyBuilder.positionAtEnd(merge)
         addBlockComment(node.pointer, "end-if")
         return auxSlot?.let {
