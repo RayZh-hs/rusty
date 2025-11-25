@@ -220,9 +220,13 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                         storageType,
                         Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                     )
-                    val copyName = Name.auxTemp("${sym.identifier}.copy", env.renamer).identifier
-                    val copiedValue = env.bodyBuilder.insertLoad(storageType, generated.value, copyName)
-                    env.bodyBuilder.insertStore(copiedValue, storageAlloca)
+                    // Use memcpy for aggregate types to avoid LLVM crashes with large structs
+                    exprEmitter.copyAggregate(
+                        resolvedType.unwrapReferences(),
+                        generated.value,
+                        storageAlloca,
+                        "${sym.identifier}.copy"
+                    )
                     env.bodyBuilder.insertStore(storageAlloca, slot)
                 } else {
                     env.bodyBuilder.insertStore(generated.value, slot)
@@ -247,17 +251,15 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             plan.returnsByPointer -> {
                 val dest = plan.retParamIndex?.let { env.function.parameters[it] }
                     ?: throw IllegalStateException("Return pointer missing for ${plan.name.identifier}")
-                val storageType = plan.returnType.toStorageIRType()
-                val copyValue = if (value != null) {
-                    env.bodyBuilder.insertLoad(
-                        storageType,
-                        value.value,
-                        Name.auxTemp("ret.copy", env.renamer).identifier
-                    )
+                if (value != null) {
+                    // Use memcpy for aggregate types to avoid LLVM crashes with large structs
+                    exprEmitter.copyAggregate(plan.returnType, value.value, dest, "ret")
                 } else {
-                    BuilderUtils.createZeroValue(storageType)
+                    // Zero-initialize the destination
+                    val storageType = plan.returnType.toStorageIRType()
+                    val zeroValue = BuilderUtils.createZeroValue(storageType)
+                    env.bodyBuilder.insertStore(zeroValue, dest)
                 }
-                env.bodyBuilder.insertStore(copyValue, dest)
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
                 env.bodyBuilder.insertRet(zero)
             }

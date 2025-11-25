@@ -692,6 +692,53 @@ fun prepareCallArguments(arguments, targetSymbol): List<Value> {
 }
 ```
 
+### 5. Aggregate Copy with Memcpy
+
+For very large aggregate types (structs and arrays), directly using LLVM's `load` and `store` 
+instructions can cause LLVM's SelectionDAG to crash during code generation. To avoid this, 
+all aggregate copies use `memcpy` (via the `aux.func.memfill` helper with count=1):
+
+```kotlin
+fun copyAggregate(sourceType: SemanticType, sourcePtr: Value, destPtr: Value, label: String) {
+    val destPtrCast = bodyBuilder.insertBitcast(destPtr, PTR, "$label.dest")
+    val srcPtrCast = bodyBuilder.insertBitcast(sourcePtr, PTR, "$label.src")
+    val size = emitTypeSizeBytes(sourceType)
+    val one = getIntConstant(1, I32)
+    callMemfill(destPtrCast, srcPtrCast, size, one)
+}
+```
+
+This pattern is used in:
+- **Struct field initialization**: `storeValueInto()` uses memcpy for struct/array fields
+- **Array element storage**: `storeArrayElement()` uses memcpy for aggregate elements
+- **Function return values**: `emitFunctionReturn()` uses memcpy for aggregate return types
+- **Let statement initialization**: `emitLetStatement()` uses memcpy for aggregate variables
+
+### 6. If-Expression All-Branches-Terminate Handling
+
+When all branches of an if-expression terminate (via `return`, `break`, or `continue`),
+the merge block becomes unreachable. We handle this by inserting an `unreachable` instruction:
+
+```kotlin
+fun emitIf(node): GeneratedValue? {
+    // ... emit condition and branches ...
+    
+    // Track if all branches terminate
+    val thenTerminated = ...
+    val elseTerminated = ...
+    val allBranchesTerminate = thenTerminated && elseTerminated
+    
+    if (allBranchesTerminate) {
+        bodyBuilder.positionAtEnd(merge)
+        bodyBuilder.insertUnreachable()
+        env.terminated = true
+        return null
+    }
+    
+    // ... normal merge block handling ...
+}
+```
+
 ---
 
 ## Module Interaction Summary

@@ -538,16 +538,18 @@ class ExpressionEmitter(
             ),
             temp("array.elem")
         )
-        val storedValue = when (elementSemanticType) {
+        // For large aggregate types, use memcpy to avoid LLVM crashes
+        when (elementSemanticType) {
             is SemanticType.StructType,
-            is SemanticType.ArrayType -> builder.insertLoad(
-                elementSemanticType.toStorageIRType(),
-                value.value,
-                temp("array.elem.load")
-            )
-            else -> value.value
+            is SemanticType.ArrayType -> {
+                val destPtr = builder.insertBitcast(gep, TypeUtils.PTR, temp("array.elem.dest"))
+                val srcPtr = builder.insertBitcast(value.value, TypeUtils.PTR, temp("array.elem.src"))
+                val size = emitTypeSizeBytes(elementSemanticType)
+                val one = BuilderUtils.getIntConstant(1, TypeUtils.I32 as IntegerType)
+                callMemfill(destPtr, srcPtr, size, one)
+            }
+            else -> builder.insertStore(value.value, gep)
         }
-        builder.insertStore(storedValue, gep)
     }
 
     private fun storeValueInto(
@@ -558,16 +560,17 @@ class ExpressionEmitter(
     ) {
         val env = currentEnv()
         val underlying = targetType.unwrapReferences()
-        val storedValue = if (targetType.requiresAggregateStorageCopy()) {
-            env.bodyBuilder.insertLoad(
-                underlying.toStorageIRType(),
-                sourceValue.value,
-                temp("$label.copy")
-            )
+        // For aggregate types (structs and arrays), use memcpy instead of load/store
+        // to avoid LLVM crashes with very large types
+        if (targetType.requiresAggregateStorageCopy()) {
+            val destPtr = env.bodyBuilder.insertBitcast(destinationPtr, TypeUtils.PTR, temp("$label.dest"))
+            val srcPtr = env.bodyBuilder.insertBitcast(sourceValue.value, TypeUtils.PTR, temp("$label.src"))
+            val size = emitTypeSizeBytes(underlying)
+            val one = BuilderUtils.getIntConstant(1, TypeUtils.I32 as IntegerType)
+            callMemfill(destPtr, srcPtr, size, one)
         } else {
-            sourceValue.value
+            env.bodyBuilder.insertStore(sourceValue.value, destinationPtr)
         }
-        env.bodyBuilder.insertStore(storedValue, destinationPtr)
     }
 
     private fun SemanticType.requiresAggregateStorageCopy(): Boolean =
@@ -1026,6 +1029,25 @@ class ExpressionEmitter(
             }
             else -> BuilderUtils.getIntConstant(8L, i32Type)
         }
+    }
+
+    /**
+     * Copy an aggregate value (struct or array) from source pointer to destination pointer
+     * using memcpy. This is used to avoid LLVM crashes with very large aggregate types
+     * when using load/store directly.
+     */
+    fun copyAggregate(
+        sourceType: SemanticType,
+        sourcePtr: Value,
+        destPtr: Value,
+        label: String,
+    ) {
+        val env = currentEnv()
+        val destPtrCast = env.bodyBuilder.insertBitcast(destPtr, TypeUtils.PTR, temp("$label.dest"))
+        val srcPtrCast = env.bodyBuilder.insertBitcast(sourcePtr, TypeUtils.PTR, temp("$label.src"))
+        val size = emitTypeSizeBytes(sourceType)
+        val one = BuilderUtils.getIntConstant(1, TypeUtils.I32 as IntegerType)
+        callMemfill(destPtrCast, srcPtrCast, size, one)
     }
 
     private fun callMemfill(
