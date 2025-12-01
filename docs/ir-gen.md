@@ -16,8 +16,9 @@ The `SemanticType` system has a corresponding IR type system:
 - Structs use the llvm types definition.
 - Arrays follow the llvm array type definition.
 - Reference types are represented as pointers (`ptr`) to the values.
-- Other types (Unit Type, Never Type) are padded with `i8`, with inherent value 0.
-    -> This is to ensure that structs with unit fields are well-defined, and that unit types can be passed around. We assume that it will be optimized away later in the compilation process.
+- (REFACTORED) Other types (Unit Type, Never Type) are translated to `void`. This should terminate the execution flow, so a let statement with RHS of these types should not be translated to actual allocation. Variables of type unit should be ignored since they hold no data (hold only in symbol table).
+    - Functions returning unit should have type `void`.
+    - A Variable, if of type unit or derived from unit (like arrays of unit), should not correspond to any allocation. Use a `isUnitDerived()` function to check this. Any read and write to such variables should be ignored. In practice, pass on a llvm-ir void type, and if the operation is not a return, simply do nothing.
 - Traits have been removed.
 
 All structs are defined globally as `types` in llvm-ir at the beginning. If a struct type is empty, it is filled with a single `i8` field to ensure well-definedness.

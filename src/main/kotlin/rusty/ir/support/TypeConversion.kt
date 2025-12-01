@@ -29,9 +29,10 @@ fun SemanticType.toIRType(): IRType {
         SemanticType.StrType,
         SemanticType.CStrType -> TypeUtils.PTR
 
-        // Zero-sized or divergent constructs are padded to a single byte
+        // (REFACTORED) Unit and Never types map to void - they hold no data
+        // Variables of these types should not generate allocations
         SemanticType.UnitType,
-        SemanticType.NeverType -> TypeUtils.I8
+        SemanticType.NeverType -> TypeUtils.VOID
 
         // Exit returns an i32 code in IR
         SemanticType.ExitType -> TypeUtils.I32
@@ -102,6 +103,31 @@ fun SemanticType.requiresReturnPointer(): Boolean {
     return when (unwrapReferences()) {
         is SemanticType.StructType,
         is SemanticType.ArrayType -> true
+        else -> false
+    }
+}
+
+/**
+ * Check if a type is "unit-derived", meaning it should not correspond to any allocation.
+ * This includes:
+ * - Unit type
+ * - Never type
+ * - Arrays of unit-derived types
+ * 
+ * Operations on such types should be ignored (no allocation, no read/write).
+ */
+fun SemanticType.isUnitDerived(): Boolean {
+    return when (this) {
+        SemanticType.UnitType,
+        SemanticType.NeverType -> true
+        is SemanticType.ArrayType -> {
+            val elementType = elementType.getOrNull()
+            elementType?.isUnitDerived() == true
+        }
+        is SemanticType.ReferenceType -> {
+            val innerType = type.getOrNull()
+            innerType?.isUnitDerived() == true
+        }
         else -> false
     }
 }

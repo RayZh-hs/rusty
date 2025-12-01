@@ -291,11 +291,13 @@ Maps semantic types to LLVM IR types for value operations:
 | `BoolType` | `i1` | Single bit |
 | `CharType` | `i8` | ASCII character |
 | `StrType`, `CStrType` | `ptr` | Opaque pointer |
-| `UnitType`, `NeverType` | `i8` | Padded for consistency |
+| `UnitType`, `NeverType` | `void` | (REFACTORED) No storage - void type |
 | `ArrayType` | `ptr` | Pointer to array storage |
 | `ReferenceType` | `ptr` | Pointer to referent |
 | `StructType` | `ptr` | Pointer to struct storage |
 | `EnumType` | `i32` | Discriminant value |
+
+**(REFACTORED)** Unit and Never types are now mapped to LLVM `void` type. Variables of these types should not generate allocations. Functions returning unit type now return `void` and use `insertRetVoid()`. The `isUnitDerived()` helper function checks if a type is unit-derived (including arrays of unit types).
 
 ### `toStorageIRType()` - Storage Types
 

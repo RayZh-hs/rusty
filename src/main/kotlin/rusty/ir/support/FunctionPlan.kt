@@ -57,7 +57,9 @@ object FunctionPlanBuilder {
             ).identifier
         }
 
-        val functionIrReturn = if (returnsByPointer) TypeUtils.I8 else returnIrType
+        // (REFACTORED) For functions returning unit type (now void), the IR return type is void
+        // For functions returning by pointer, the IR return type is also void
+        val functionIrReturn = if (returnsByPointer) TypeUtils.VOID else returnIrType
         val fnType = FunctionType(functionIrReturn, paramTypes, false, paramNames)
         val fnName = Name.ofFunction(symbol, ownerName)
 

@@ -5,6 +5,7 @@ import rusty.ir.support.FunctionPlan
 import rusty.ir.support.GeneratedValue
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
+import rusty.ir.support.isUnitDerived
 import rusty.ir.support.toIRType
 import rusty.ir.support.toStorageIRType
 import rusty.ir.support.unwrapReferences
@@ -19,7 +20,6 @@ import rusty.semantic.visitors.utils.extractSymbolsFromTypedPattern
 import space.norb.llvm.builder.BuilderUtils
 import space.norb.llvm.builder.IRBuilder
 import space.norb.llvm.enums.LinkageType
-import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.TypeUtils
 import rusty.core.CompilerPointer
 
@@ -260,8 +260,8 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                     val zeroValue = BuilderUtils.createZeroValue(storageType)
                     env.bodyBuilder.insertStore(zeroValue, dest)
                 }
-                val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
-                env.bodyBuilder.insertRet(zero)
+                // (REFACTORED) Functions returning by pointer now return void
+                env.bodyBuilder.insertRetVoid()
             }
             value != null -> env.bodyBuilder.insertRet(value.value)
             env.returnSlot != null -> {
@@ -272,9 +272,9 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                 )
                 env.bodyBuilder.insertRet(loaded)
             }
+            // (REFACTORED) Unit type now maps to void, use insertRetVoid()
             plan.returnType == SemanticType.UnitType -> {
-                val zero = BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType)
-                env.bodyBuilder.insertRet(zero)
+                env.bodyBuilder.insertRetVoid()
             }
             else -> {
                 val zero = BuilderUtils.createZeroValue(plan.returnType.toIRType())

@@ -5,6 +5,7 @@ import rusty.ir.support.FunctionPlan
 import rusty.ir.support.GeneratedValue
 import rusty.ir.support.IRContext
 import rusty.ir.support.Name
+import rusty.ir.support.isUnitDerived
 import rusty.ir.support.toIRType
 import rusty.ir.support.toStorageIRType
 import rusty.ir.support.unwrapReferences
@@ -386,13 +387,23 @@ class ExpressionEmitter(
             "Call argument mismatch for ${plan.name.identifier} at ${node.pointer.line}:${node.pointer.column}: expected $expectedArgs, got ${callArgs.size}"
         }
 
-        val callInstName = temp(if (plan.returnsByPointer) "call.discard" else "call")
-        val callInst = env.bodyBuilder.insertCall(fn, callArgs, callInstName)
+        // (REFACTORED) Handle void-returning functions differently
         if (plan.returnsByPointer) {
+            // Functions returning by pointer now return void, use insertVoidCall
+            env.bodyBuilder.insertVoidCall(fn, callArgs)
             val slot = retSlot
                 ?: throw IllegalStateException("Return slot missing for pointer-returning call ${plan.name.identifier}")
             return GeneratedValue(slot, plan.returnType)
         }
+        
+        // Check if the return type is void (UnitType or NeverType)
+        if (plan.returnType.isUnitDerived()) {
+            env.bodyBuilder.insertVoidCall(fn, callArgs)
+            return null  // Void functions don't produce a value
+        }
+        
+        val callInstName = temp("call")
+        val callInst = env.bodyBuilder.insertCall(fn, callArgs, callInstName)
         return GeneratedValue(callInst, plan.returnType)
     }
 
@@ -606,7 +617,8 @@ class ExpressionEmitter(
                 } else {
                     env.bodyBuilder.insertStore(rhs.value, lhsPtr)
                 }
-                return GeneratedValue(rhs.value, SemanticType.UnitType)
+                // (REFACTORED) Assignment returns unit (void), so return null
+                return null
             }
 
             val lhsValue = env.bodyBuilder.insertLoad(lhsType.toIRType(), lhsPtr, temp("load.assign"))
@@ -637,7 +649,8 @@ class ExpressionEmitter(
                 else -> TODO("Compound assignment operator $op not yet supported")
             }
             env.bodyBuilder.insertStore(result, lhsPtr)
-            return GeneratedValue(result, SemanticType.UnitType)
+            // (REFACTORED) Compound assignment returns unit (void), so return null
+            return null
         }
 
         if (op == Token.O_DOUBLE_AND || op == Token.O_DOUBLE_OR) {
@@ -1002,8 +1015,10 @@ class ExpressionEmitter(
             SemanticType.CStrType -> BuilderUtils.getIntConstant(8L, i32Type)
             SemanticType.BoolType -> BuilderUtils.getIntConstant(1, i32Type)
             SemanticType.CharType -> BuilderUtils.getIntConstant(1, i32Type)
+            // (REFACTORED) Unit and Never types are void and have no storage size
+            // Return 0 size since these types should never be allocated
             SemanticType.UnitType,
-            SemanticType.NeverType -> BuilderUtils.getIntConstant(1, i32Type)
+            SemanticType.NeverType -> BuilderUtils.getIntConstant(0, i32Type)
             SemanticType.I32Type,
             SemanticType.U32Type,
             SemanticType.ISizeType,

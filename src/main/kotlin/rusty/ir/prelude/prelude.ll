@@ -21,30 +21,30 @@ entry:
   ret i32 %len
 }
 
-; Bindings for prelude functions, () mapped to i8(0)
-define i8 @prelude.func.print(ptr %0) {
+; Bindings for prelude functions, () mapped to void
+define void @prelude.func.print(ptr %0) {
     call void @__c_print_str(ptr %0)
-    ret i8 0
+    ret void
 }
-define i8 @prelude.func.println(ptr %0) {
+define void @prelude.func.println(ptr %0) {
     call void @__c_println_str(ptr %0)
-    ret i8 0
+    ret void
 }
-define i8 @prelude.func.printInt(i32 %0) {
+define void @prelude.func.printInt(i32 %0) {
     call void @__c_print_int(i32 %0)
-    ret i8 0
+    ret void
 }
-define i8 @prelude.func.printlnInt(i32 %0) {
+define void @prelude.func.printlnInt(i32 %0) {
     call void @__c_println_int(i32 %0)
-    ret i8 0
+    ret void
 }
 define i32 @prelude.func.getInt() {
     %1 = call i32 @__c_get_int()
     ret i32 %1
 }
-define i8 @prelude.func.getString(ptr %0) {
+define void @prelude.func.getString(ptr %0) {
     call void @__c_get_str(ptr %0)
-    ret i8 0
+    ret void
 }
 define i32 @prelude.func.exit(i32 %code) nounwind noreturn {
 entry:
