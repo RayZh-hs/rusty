@@ -474,7 +474,14 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                 throw CompileError("In expressions, `_` can only be used on the left-hand side of an assignment")
 //                return SemanticType.WildcardType
             }
-            is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode,
+            is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode -> {
+                // Empty tuple () is the unit literal
+                if (node.elements.isEmpty()) {
+                    return SemanticType.UnitType
+                }
+                throw CompileError("Tuples have been removed from the language")
+                    .with(node).at(node.pointer)
+            }
             is ExpressionNode.WithoutBlockExpressionNode.TupleIndexingNode
                 -> throw CompileError("Tuples have been removed from the language")
                 .with(node).at(node.pointer)

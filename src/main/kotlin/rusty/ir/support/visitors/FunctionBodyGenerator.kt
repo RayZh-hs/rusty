@@ -108,7 +108,10 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val selfSymbol = env.scope.variableST.resolve("self") as? SemanticSymbol.Variable
                 ?: throw IllegalStateException("Self symbol not found for ${symbol.identifier}")
             val slot = declareVariable(selfSymbol, Name.auxTemp("self", env.renamer))
-            env.bodyBuilder.insertStore(arg, slot)
+            // Self parameter should never be unit-derived, but check anyway
+            if (slot != null) {
+                env.bodyBuilder.insertStore(arg, slot)
+            }
         }
 
         val userArgs = args.filterIndexed { index, _ ->
@@ -118,13 +121,25 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val paramSymbols = binder.orderedSymbols(symbol)
         paramSymbols.forEachIndexed { idx, paramSymbol ->
             val slot = declareVariable(paramSymbol)
-            env.bodyBuilder.insertStore(userArgs[idx], slot)
+            // (REFACTORED) Unit-derived parameters don't need storage
+            if (slot != null) {
+                env.bodyBuilder.insertStore(userArgs[idx], slot)
+            }
         }
     }
 
-    private fun declareVariable(symbol: SemanticSymbol.Variable, nameOverride: Name? = null): space.norb.llvm.core.Value {
+    private fun declareVariable(symbol: SemanticSymbol.Variable, nameOverride: Name? = null): space.norb.llvm.core.Value? {
         val env = currentEnv()
-        val storageType = symbol.type.get().toIRType()
+        val symbolType = symbol.type.get()
+        
+        // (REFACTORED) Unit-derived types should not generate allocations
+        if (symbolType.isUnitDerived()) {
+            // Don't allocate storage for unit-derived types, but still track in symbol table
+            env.locals.last()[symbol] = null
+            return null
+        }
+        
+        val storageType = symbolType.toIRType()
         val slot = env.allocaBuilder.insertAlloca(
             storageType,
             (nameOverride ?: Name.ofVariable(symbol, env.renamer)).identifier
@@ -133,12 +148,19 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         return slot
     }
 
-    private fun resolveVariable(symbol: SemanticSymbol.Variable): GeneratedValue {
+    private fun resolveVariable(symbol: SemanticSymbol.Variable): GeneratedValue? {
         val env = currentEnv()
+        val symbolType = symbol.type.get()
+        
+        // (REFACTORED) Unit-derived types have no value to load
+        if (symbolType.isUnitDerived()) {
+            return null
+        }
+        
         val slot = env.findLocalSlot(symbol)
             ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
-        val loaded = env.bodyBuilder.insertLoad(symbol.type.get().toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
-        return GeneratedValue(loaded, symbol.type.get())
+        val loaded = env.bodyBuilder.insertLoad(symbolType.toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
+        return GeneratedValue(loaded, symbolType)
     }
 
     private fun <T> withScope(block: () -> T): T {
@@ -210,10 +232,19 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             }
         }
         symbols.forEach { sym ->
+            val resolvedType = sym.type.getOrNull() ?: initializerType
+            
+            // (REFACTORED) Unit-derived types don't need storage or initialization
+            if (resolvedType?.isUnitDerived() == true) {
+                declareVariable(sym)  // Just register in symbol table, no storage
+                insertLetComment(node.pointer, sym.identifier)
+                return@forEach
+            }
+            
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
-            value?.let { generated ->
-                val resolvedType = sym.type.getOrNull() ?: initializerType
+            if (slot != null && value != null) {
+                val generated = value
                 if (resolvedType != null && resolvedType.requiresAggregateValueCopy()) {
                     val storageType = resolvedType.unwrapReferences().toStorageIRType()
                     val storageAlloca = env.allocaBuilder.insertAlloca(

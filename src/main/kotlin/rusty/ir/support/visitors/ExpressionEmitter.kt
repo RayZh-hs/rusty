@@ -37,8 +37,8 @@ class ExpressionEmitter(
     private val scopeMaintainer: ScopeMaintainerCompanion,
     private val staticResolver: StaticResolverCompanion,
     private val emitBlock: (ExpressionNode.WithBlockExpressionNode.BlockExpressionNode) -> GeneratedValue?,
-    private val resolveVariable: (SemanticSymbol.Variable) -> GeneratedValue,
-    private val declareVariable: (SemanticSymbol.Variable, Name?) -> space.norb.llvm.core.Value,
+    private val resolveVariable: (SemanticSymbol.Variable) -> GeneratedValue?,
+    private val declareVariable: (SemanticSymbol.Variable, Name?) -> space.norb.llvm.core.Value?,
     private val emitFunctionReturn: (FunctionPlan, GeneratedValue?) -> Unit,
     private val currentEnv: () -> FunctionEnvironment,
     private val addBlockComment: (CompilerPointer, String) -> Unit,
@@ -75,6 +75,15 @@ class ExpressionEmitter(
             is ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode -> emitReference(node)
             is ExpressionNode.WithoutBlockExpressionNode.DereferenceExpressionNode -> emitDereference(node)
             is ExpressionNode.WithoutBlockExpressionNode.TypeCastExpressionNode -> emitCast(node)
+
+            // Empty tuple () is the unit literal - returns null since unit type is void
+            is ExpressionNode.WithoutBlockExpressionNode.TupleExpressionNode -> {
+                if (node.elements.isEmpty()) {
+                    null  // Unit literal produces no value (void)
+                } else {
+                    throw IllegalStateException("Non-empty tuples should have been rejected by semantic analysis")
+                }
+            }
 
             is ExpressionNode.WithoutBlockExpressionNode.ControlFlowExpressionNode.ReturnExpressionNode -> {
                 emitFunctionReturn(currentEnv().plan, node.expr?.let { emitExpression(it) })

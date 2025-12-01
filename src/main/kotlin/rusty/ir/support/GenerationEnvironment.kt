@@ -22,7 +22,8 @@ data class FunctionEnvironment(
     val function: Function,
     val scope: Scope,
     val renamer: Renamer,
-    val locals: ArrayDeque<MutableMap<SemanticSymbol.Variable, Value>> = ArrayDeque(),
+    // (REFACTORED) Value can be null for unit-derived types which don't need storage
+    val locals: ArrayDeque<MutableMap<SemanticSymbol.Variable, Value?>> = ArrayDeque(),
     val loopStack: ArrayDeque<LoopFrame> = ArrayDeque(),
     var terminated: Boolean = false,
     val returnSlot: Value? = null,
