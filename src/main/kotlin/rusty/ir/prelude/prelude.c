@@ -1,7 +1,9 @@
-#include <stdio.h>
 #include <stdint.h>
-#include <string.h>
 #define FGETS_BUFFER_SIZE 1024
+
+int printf(const char*, ...);
+int scanf(const char*, ...);
+int sprintf(char*, const char*, ...);
 
 void __c_print_int(int32_t value) {
     printf("%d", value);
@@ -26,8 +28,8 @@ int32_t __c_get_int() {
 }
 
 void __c_get_str(char* buffer) {
-    // get line from stdin
-    fgets(buffer, FGETS_BUFFER_SIZE, stdin);
+    // Read a single whitespace-delimited token for portability across runtimes.
+    scanf("%1023s", buffer);
 }
 
 int32_t __c_strlen(const char* str) {

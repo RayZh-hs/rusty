@@ -33,7 +33,6 @@ src/main/kotlin/rusty/ir/
 ├── Dumper.kt                 # IR output utilities
 ├── prelude/                  # Runtime support functions
 │   ├── prelude.c             # C implementation of runtime functions
-│   ├── prelude.c.ll          # LLVM IR compiled from prelude.c
 │   └── prelude.ll            # Hand-written LLVM IR prelude
 └── support/                  # IR generation support infrastructure
     ├── FunctionPlan.kt       # Function signature planning

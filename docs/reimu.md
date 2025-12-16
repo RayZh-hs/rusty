@@ -1,0 +1,74 @@
+# REIMU
+
+## Quick Start
+
+### Installation
+
+The `reimu` simulator binary has already been built and placed under `/src/test/resources/bin/`. Please use it to drive official ir tests, with memory congigured to no less than 32MB.
+
+### Running a Program
+
+The simulator reads command-line arguments and executes the program with the specified configuration.
+
+By default, the input assembly files are `test.s` and `builtin.s` in the current directory. The program's input defaults to stdin and output to stdout. You can change the input and output files using the -i and -o flags, respectively:
+
+You can pass the arguments in the form `-<option>=<value>` or `-<option> <value>`
+
+```shell
+reimu -i=test.in -o test.out
+```
+
+For detailed information on all available command-line arguments, use the --help flag (recommended with less):
+
+```shell
+reimu --help | less
+```
+
+If you need to debug your program, you can use the `--debug` flag to enable the built-in debug shell:
+
+```shell
+reimu --debug -i test.in -o test.out
+```
+
+## Debugging
+
+For more information on the debug shell, refer to [debug mode](debugger.md).
+
+For more information about the error message, refer to [error message](error.md).
+
+## Support
+
+See [support](support.md) for more information.
+
+## Weight calculation
+
+We have some weight counter to help you know the performance of your program. See [counter.h](../include/config/counter.h) for details.
+
+Here's a list of the weight counter:
+
+```cpp
+// register_class(<group name>, <weight>, <instruction names...>)
+
+register_class(Arith    , 1 , "add", "sub");
+register_class(Upper    , 1 , "lui", "auipc");
+register_class(Compare  , 1 , "slt", "sltu");
+register_class(Shift    , 1 , "sll", "srl", "sra");
+register_class(Bitwise  , 1 , "and", "or", "xor");
+register_class(Branch   , 10, "beq", "bne", "blt", "bge", "bltu", "bgeu");
+register_class(Load     , 64, "lb", "lh", "lw", "lbu", "lhu");
+register_class(Store    , 64, "sb", "sh", "sw");
+register_class(Multiply , 4 , "mul", "mulh", "mulhsu", "mulhu");
+register_class(Divide   , 20, "div", "divu", "rem", "remu");
+register_class(Jal      , 1 , "jal");
+register_class(Jalr     , 2 , "jalr");
+
+// External devices
+
+register_class(PredictTaken, 2, "");
+register_class(CacheLoad   , 4, "");
+register_class(CacheStore  , 4, "");
+```
+
+## Q & A
+
+Use [github discussions](https://github.com/DarkSharpness/REIMU/discussions/) to ask questions. Use [github issues](https://github.com/DarkSharpness/REIMU/issues/) to report bugs.
