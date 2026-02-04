@@ -571,12 +571,12 @@ The `prelude.struct.String` type is registered as:
           ▼                 ▼                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      IRConstructor                              │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                      IRContext                            │  │
-│  │  • Module            • functionLookup                     │  │
-│  │  • structTypeLookup  • functionPlans                      │  │
-│  │  • stringLiteralLookup                                    │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                      IRContext                           │   │
+│  │  • Module            • functionLookup                    │   │
+│  │  • structTypeLookup  • functionPlans                     │   │
+│  │  • stringLiteralLookup                                   │   │
+│  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  Phase 1: PreludeHandler ──────► External function declarations │
 │           │                                                     │
