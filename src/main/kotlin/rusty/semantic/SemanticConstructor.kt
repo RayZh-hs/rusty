@@ -21,7 +21,7 @@ class SemanticConstructor {
             ImplementInjectorVisitor(context).run().afterWhich { if (dumpToScreen) dumpScreenPhase("phase-2:implement-injection", context) }
             ItemTypeResolverVisitor(context).run().afterWhich { if (dumpToScreen) dumpScreenPhase("phase-3:item-type-resolution", context) }
             FunctionParamsDeclareVisitor(context).run().afterWhich { if (dumpToScreen) dumpScreenPhase("phase-4:function-params-declaration", context) }
-            FunctionTracerVisitor(context).run().afterWhich { if (dumpToScreen) {
+            FunctionTracerVisitor(context, verbose = dumpToScreen).run().afterWhich { if (dumpToScreen) {
                 dumpScreenPhase("phase-5:function-tracing", context)
                 dumpScreenPhaseAstWithTypes("phase-6:ast-with-types", context)
             } }

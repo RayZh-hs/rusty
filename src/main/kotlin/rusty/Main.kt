@@ -55,7 +55,7 @@ fun main(args: Array<String>) {
     }
 
     // Handle Display (--verbose / -v)
-    val isVerbose = parsed["verbose"]!!.toBoolean()
+    val isVerbose = "verbose" in parsed
 
     val inputPath = parsed["input"]!!
     val outputPath = parsed["output"]!!

@@ -34,7 +34,7 @@ import java.util.IdentityHashMap
 import java.util.Stack
 import kotlin.sequences.generateSequence
 
-class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
+class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false): SimpleVisitorBase(ctx) {
     val selfResolver = SelfResolverCompanion()
     val scopedVarMaintainer = ScopedVariableMaintainerCompanion(ctx)
     val staticResolver = StaticResolverCompanion(ctx, selfResolver)
@@ -539,7 +539,8 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                             stmt.patternNode, bindingType, currentScope())
                         for (sym in symbols) {
                             scopedVarMaintainer.declare(sym)
-                            println("[${scopedVarMaintainer.currentScope().toShortString()}]".magenta() + " Declared symbol ".darkGray() + sym.identifier.yellow() + ": ".darkGray() + sym.type.getOrNull())
+                            if (verbose)
+                                println("[${scopedVarMaintainer.currentScope().toShortString()}]".magenta() + " Declared symbol ".darkGray() + sym.identifier.yellow() + ": ".darkGray() + sym.type.getOrNull())
                         }
                     }
                     is StatementNode.ItemStatementNode -> visit(stmt.item)
@@ -685,8 +686,8 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
                                 // first try interpreting as function header
                                 val func = generateSequence(currentScope()) { it.parent }
                                     .mapNotNull { scopePointer ->
-                                        val symbol = scopePointer.functionST.symbols[segment.name]
-                                        symbol as? SemanticSymbol.Function
+                                        val nSymbol = scopePointer.functionST.symbols[segment.name]
+                                        nSymbol as? SemanticSymbol.Function
                                     }
                                     .firstOrNull { it.selfParam.getOrNull() == null }
                                 if (func != null) return func.getFunctionHeader()
@@ -979,11 +980,13 @@ class FunctionTracerVisitor(ctx: SemanticContext): SimpleVisitorBase(ctx) {
 
     private fun overwriteExpressionType(node: ExpressionNode, from: SemanticType, to: SemanticType) {
         ctx.expressionTypeMemory.overwrite(node, to)
-        println("[type-infer] ${node.pointer}: $from -> $to")
+        if (verbose)
+            println("[type-infer] ${node.pointer}: $from -> $to")
     }
 
     private fun warnDefaultInference(node: ExpressionNode, from: SemanticType, fallback: SemanticType) {
-        println("[type-infer][warn] ${node.pointer}: unable to infer $from, defaulting to $fallback")
+        if (verbose)
+            println("[type-infer][warn] ${node.pointer}: unable to infer $from, defaulting to $fallback")
     }
 
     private fun identityExpressionSet(): MutableSet<ExpressionNode> {

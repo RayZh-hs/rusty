@@ -21,9 +21,8 @@ class IRConstructor {
                 FunctionBodyGenerator(semanticContext).run()
             }
             // Put outside the conditional so that it is always walked to capture express-time errors (if any)
-            val irString = module.toIRString()
             if (dumpToScreen) {
-                dumpScreen(irString)
+                dumpScreen(module)
             }
             return module
         }
