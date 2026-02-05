@@ -7,10 +7,11 @@ import rusty.ir.support.visitors.PreludeHandler
 import rusty.ir.support.visitors.StructHandler
 import rusty.ir.support.visitors.StructSizeFunctionGenerator
 import rusty.semantic.support.SemanticContext
+import space.norb.llvm.structure.Module
 
 class IRConstructor {
     companion object {
-        fun run(semanticContext: SemanticContext, dumpToScreen: Boolean = false): String {
+        fun run(semanticContext: SemanticContext, dumpToScreen: Boolean = false): Module {
             IRContext.reset()
             val module = IRContext.module.also {
                 PreludeHandler(semanticContext).run()
@@ -19,11 +20,12 @@ class IRConstructor {
                 FunctionRegistrar(semanticContext).run()
                 FunctionBodyGenerator(semanticContext).run()
             }
+            // Put outside the conditional so that it is always walked to capture express-time errors (if any)
             val irString = module.toIRString()
             if (dumpToScreen) {
                 dumpScreen(irString)
             }
-            return irString
+            return module
         }
     }
 }

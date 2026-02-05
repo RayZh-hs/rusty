@@ -1,8 +1,16 @@
 package rusty.cli
 
 enum class Requirement {
-    REQUIRED, OPTIONAL,
+    REQUIRED, OPTIONAL
 }
 
-data class CommandParserConfigEntry(val key: String, val requirement: Requirement)
-typealias CommandParserConfigType = List<CommandParserConfigEntry>
+enum class ArgType {
+    VALUE, FLAG
+}
+
+data class CommandParserConfigEntry(
+    val key: String,
+    val requirement: Requirement,
+    val type: ArgType = ArgType.VALUE,
+    val aliases: List<String> = emptyList()
+)
