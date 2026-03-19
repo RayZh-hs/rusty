@@ -26,52 +26,68 @@ class ControlFlowEmitter(
         } else {
             null
         }
+
+        if (node.ifs.isEmpty()) return null
+
+        // Block order: guard1 -> then1 -> guard2 -> then2 -> ... -> [else] -> merge
+        val guards = mutableListOf<BasicBlock>()
+        val thens = mutableListOf<BasicBlock>()
+        repeat(node.ifs.size) {
+            guards += fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+            thens += fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
+        }
+        val elseBlock = node.elseBranch?.let { fn.insertBasicBlock(Name.block(env.renamer).identifier, false) }
         val merge = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
 
-        val firstGuard = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-        env.bodyBuilder.insertBr(firstGuard)
-        var nextGuardBlock: BasicBlock = firstGuard
-        
-        // Track whether all branches terminate (no branch reaches merge)
+        env.bodyBuilder.insertBr(guards.first())
+
         var allBranchesTerminate = true
-        
+
         node.ifs.forEachIndexed { index, clause ->
-            env.bodyBuilder.positionAtEnd(nextGuardBlock)
+            val guard = guards[index]
+            val thenBlock = thens[index]
+            val falseTarget =
+                when {
+                    index + 1 < guards.size -> guards[index + 1]
+                    elseBlock != null -> elseBlock
+                    else -> merge
+                }
+
+            env.bodyBuilder.positionAtEnd(guard)
             env.terminated = false
             addBlockComment(clause.condition.expression.pointer, if (index == 0) "if-guard" else "else-if-guard")
             val condValue = emitExpr(clause.condition.expression) ?: return null
-            val thenBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-            val elseBlock = fn.insertBasicBlock(Name.block(env.renamer).identifier, false)
-            env.bodyBuilder.insertCondBr(condValue.value, thenBlock, elseBlock)
+            env.bodyBuilder.insertCondBr(condValue.value, thenBlock, falseTarget)
 
             env.bodyBuilder.positionAtEnd(thenBlock)
             addBlockComment(clause.then.pointer, "then-block")
+            env.terminated = false
             val thenVal = emitExpr(clause.then)
             if (auxSlot != null && thenVal != null) env.bodyBuilder.insertStore(thenVal.value, auxSlot)
             if (!env.terminated) {
                 env.bodyBuilder.insertBr(merge)
                 allBranchesTerminate = false
             }
-            env.terminated = false
-
-            nextGuardBlock = elseBlock
         }
 
-        val finalElseBlock = nextGuardBlock
-        env.bodyBuilder.positionAtEnd(finalElseBlock)
-        node.elseBranch?.let {
-            addBlockComment(it.pointer, "else-block")
-            val elseVal = emitExpr(it)
-            if (auxSlot != null && elseVal != null) env.bodyBuilder.insertStore(elseVal.value, auxSlot)
-        } ?: addBlockComment(node.pointer, "else-block")
-        if (!env.terminated) {
-            env.bodyBuilder.insertBr(merge)
+        if (elseBlock != null) {
+            env.bodyBuilder.positionAtEnd(elseBlock)
+            env.terminated = false
+            node.elseBranch?.let {
+                addBlockComment(it.pointer, "else-block")
+                val elseVal = emitExpr(it)
+                if (auxSlot != null && elseVal != null) env.bodyBuilder.insertStore(elseVal.value, auxSlot)
+            }
+            if (!env.terminated) {
+                env.bodyBuilder.insertBr(merge)
+                allBranchesTerminate = false
+            }
+        } else {
+            // Last false branch goes directly to merge, so merge is reachable.
             allBranchesTerminate = false
         }
 
-        // If all branches terminate, the merge block is unreachable
         if (allBranchesTerminate) {
-            // Add unreachable instruction to the dead merge block to satisfy LLVM requirements
             env.bodyBuilder.positionAtEnd(merge)
             env.bodyBuilder.insertUnreachable()
             env.terminated = true
@@ -82,7 +98,10 @@ class ControlFlowEmitter(
         env.bodyBuilder.positionAtEnd(merge)
         addBlockComment(node.pointer, "end-if")
         return auxSlot?.let {
-            GeneratedValue(env.bodyBuilder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier), resultType)
+            GeneratedValue(
+                env.bodyBuilder.insertLoad(resultType.toIRType(), it, Name.blockResult(env.renamer).identifier),
+                resultType
+            )
         }
     }
 
