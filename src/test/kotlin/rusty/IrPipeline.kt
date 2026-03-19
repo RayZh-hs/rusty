@@ -101,7 +101,7 @@ object IrPipeline {
 
     fun emitIr(input: Path, irOutput: Path) {
         irOutput.parent?.let { Files.createDirectories(it) }
-        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-m", "ir"))
+        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-e", "ir"))
     }
 
     fun linkWithPrelude(irOutput: Path, exeOutput: Path, clangBinary: String = resolveClangBinary()): ProcessResult {
