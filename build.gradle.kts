@@ -24,7 +24,7 @@ java {
 dependencies {
     implementation(kotlin("stdlib"))
     testImplementation(kotlin("test")) // Kotlin test assertions
-    implementation("space.norb:llvm:1.2.9")
+    implementation("space.norb:llvm:1.4.0-alpha")
 
     // Explicit JUnit Jupiter dependencies to avoid deprecated automatic framework loading
     val junitVersion = "5.10.2"
@@ -84,7 +84,7 @@ private fun Array<String>.toLowerCamelCase(): String {
 
 fun registerTask(stage: String, source: String) {
     val taskName = arrayOf(source, stage, "tests").toLowerCamelCase()
-    val taskType = if (stage == "ir") IrTestTask::class.java else Test::class.java
+    val taskType = if (stage in setOf("ir", "opt")) IrTestTask::class.java else Test::class.java
     tasks.register(taskName, taskType) {
         description = "Run $source tests for the $stage stage."
         group = "verification"
@@ -109,6 +109,7 @@ for (stage in listOf("semantic", "ir")) {
     registerTask(stage, source = "official")
     registerTask(stage, source = "fixed")
 }
+registerTask("opt", source = "official")
 
 tasks.register<Test>("manualTests") {
     description = "Run manual tests."

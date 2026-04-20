@@ -99,9 +99,9 @@ object IrPipeline {
         )
     }
 
-    fun emitIr(input: Path, irOutput: Path) {
+    fun emitIr(input: Path, irOutput: Path, emitMode: String = "ir") {
         irOutput.parent?.let { Files.createDirectories(it) }
-        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "-e", "ir"))
+        main(arrayOf("-i", input.toString(), "-o", irOutput.toString(), "--emit", emitMode))
     }
 
     fun linkWithPrelude(irOutput: Path, exeOutput: Path, clangBinary: String = resolveClangBinary()): ProcessResult {

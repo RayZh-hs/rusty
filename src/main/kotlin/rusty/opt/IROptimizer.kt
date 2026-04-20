@@ -1,10 +1,17 @@
 package rusty.opt
 
 import space.norb.llvm.instructions.base.TerminatorInst
+import space.norb.llvm.analysis.Analysis
+import space.norb.llvm.analysis.AnalysisManager
+import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.analysis.presets.PredecessorAnalysis
+import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.structure.Module
+import space.norb.llvm.transformation.IRPass
+import space.norb.llvm.transformation.presets.CFGSimplifyPass
+import space.norb.llvm.transformation.presets.Mem2RegPass
 import java.io.OutputStream
 import java.io.PrintStream
-import java.lang.reflect.InvocationTargetException
 
 class IROptimizer {
     companion object {
@@ -19,38 +26,28 @@ class IROptimizer {
 }
 
 private object LlvmOptimizationPipeline {
-    private const val ANALYSIS_MANAGER = "space.norb.llvm.analysis.AnalysisManager"
-    private const val ANALYSIS = "space.norb.llvm.analysis.Analysis"
-    private const val IR_PASS = "space.norb.llvm.transformation.IRPass"
-
-    private val requiredAnalyses = listOf(
-        "space.norb.llvm.analysis.presets.PredecessorAnalysis",
-        "space.norb.llvm.analysis.presets.UseDefAnalysis",
-        "space.norb.llvm.analysis.presets.DominatorTreeAnalysis",
+    private val requiredAnalyses: List<Analysis<*>> = listOf(
+        PredecessorAnalysis,
+        UseDefAnalysis,
+        DominatorTreeAnalysis,
     )
 
-    private val optimizationPasses = listOf(
-        "space.norb.llvm.transformation.presets.CFGSimplifyPass",
-        "space.norb.llvm.transformation.presets.Mem2RegPass",
+    private val optimizationPasses: List<IRPass> = listOf(
+        CFGSimplifyPass,
+        Mem2RegPass,
     )
 
     fun run(module: Module): Module {
-        val api = loadApi()
-        val analysisManager = api.analysisManagerClass.getConstructor(Module::class.java).newInstance(module)
-        val register = api.analysisManagerClass.getMethod("register", api.analysisClass)
-        for (analysisName in requiredAnalyses) {
-            register.invoke(analysisManager, singleton(analysisName))
+        val analysisManager = AnalysisManager(module)
+        for (analysis in requiredAnalyses) {
+            analysisManager.register(analysis)
         }
 
-        val passRun = api.passClass.getMethod("run", Module::class.java, api.analysisManagerClass)
-        val updateAnalysisManager = api.passClass.getMethod("updateAnalysisManager", api.analysisManagerClass)
-
         var current = module
-        for (passName in optimizationPasses) {
-            val pass = singleton(passName)
-            current = invokePass(passRun, pass, current, analysisManager)
+        for (pass in optimizationPasses) {
+            current = invokePass(pass, current, analysisManager)
             canonicalizeTerminatorInstructions(current)
-            updateAnalysisManager.invoke(pass, analysisManager)
+            pass.updateAnalysisManager(analysisManager)
         }
         return current
     }
@@ -66,42 +63,15 @@ private object LlvmOptimizationPipeline {
         }
     }
 
-    private fun loadApi(): PassApi = try {
-        PassApi(
-            analysisManagerClass = Class.forName(ANALYSIS_MANAGER),
-            analysisClass = Class.forName(ANALYSIS),
-            passClass = Class.forName(IR_PASS),
-        )
-    } catch (e: ClassNotFoundException) {
-        throw IllegalStateException(
-            "LLVM optimization passes are unavailable. Use a space.norb:llvm build that includes " +
-                "space.norb.llvm.transformation, or set LLVM_LIB_PATH to the local LLVM library project.",
-            e,
-        )
-    }
-
-    private fun singleton(className: String): Any {
-        val klass = Class.forName(className)
-        return klass.getField("INSTANCE").get(null)
-    }
-
-    private fun invokePass(method: java.lang.reflect.Method, pass: Any, module: Module, analysisManager: Any): Module {
+    private fun invokePass(pass: IRPass, module: Module, analysisManager: AnalysisManager): Module {
         val stdout = System.out
         val sink = PrintStream(OutputStream.nullOutputStream())
         try {
             System.setOut(sink)
-            return method.invoke(pass, module, analysisManager) as Module
-        } catch (e: InvocationTargetException) {
-            throw e.targetException
+            return pass.run(module, analysisManager)
         } finally {
             System.setOut(stdout)
             sink.close()
         }
     }
-
-    private data class PassApi(
-        val analysisManagerClass: Class<*>,
-        val analysisClass: Class<*>,
-        val passClass: Class<*>,
-    )
 }

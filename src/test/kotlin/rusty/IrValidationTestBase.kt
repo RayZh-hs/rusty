@@ -13,6 +13,7 @@ abstract class IrValidationTestBase : TestBase() {
 
     open val compileTimeoutSeconds: Long = 5
     open val executionTimeoutSeconds: Long = 5
+    open val emitMode: String = "ir"
 
     private val noClang: Boolean =
         System.getProperty(IrPipeline.PROP_NO_CLANG)?.equals("true", ignoreCase = true) == true
@@ -20,7 +21,7 @@ abstract class IrValidationTestBase : TestBase() {
         System.getProperty(IrPipeline.PROP_REIMU)?.equals("true", ignoreCase = true) == true
 
     override fun runTestCase(case: TestCase) {
-        val outputRoot = Paths.get("build", "ir-tests").resolve(Paths.get(baseResourcePath))
+        val outputRoot = Paths.get("build", "$emitMode-tests").resolve(Paths.get(baseResourcePath))
         val clangBinary = IrPipeline.resolveClangBinary()
         
         val targetDir = outputRoot.resolve(case.stage.ifBlank { "manual" })
@@ -28,7 +29,7 @@ abstract class IrValidationTestBase : TestBase() {
 
         val compileThrowable = try {
             assertTimeoutPreemptively(Duration.ofSeconds(compileTimeoutSeconds)) {
-                IrPipeline.emitIr(case.source, artifacts.irOutput)
+                IrPipeline.emitIr(case.source, artifacts.irOutput, emitMode)
             }
             null
         } catch (t: Throwable) {
@@ -54,7 +55,7 @@ abstract class IrValidationTestBase : TestBase() {
         }
 
         if (noClang) {
-            println("[IR tests] Skipping clang/link/run for ${case.name} due to -D${IrPipeline.PROP_NO_CLANG}=true")
+            println("[${emitMode.uppercase()} tests] Skipping clang/link/run for ${case.name} due to -D${IrPipeline.PROP_NO_CLANG}=true")
             return
         }
 

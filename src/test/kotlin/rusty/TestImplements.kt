@@ -10,6 +10,14 @@ class OfficialIrTests : IrValidationTestBase() {
 	override val subdirectoryPrefix: String = "IR-"
 }
 
+@Tag("opt")
+@Tag("official")
+class OfficialOptTests : IrValidationTestBase() {
+	override val emitMode: String = "opt"
+	override val baseResourcePath: String = "@official"
+	override val subdirectoryPrefix: String = "IR-"
+}
+
 @Tag("semantic")
 @Tag("official")
 class OfficialSemanticTests : ExitValidationTestBase(TestMode.SEMANTIC) {
