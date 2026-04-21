@@ -6,12 +6,12 @@ import java.io.File
 
 // This file provides dump utilities for the Preprocessor module
 
-fun Preprocessor.Companion.dump(output: MarkedString, outputPath: String) {
+fun Preprocessor.dump(output: MarkedString, outputPath: String) {
     val file = File(outputPath)
     file.writeText(output.text)
 }
 
-fun Preprocessor.Companion.dumpScreen(output: MarkedString) {
+fun Preprocessor.dumpScreen(output: MarkedString) {
     println("[rusty] Preprocessor dump:".green())
     println(output.text)
     println()

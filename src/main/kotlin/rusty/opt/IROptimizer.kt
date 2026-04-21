@@ -13,15 +13,13 @@ import space.norb.llvm.transformation.presets.Mem2RegPass
 import java.io.OutputStream
 import java.io.PrintStream
 
-class IROptimizer {
-    companion object {
-        fun run(irModule: Module, dumpToScreen: Boolean = false): Module {
-            val optimized = LlvmOptimizationPipeline.run(irModule)
-            if (dumpToScreen) {
-                dumpScreen(optimized)
-            }
-            return optimized
+object IROptimizer {
+    fun run(irModule: Module, dumpToScreen: Boolean = false): Module {
+        val optimized = LlvmOptimizationPipeline.run(irModule)
+        if (dumpToScreen) {
+            dumpScreen(optimized)
         }
+        return optimized
     }
 }
 

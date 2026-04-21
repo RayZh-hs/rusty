@@ -262,49 +262,49 @@ private fun Scope.renderTree(prefix: String = "", isLast: Boolean = true): Strin
     }
 }
 
-fun SemanticConstructor.Companion.dump(output: OutputType, outputPath: String) {
+fun SemanticConstructor.dump(output: OutputType, outputPath: String) {
     val file = File(outputPath)
     file.writeText(output.scopeTree.renderTree())
 }
 
-fun SemanticConstructor.Companion.dumpScreen(output: OutputType) {
+fun SemanticConstructor.dumpScreen(output: OutputType) {
     println("[rusty] Semantic scope tree:".green())
     print(output.scopeTree.renderTree())
     println()
 }
 
-fun SemanticConstructor.Companion.dumpPhase(label: String, output: OutputType, outputPath: String) {
+fun SemanticConstructor.dumpPhase(label: String, output: OutputType, outputPath: String) {
     val file = File(outputPath)
     val header = "[rusty] Semantic dump ($label)\n"
     file.writeText(header + output.scopeTree.renderTree())
 }
 
-fun SemanticConstructor.Companion.dumpScreenPhase(label: String, output: OutputType) {
+fun SemanticConstructor.dumpScreenPhase(label: String, output: OutputType) {
     println("[rusty] Semantic dump ".green() + "($label):".cyan())
     print(output.scopeTree.renderTree())
     println()
 }
-fun SemanticConstructor.Companion.dumpAstWithTypes(output: OutputType, outputPath: String) {
+fun SemanticConstructor.dumpAstWithTypes(output: OutputType, outputPath: String) {
     val file = File(outputPath)
     val dumper = ASTTypeDumper(output)
     file.writeText(dumper.format(output.astTree))
 }
 
-fun SemanticConstructor.Companion.dumpScreenAstWithTypes(output: OutputType) {
+fun SemanticConstructor.dumpScreenAstWithTypes(output: OutputType) {
     println("[rusty] AST annotated with expression types:".green())
     val dumper = ASTTypeDumper(output)
     print(dumper.format(output.astTree))
     println()
 }
 
-fun SemanticConstructor.Companion.dumpPhaseAstWithTypes(label: String, output: OutputType, outputPath: String) {
+fun SemanticConstructor.dumpPhaseAstWithTypes(label: String, output: OutputType, outputPath: String) {
     val file = File(outputPath)
     val header = "[rusty] AST with types ($label)\n"
     val dumper = ASTTypeDumper(output)
     file.writeText(header + dumper.format(output.astTree))
 }
 
-fun SemanticConstructor.Companion.dumpScreenPhaseAstWithTypes(label: String, output: OutputType) {
+fun SemanticConstructor.dumpScreenPhaseAstWithTypes(label: String, output: OutputType) {
     println("[rusty] AST with types ".green() + "($label):".cyan())
     val dumper = ASTTypeDumper(output)
     print(dumper.format(output.astTree))

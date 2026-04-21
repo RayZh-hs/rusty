@@ -9,10 +9,10 @@ import rusty.parser.nodes.utils.Visitor
 import rusty.parser.nodes.utils.accept
 import java.io.File
 
-fun Parser.Companion.dump(output: ASTTree, outputPath: String) =
+fun Parser.dump(output: ASTTree, outputPath: String) =
     File(outputPath).writeText(formatAST(output, color = false))
 
-fun Parser.Companion.dumpScreen(output: ASTTree) {
+fun Parser.dumpScreen(output: ASTTree) {
     println(colorizeStatic("[rusty] Parser dump:", 32))
     print(formatAST(output, color = true))
     println()

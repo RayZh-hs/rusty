@@ -5,7 +5,7 @@ import java.io.File
 
 // This file provides dump utilities for the Lexer module
 
-fun Lexer.Companion.dump(tokens: MutableList<TokenBearer>, outputPath: String) {
+fun Lexer.dump(tokens: MutableList<TokenBearer>, outputPath: String) {
     val file = File(outputPath)
     val output = buildString {
         appendLine("Total tokens: ${tokens.size}")
@@ -17,7 +17,7 @@ fun Lexer.Companion.dump(tokens: MutableList<TokenBearer>, outputPath: String) {
     file.writeText(output)
 }
 
-fun Lexer.Companion.dumpScreen(tokens: MutableList<TokenBearer>) {
+fun Lexer.dumpScreen(tokens: MutableList<TokenBearer>) {
     println("[rusty] Lexer dump:".green())
     tokens.forEach { tokenBearer: TokenBearer -> print(formatTokenForScreenConcat(tokenBearer)) }
     println()
