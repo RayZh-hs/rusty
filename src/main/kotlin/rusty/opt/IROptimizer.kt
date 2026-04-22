@@ -14,62 +14,26 @@ import java.io.OutputStream
 import java.io.PrintStream
 
 object IROptimizer {
-    fun run(irModule: Module, dumpToScreen: Boolean = false): Module {
-        val optimized = LlvmOptimizationPipeline.run(irModule)
+    
+    private val passes: List<IRPass> = listOf(
+        Mem2RegPass,
+        CFGSimplifyPass,
+    )
+    
+    private fun runPass(irModule: Module, manager: AnalysisManager, pass: IRPass, dumpToScreen: Boolean = false): Module {
+        val optimized = pass.run(irModule, manager)
         if (dumpToScreen) {
+            println("After ${pass::class.simpleName}:")
             dumpScreen(optimized)
         }
         return optimized
     }
-}
 
-private object LlvmOptimizationPipeline {
-    private val requiredAnalyses: List<Analysis<*>> = listOf(
-        PredecessorAnalysis,
-        UseDefAnalysis,
-        DominatorTreeAnalysis,
-    )
-
-    private val optimizationPasses: List<IRPass> = listOf(
-        CFGSimplifyPass,
-        Mem2RegPass,
-    )
-
-    fun run(module: Module): Module {
-        val analysisManager = AnalysisManager(module)
-        for (analysis in requiredAnalyses) {
-            analysisManager.register(analysis)
+    fun run(irModule: Module, dumpToScreen: Boolean = false): Module {
+        val manager = AnalysisManager(module = irModule)
+        for (pass in passes) {
+            runPass(irModule, manager, pass, dumpToScreen)
         }
-
-        var current = module
-        for (pass in optimizationPasses) {
-            current = invokePass(pass, current, analysisManager)
-            canonicalizeTerminatorInstructions(current)
-            pass.updateAnalysisManager(analysisManager)
-        }
-        return current
-    }
-
-    private fun canonicalizeTerminatorInstructions(module: Module) {
-        for (function in module.functions) {
-            for (block in function.basicBlocks) {
-                val terminator = block.terminator ?: continue
-                block.instructions.removeAll { it is TerminatorInst && it !== terminator }
-                block.instructions.remove(terminator)
-                block.instructions.add(terminator)
-            }
-        }
-    }
-
-    private fun invokePass(pass: IRPass, module: Module, analysisManager: AnalysisManager): Module {
-        val stdout = System.out
-        val sink = PrintStream(OutputStream.nullOutputStream())
-        try {
-            System.setOut(sink)
-            return pass.run(module, analysisManager)
-        } finally {
-            System.setOut(stdout)
-            sink.close()
-        }
+        return irModule
     }
 }
