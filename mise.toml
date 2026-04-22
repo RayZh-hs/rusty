@@ -1,2 +1,19 @@
 [tools]
 java = "temurin-21"
+
+[tasks.build]
+description = "Build the rusty compiler"
+run = "./gradlew classes"
+
+[tasks.compile]
+description = "Run the rusty compiler on a specific IR testcase, dumping results into test-space directory"
+run = """
+# Invoke compiler on Official IR Testcases
+set -e
+mode="{{arg(name=\"mode\")}}"
+testcase="{{arg(name=\"testcase\")}}"
+target="{{arg(name=\"target\")}}"
+
+testsource="src/test/resources/@official/IR-1/src/$testcase/$testcase.rx"
+./gradlew run --args="-i $testsource -o $target --emit $mode --verbose"
+"""
