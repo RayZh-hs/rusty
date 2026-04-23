@@ -1,6 +1,7 @@
-package rusty.asm.support
+package rusty.core
 
 import space.norb.llvm.core.Type
+import space.norb.llvm.structure.Module
 import space.norb.llvm.types.*
 import kotlin.math.max
 
@@ -23,8 +24,29 @@ sealed class MemoryLayout {
             return (offset + align - 1u) / align * align
         }
 
+        /**
+         * Returns the ABI alignment of an LLVM type in bytes.
+         * This matches the RISC-V ILP32 ABI used by the target.
+         */
+        private fun alignmentOf(type: Type): UInt {
+            return when (type) {
+                is IntegerType -> when (type.bitWidth) {
+                    1, 8 -> 1u
+                    32 -> 4u
+                    else -> throw IllegalArgumentException("Unsupported integer bit width: ${type.bitWidth}")
+                }
+                is PointerType -> 4u
+                is ArrayType -> alignmentOf(type.elementType)
+                is StructType.AnonymousStructType ->
+                    type.elementTypes.maxOfOrNull { alignmentOf(it) } ?: 1u
+                is StructType.NamedStructType ->
+                    type.elementTypes?.maxOfOrNull { alignmentOf(it) } ?: 1u
+                else -> throw IllegalArgumentException("Unsupported type for alignment: ${type::class}")
+            }
+        }
+
         // All alignment is counted in bytes.
-        fun fromType(type: Type, offset: UInt = 0U): MemoryLayout {
+        fun fromType(type: Type, offset: UInt = 0U, module: Module? = null): MemoryLayout {
             return when (type) {
                 is VoidType -> MemoryLayout.Primitive(0u, 0u) // Void has no size
                 is LabelType -> throw IllegalArgumentException("Label types do not have a memory layout")
@@ -38,7 +60,8 @@ sealed class MemoryLayout {
                         else -> throw IllegalArgumentException("Unsupported integer bit width: ${type.bitWidth}")
                     }
                     val alignedOffset = upperAlign(offset, align)
-                    MemoryLayout.Primitive(alignedOffset, type.bitWidth.toUInt())
+                    val sizeInBytes = maxOf(1u, type.bitWidth.toUInt() / 8u)
+                    MemoryLayout.Primitive(alignedOffset, sizeInBytes)
                 }
 
                 is FloatingPointType.FloatType -> throw IllegalArgumentException("Float types are not supported in Rusty")
@@ -54,7 +77,10 @@ sealed class MemoryLayout {
                 is ArrayType -> {
                     val elementLayout = fromType(type.elementType, 0u)
                     val elementSize = elementLayout.size
-                    val alignedOffset = upperAlign(offset, align = elementSize)
+                    // LLVM aligns arrays to the alignment of their element type,
+                    // not to the total size of the element.
+                    val align = alignmentOf(type.elementType)
+                    val alignedOffset = upperAlign(offset, align = align)
                     MemoryLayout.Array(
                         alignedOffset,
                         elementSize,
@@ -70,18 +96,22 @@ sealed class MemoryLayout {
                         currentOffset = fieldLayout.offset + fieldLayout.size
                         fieldLayout
                     }
-                    val structSize = fieldLayouts.lastOrNull()?.let { it.offset + it.size } ?: 0u
+                    val structSize = fieldLayouts.lastOrNull()?.let { it.offset + it.size - offset } ?: 0u
                     MemoryLayout.Struct(offset, fieldLayouts, structSize)
                 }
 
                 is StructType.NamedStructType -> {
+                    // Resolve through the module to get the latest completed definition,
+                    // because the Kotlin object graph may still hold an opaque reference
+                    // even though the module has since been updated with a completed type.
+                    val resolvedType = module?.getNamedStructType(type.name)?.takeIf { !it.isOpaque() } ?: type
                     var currentOffset = offset
-                    val fieldLayouts = type.elementTypes?.map { elementType ->
-                        val fieldLayout = fromType(elementType, currentOffset)
+                    val fieldLayouts = resolvedType.elementTypes?.map { elementType ->
+                        val fieldLayout = fromType(elementType, currentOffset, module)
                         currentOffset = fieldLayout.offset + fieldLayout.size
                         fieldLayout
                     } ?: emptyList()
-                    val structSize = fieldLayouts.lastOrNull()?.let { it.offset + it.size } ?: 0u
+                    val structSize = fieldLayouts.lastOrNull()?.let { it.offset + it.size - offset } ?: 0u
                     MemoryLayout.Struct(offset, fieldLayouts, structSize)
                 }
 
