@@ -30,7 +30,10 @@ object IRContext {
     }
 
     fun reset(moduleName: String = "rusty_generated_module") {
-        module = Module(moduleName)
+        module = Module(moduleName).apply {
+            targetTriple = "riscv32-unknown-unknown-elf"
+            dataLayout = "e-p:32:32-i64:64"
+        }
         enumIntegerLookup.clear()
         functionNameLookup.clear()
         functionLookup.clear()
