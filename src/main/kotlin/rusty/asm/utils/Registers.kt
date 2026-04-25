@@ -38,3 +38,38 @@ enum class Register(val id: Int) {
         return "x$id(${this.name.lowercase()})"
     }
 }
+
+val callerSavedRegisters: List<Register> = listOf(
+    Register.T0,
+    Register.T1,
+    Register.T2,
+    Register.A0,
+    Register.A1,
+    Register.A2,
+    Register.A3,
+    Register.A4,
+    Register.A5,
+    Register.A6,
+    Register.A7,
+    Register.T3,
+    Register.T4,
+    Register.T5,
+    Register.T6,
+)
+
+val calleeSavedRegisters: List<Register> = listOf(
+    Register.S0,
+    Register.S1,
+    Register.S2,
+    Register.S3,
+    Register.S4,
+    Register.S5,
+    Register.S6,
+    Register.S7,
+    Register.S8,
+    Register.S9,
+    Register.S10,
+    Register.S11,
+)
+
+val reservedScratchRegisters = listOf(Register.T5, Register.T6)

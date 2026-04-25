@@ -1,6 +1,6 @@
 package rusty.asm.support
 
-import rusty.asm.utils.Register
+import rusty.asm.utils.*
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
 import space.norb.llvm.analysis.presets.BlockLivenessLookup
@@ -30,40 +30,8 @@ object RegisterAllocator {
         val registerBytes: Int = 4,
     )
 
-    internal val callerSavedRegisters: List<Register> = listOf(
-        Register.T0,
-        Register.T1,
-        Register.T2,
-        Register.A0,
-        Register.A1,
-        Register.A2,
-        Register.A3,
-        Register.A4,
-        Register.A5,
-        Register.A6,
-        Register.A7,
-        Register.T3,
-        Register.T4,
-        Register.T5,
-        Register.T6,
-    )
-
-    internal val calleeSavedRegisters: List<Register> = listOf(
-        Register.S0,
-        Register.S1,
-        Register.S2,
-        Register.S3,
-        Register.S4,
-        Register.S5,
-        Register.S6,
-        Register.S7,
-        Register.S8,
-        Register.S9,
-        Register.S10,
-        Register.S11,
-    )
-
-    val defaultAllocatableRegisters: List<Register> = callerSavedRegisters + calleeSavedRegisters
+    val defaultAllocatableRegisters: List<Register> =
+        callerSavedRegisters + calleeSavedRegisters - reservedScratchRegisters.toSet()
 
     fun allocate(
         module: Module,
