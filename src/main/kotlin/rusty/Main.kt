@@ -1,5 +1,7 @@
 package rusty
 
+import rusty.asm.AsmConstructor
+import rusty.asm.support.AsmContext
 import rusty.cli.CommandParser
 import rusty.cli.CommandParserConfigEntry
 import rusty.cli.Requirement
@@ -115,6 +117,13 @@ fun main(args: Array<String>) {
     val optResult = IROptimizer.run(irResult, dumpToScreen = isVerbose)
     if (mode == CompileMode.OPT) {
         IROptimizer.dump(optResult, outputPath)
+        return
+    }
+
+    // 7. Assembly Generation
+    val asmResult = AsmConstructor.run(AsmContext(optResult), dumpToScreen = isVerbose)
+    if (mode == CompileMode.ASM) {
+        File(outputPath).writeText(asmResult)
         return
     }
 }

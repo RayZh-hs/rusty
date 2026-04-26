@@ -6,15 +6,15 @@ import rusty.asm.support.RegisterAllocator
 object AsmConstructor {
     fun run(asmContext: AsmContext, dumpToScreen: Boolean = false): String {
         materializeStackFrames(asmContext)
-        TODO()
+        val output = AsmTranslator(asmContext).translate()
+        if (dumpToScreen) print(output)
+        return output
     }
 
     fun materializeStackFrames(
         asmContext: AsmContext,
         registerBytes: Int = RegisterAllocator.Config().registerBytes,
     ) {
-        for ((function, allocation) in asmContext.registerAllocation) {
-            asmContext.stackManager.materializeSpills(function, allocation, registerBytes)
-        }
+        StackFrameMaterializer.materialize(asmContext, registerBytes)
     }
 }
