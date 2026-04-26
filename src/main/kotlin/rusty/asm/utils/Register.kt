@@ -72,4 +72,4 @@ val calleeSavedRegisters: List<Register> = listOf(
     Register.S11,
 )
 
-val reservedScratchRegisters = listOf(Register.T5, Register.T6)
+val reservedScratchRegisters = listOf(Register.T4, Register.T5, Register.T6)

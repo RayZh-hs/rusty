@@ -264,7 +264,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerGep(instruction: GetElementPtrInst) {
-        val result = valueDestinationRegister(instruction, t5)
+        val result = t4
         val base = addressOf(instruction.pointer, result)
         if (base != result) asm.mv(result, base)
 
@@ -589,7 +589,8 @@ internal class AsmTranslator(private val context: AsmContext) {
             is SavableSlot.Stack -> {
                 val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                     ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
-                storeSized(source, addressOfStack(obj, t6), value.type.sizeBytes(module))
+                val addressScratch = if (source == t4) t6 else t4
+                storeSized(source, addressOfStack(obj, addressScratch), value.type.sizeBytes(module))
             }
             null -> Unit
         }
@@ -650,13 +651,13 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun copyMemory(destination: RvRegister, source: RvRegister, sizeBytes: Int) {
         var offset = 0
         while (offset + 4 <= sizeBytes) {
-            asm.lw(t6, mem(offset, source))
-            asm.sw(t6, mem(offset, destination))
+            asm.lw(t4, mem(offset, source))
+            asm.sw(t4, mem(offset, destination))
             offset += 4
         }
         while (offset < sizeBytes) {
-            asm.lbu(t6, mem(offset, source))
-            asm.sb(t6, mem(offset, destination))
+            asm.lbu(t4, mem(offset, source))
+            asm.sb(t4, mem(offset, destination))
             offset += 1
         }
     }
