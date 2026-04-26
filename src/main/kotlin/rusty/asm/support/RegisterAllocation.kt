@@ -9,18 +9,18 @@ import space.norb.llvm.analysis.presets.InstructionLivenessLookup
 import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.analysis.presets.UseDefChain
 import space.norb.llvm.core.Value
-import space.norb.llvm.instructions.base.Instruction
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
 import space.norb.llvm.types.VoidType
+import space.norb.llvm.utils.computeLayout
 
 sealed class SavableSlot {
     data class Register(val physical: rusty.asm.utils.Register) : SavableSlot()
-    data class Stack(val offset: Int) : SavableSlot()
+    data class Stack(val stackSlotId: Int) : SavableSlot()
 
     override fun toString(): String = when (this) {
         is Register -> physical.toString()
-        is Stack -> "stack(offset=$offset)"
+        is Stack -> "stack(ssid=$stackSlotId)"
     }
 }
 
@@ -59,8 +59,28 @@ object RegisterAllocator {
         val instructionLiveness = analysisManager.get(InstructionLivenessAnalysis::class)
 
         val candidates = collectCandidates(function)
-        val graph = buildInterferenceGraph(function, candidates, blockLiveness, instructionLiveness)
-        return colorGraph(graph, useDef, config.allocatableRegisters, config.registerBytes)
+        val forcedStackSlots = linkedMapOf<Value, SavableSlot.Stack>()
+        val registerCandidates = LinkedHashSet<Value>()
+        var nextStackSlotId = 0
+
+        fun nextStackSlot(): SavableSlot.Stack {
+            return SavableSlot.Stack(nextStackSlotId++)
+        }
+
+        for (value in candidates) {
+            if (value.sizeInBytes(function, config.registerBytes) > config.registerBytes) {
+                forcedStackSlots[value] = nextStackSlot()
+            } else {
+                registerCandidates.add(value)
+            }
+        }
+
+        val graph = buildInterferenceGraph(function, registerCandidates, blockLiveness, instructionLiveness)
+        val colored = colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
+
+        return candidates.associateWithTo(linkedMapOf()) { value ->
+            forcedStackSlots[value] ?: colored.getValue(value)
+        }
     }
 
     private fun collectCandidates(function: Function): LinkedHashSet<Value> {
@@ -120,7 +140,7 @@ object RegisterAllocator {
         graph: Map<Value, Set<Value>>,
         useDef: UseDefChain,
         registers: List<Register>,
-        spillSlotSizeBytes: Int,
+        nextStackSlot: () -> SavableSlot.Stack,
     ): Map<Value, SavableSlot> {
         if (graph.isEmpty()) return emptyMap()
 
@@ -215,7 +235,6 @@ object RegisterAllocator {
 
         // Rebuild the graph in reverse simplify order and assign actual locations.
         val colored = linkedMapOf<Value, SavableSlot>()
-        var nextSpillOffset = 0
 
         for (index in selectStack.size - 1 downTo 0) {
             val value = selectStack[index]
@@ -238,8 +257,7 @@ object RegisterAllocator {
             if (availableRegister != null) {
                 colored[value] = SavableSlot.Register(availableRegister)
             } else {
-                colored[value] = SavableSlot.Stack(nextSpillOffset)
-                nextSpillOffset += spillSlotSizeBytes
+                colored[value] = nextStackSlot()
             }
         }
 
@@ -249,5 +267,15 @@ object RegisterAllocator {
             result[value] = colored.getValue(value)
         }
         return result
+    }
+
+    private fun Value.sizeInBytes(function: Function, registerBytes: Int): Int {
+        val layout = type.computeLayout(function.module, pointerWidthBits = registerBytes * 8)
+        return layout.sizeInBytes.toIntExact("Size of ${getIdentifier()}")
+    }
+
+    private fun Long.toIntExact(description: String): Int {
+        require(this <= Int.MAX_VALUE) { "$description is too large: $this bytes" }
+        return toInt()
     }
 }

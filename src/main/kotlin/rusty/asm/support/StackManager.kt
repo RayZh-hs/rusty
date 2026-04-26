@@ -1,7 +1,9 @@
 package rusty.asm.support
 
 import rusty.asm.utils.Register
+import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function
+import space.norb.llvm.utils.computeLayout
 
 enum class StackObjectKind {
     Spill,          // Spilled register
@@ -16,6 +18,7 @@ data class StackObject(
     val alignBytes: Int,
     val name: String? = null,
     val savedRegister: Register? = null,
+    val stackSlotId: Int? = null,
 )
 
 class PlacedStackObject(
@@ -63,8 +66,13 @@ class StackFrame(
         return placed
     }
 
-    fun spill(sizeBytes: Int, alignBytes: Int = 4, name: String? = null): PlacedStackObject {
-        return place(StackObject(StackObjectKind.Spill, sizeBytes, alignBytes, name))
+    fun spill(
+        sizeBytes: Int,
+        alignBytes: Int = 4,
+        name: String? = null,
+        stackSlotId: Int? = null,
+    ): PlacedStackObject {
+        return place(StackObject(StackObjectKind.Spill, sizeBytes, alignBytes, name, stackSlotId = stackSlotId))
     }
 
     fun temp(sizeBytes: Int, alignBytes: Int = 4, name: String? = null): PlacedStackObject {
@@ -91,8 +99,12 @@ class StackFrame(
         return frameObjects.filter { it.kind == kind }
     }
 
-    fun objectNamed(name: String): PlacedStackObject? {
+    fun objectWithName(name: String): PlacedStackObject? {
         return frameObjects.firstOrNull { it.stackObject.name == name }
+    }
+
+    fun objectWithStackSlotId(id: Int): PlacedStackObject? {
+        return frameObjects.firstOrNull { it.stackObject.stackSlotId == id }
     }
 
     private fun refreshSize() {
@@ -127,6 +139,41 @@ class StackManager(
     fun frames(): Map<Function, StackFrame> {
         return functionStackFrames.toMap()
     }
+
+    fun materializeSpills(
+        function: Function,
+        allocation: Map<Value, SavableSlot>,
+        registerBytes: Int = 4,
+    ): Map<Int, PlacedStackObject> {
+        require(registerBytes > 0) { "Register size must be positive" }
+
+        val stackSlots = allocation.filterValues { it is SavableSlot.Stack }
+        if (stackSlots.isEmpty()) return emptyMap()
+
+        val frame = getStackFrame(function)
+        val slots = linkedMapOf<Int, PlacedStackObject>()
+
+        for ((value, slot) in stackSlots) {
+            val stackSlot = slot as SavableSlot.Stack
+
+            val existing = frame.objectWithStackSlotId(stackSlot.stackSlotId)
+            if (existing != null) {
+                slots[stackSlot.stackSlotId] = existing
+                continue
+            }
+
+            val layout = value.type.computeLayout(function.module, pointerWidthBits = registerBytes * 8)
+            val sizeBytes = layout.sizeInBytes.toIntExact("Stack slot for ${value.getIdentifier()}")
+            slots[stackSlot.stackSlotId] = frame.spill(
+                sizeBytes = sizeBytes,
+                alignBytes = layout.alignment,
+                name = value.name,
+                stackSlotId = stackSlot.stackSlotId,
+            )
+        }
+
+        return slots
+    }
 }
 
 private fun alignUp(value: Int, align: Int): Int {
@@ -137,4 +184,9 @@ private fun alignUp(value: Int, align: Int): Int {
 
 private fun isPowerOfTwo(value: Int): Boolean {
     return value and (value - 1) == 0
+}
+
+private fun Long.toIntExact(description: String): Int {
+    require(this <= Int.MAX_VALUE) { "$description is too large: $this bytes" }
+    return toInt()
 }
