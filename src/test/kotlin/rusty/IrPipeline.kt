@@ -175,6 +175,20 @@ object IrPipeline {
         return outputAsm
     }
 
+    fun patchPreludeExitForReimu(inputAsm: Path, outputAsm: Path = inputAsm): Path {
+        val content = Files.readString(inputAsm)
+        val patched = Regex(
+            pattern = """(?ms)^prelude\.func\.exit:\s*.*?(?=^\.Lfunc_end\d+:)"""
+        ).replace(content, "prelude.func.exit:\n\tret\n")
+        if (outputAsm == inputAsm) {
+            Files.writeString(inputAsm, patched)
+        } else {
+            outputAsm.parent?.let { Files.createDirectories(it) }
+            Files.writeString(outputAsm, patched)
+        }
+        return outputAsm
+    }
+
     fun runReimu(
         asmFiles: List<Path>,
         stdinContent: String,
@@ -191,6 +205,7 @@ object IrPipeline {
             add("-s=$stack")
             add("-i=<stdin>")
             add("-o=<stdout>")
+            add("-p=/dev/null")
             add("-f=${asmFiles.joinToString(",") { it.toAbsolutePath().normalize().toString() }}")
         }
         val process = ProcessBuilder(args)

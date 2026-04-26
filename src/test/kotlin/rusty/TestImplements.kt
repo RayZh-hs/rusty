@@ -18,6 +18,13 @@ class OfficialOptTests : IrValidationTestBase() {
 	override val subdirectoryPrefix: String = "IR-"
 }
 
+@Tag("asm")
+@Tag("official")
+class OfficialAsmTests : AsmValidationTestBase() {
+	override val baseResourcePath: String = "@official"
+	override val subdirectoryPrefix: String = "IR-"
+}
+
 @Tag("semantic")
 @Tag("official")
 class OfficialSemanticTests : ExitValidationTestBase(TestMode.SEMANTIC) {

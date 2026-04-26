@@ -115,6 +115,7 @@ abstract class IrValidationTestBase : TestBase() {
 
                 IrPipeline.stripPltSuffix(userAsmSource, userAsm)
                 IrPipeline.stripPltSuffix(preludeAsmSource, preludeAsm)
+                IrPipeline.patchPreludeExitForReimu(preludeAsm)
                 IrPipeline.stripPltSuffix(builtinAsmSource, builtinAsm)
 
                 IrPipeline.runReimu(listOf(userAsm, preludeAsm, builtinAsm), stdinContent)

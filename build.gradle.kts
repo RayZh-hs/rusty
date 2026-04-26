@@ -85,7 +85,7 @@ private fun Array<String>.toLowerCamelCase(): String {
 
 fun registerTask(stage: String, source: String) {
     val taskName = arrayOf(source, stage, "tests").toLowerCamelCase()
-    val taskType = if (stage in setOf("ir", "opt")) IrTestTask::class.java else Test::class.java
+    val taskType = if (stage in setOf("ir", "opt", "asm")) IrTestTask::class.java else Test::class.java
     tasks.register(taskName, taskType) {
         description = "Run $source tests for the $stage stage."
         group = "verification"
@@ -106,9 +106,11 @@ for (stage in listOf("preprocessor", "lexer", "parser", "semantic", "ir")) {
     registerTask(stage, source = "manual")
 }
 
-for (stage in listOf("semantic", "ir")) {
+for (stage in listOf("semantic", "ir", "asm")) {
     registerTask(stage, source = "official")
-    registerTask(stage, source = "fixed")
+    if (stage != "asm") {
+        registerTask(stage, source = "fixed")
+    }
 }
 registerTask("opt", source = "official")
 
