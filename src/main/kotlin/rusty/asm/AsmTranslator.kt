@@ -201,11 +201,13 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun moveParametersToAllocatedLocations() {
         for ((index, parameter) in function.parameters.withIndex()) {
-            if (index >= argumentRegisters.size) {
-                throw UnsupportedOperationException("Stack-passed parameters are not lowered yet in ${function.name}")
+            val incoming = if (index < argumentRegisters.size) {
+                argumentRegisters[index]
+            } else {
+                val offset = frame.frameSizeBytes + (index - argumentRegisters.size) * 4
+                loadWord(t4, stackArgumentAddress(offset, t6))
+                t4
             }
-
-            val incoming = argumentRegisters[index]
             val size = parameter.type.sizeBytes(module)
             if (size <= 4) {
                 writeValue(parameter, incoming)
@@ -447,20 +449,33 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
 
         for ((index, argument) in instruction.arguments.withIndex()) {
-            if (index >= argumentRegisters.size) {
-                throw UnsupportedOperationException("Stack-passed call arguments are not lowered yet in ${function.name}")
-            }
-
-            val target = argumentRegisters[index]
-            if (argument.type.sizeBytes(module) <= 4) {
-                val value = loadValue(argument, target)
-                if (value != target) asm.mv(target, value)
+            val temp = frame.objectWithName(callArgumentTempName(index))
+                ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
+            val value = if (argument.type.sizeBytes(module) <= 4) {
+                loadValue(argument, t5)
             } else {
-                val address = addressOf(argument, target)
-                if (address != target) asm.mv(target, address)
+                addressOf(argument, t5)
             }
+            storeWord(value, addressOfStack(temp, t6))
         }
 
+        for (index in instruction.arguments.indices.take(argumentRegisters.size)) {
+            val temp = frame.objectWithName(callArgumentTempName(index))
+                ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
+            loadWord(argumentRegisters[index], addressOfStack(temp, t6))
+        }
+
+        val stackArgumentCount = (instruction.arguments.size - argumentRegisters.size).coerceAtLeast(0)
+        val stackArgumentBytes = alignUp(stackArgumentCount * 4, 16)
+        for (stackIndex in 0 until stackArgumentCount) {
+            val argumentIndex = argumentRegisters.size + stackIndex
+            val temp = frame.objectWithName(callArgumentTempName(argumentIndex))
+                ?: throw IllegalStateException("Missing call argument temp $argumentIndex in ${function.name}")
+            loadWord(t4, addressOfStack(temp, t6))
+            storeWord(t4, stackArgumentAddress(stackIndex * 4 - stackArgumentBytes, t6))
+        }
+
+        adjustStack(-stackArgumentBytes)
         val callee = instruction.callee
         when (callee) {
             is Function -> asm.call(callee.asmName())
@@ -469,6 +484,7 @@ internal class AsmTranslator(private val context: AsmContext) {
                 asm.jalr(ra, target, 0)
             }
         }
+        adjustStack(stackArgumentBytes)
 
         val returnScratch = if (instruction.producesValue()) t5 else null
         if (instruction.producesValue() && instruction in allocation) {
@@ -618,6 +634,11 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun addressOfStack(obj: PlacedStackObject, destination: RvRegister): RvRegister {
         addImmediate(destination, sp, obj.offsetFromSp)
+        return destination
+    }
+
+    private fun stackArgumentAddress(offsetFromSp: Int, destination: RvRegister): RvRegister {
+        addImmediate(destination, sp, offsetFromSp)
         return destination
     }
 

@@ -59,6 +59,8 @@ internal fun rusty.asm.utils.Register.toRv(): RvRegister = x(id)
 
 internal fun rusty.asm.utils.Register.callSaveTempName(): String = "call.${name.lowercase()}"
 
+internal fun callArgumentTempName(index: Int): String = "call.arg.$index"
+
 internal fun Type.sizeBytes(module: Module): Int =
     computeLayout(module, pointerWidthBits = 32).sizeInBytes.toIntExact("type $this")
 

@@ -7,6 +7,7 @@ import rusty.asm.utils.calleeSavedRegisters
 import rusty.asm.utils.callerSavedRegisters
 import space.norb.llvm.core.Value
 import space.norb.llvm.instructions.memory.AllocaInst
+import space.norb.llvm.instructions.other.CallInst
 import space.norb.llvm.structure.Function
 import space.norb.llvm.utils.computeLayout
 
@@ -67,6 +68,17 @@ internal object StackFrameMaterializer {
 
             for (register in allocatedCallerSaved) {
                 val name = register.callSaveTempName()
+                if (frame.objectWithName(name) == null) {
+                    frame.temp(sizeBytes = 4, alignBytes = 4, name = name)
+                }
+            }
+
+            val maxCallArguments = function.instructions()
+                .filterIsInstance<CallInst>()
+                .maxOfOrNull { it.arguments.size }
+                ?: 0
+            for (index in 0 until maxCallArguments) {
+                val name = callArgumentTempName(index)
                 if (frame.objectWithName(name) == null) {
                     frame.temp(sizeBytes = 4, alignBytes = 4, name = name)
                 }
