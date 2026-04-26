@@ -1,6 +1,7 @@
 package rusty.asm.support
 
 import rusty.asm.utils.*
+import rusty.asm.hasBody
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
 import space.norb.llvm.analysis.presets.BlockLivenessLookup
@@ -32,7 +33,7 @@ object RegisterAllocator {
         require(config.registerBytes > 0) { "Register size must be positive" }
 
         return module.functions
-            .filterNot { it.isDeclaration }
+            .filter { it.hasBody() }
             .associateWithTo(linkedMapOf()) { allocateFunction(it, analysisManager, config) }
     }
 

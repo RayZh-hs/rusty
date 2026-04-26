@@ -17,6 +17,8 @@ import space.norb.riscv.Register as RvRegister
 internal fun Function.instructions(): Sequence<Instruction> =
     basicBlocks.asSequence().flatMap { it.instructionsIncludingTerminator() }
 
+internal fun Function.hasBody(): Boolean = !isDeclaration && basicBlocks.isNotEmpty()
+
 internal fun BasicBlock.instructionsIncludingTerminator(): Sequence<Instruction> = sequence {
     yieldAll(instructions)
     val terminator = terminator

@@ -69,7 +69,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             asm = this
             emitGlobals()
             text()
-            for (fn in module.functions.filterNot { it.isDeclaration }) {
+            for (fn in module.functions.filter { it.hasBody() }) {
                 lowerFunction(fn)
                 blank()
             }
