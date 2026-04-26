@@ -1,5 +1,6 @@
 package rusty.asm.support
 
+import rusty.asm.utils.*
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function

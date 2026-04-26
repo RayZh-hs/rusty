@@ -1,6 +1,6 @@
 package rusty.asm.support
 
-import rusty.asm.utils.Register
+import rusty.asm.utils.*
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function
 import space.norb.llvm.utils.computeLayout
