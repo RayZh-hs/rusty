@@ -23,12 +23,12 @@ For detailed information about the simplified Rust language syntax and semantics
 
 ## Setup
 
-To get started, clone the repository and initialize submodules.
+To get started, clone the repository. The internal `llvm` and `riscv-asm-kotlin`
+libraries are vendored into this repo, so the main build no longer depends on
+publishing or checking them out separately.
 
 ```bash
 git clone https://github.com/RayZh-hs/rusty.git
-git submodule init
-git submodule update
 ```
 
 Ensure you have Java 21 and Clang installed on your system. Build the project using Gradle:
@@ -38,6 +38,15 @@ Ensure you have Java 21 and Clang installed on your system. Build the project us
 ```
 
 If you see no issues, you are ready to go.
+
+Official testcase repositories are still tracked as git submodules under
+`src/test/resources/@official*`. You only need to initialize them if you want to
+run those suites:
+
+```bash
+git submodule init
+git submodule update
+```
 
 ## Running
 

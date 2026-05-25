@@ -10,20 +10,25 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
-    mavenLocal()
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+kotlin {
+    jvmToolchain(21)
+    sourceSets {
+        named("main") {
+            kotlin.srcDirs(
+                "src/main/kotlin",
+                "vendor/llvm/src/main/kotlin",
+                "vendor/kolor",
+                "vendor/riscv-asm-kotlin/src/main/kotlin",
+            )
+        }
     }
 }
 
 dependencies {
     implementation(kotlin("stdlib"))
     testImplementation(kotlin("test")) // Kotlin test assertions
-    implementation("space.norb:llvm:1.4.2")
-    implementation("space.norb:riscv-asm-kotlin:1.0.0-alpha")
 
     // Explicit JUnit Jupiter dependencies to avoid deprecated automatic framework loading
     val junitVersion = "5.10.2"

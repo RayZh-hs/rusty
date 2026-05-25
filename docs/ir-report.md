@@ -23,7 +23,7 @@ The IR generation phase transforms a semantically-validated AST into LLVM IR. It
 
 - **Semantic Context**: Type information, symbol tables, and scope trees from semantic analysis
 - **AST Nodes**: Parser-produced abstract syntax tree
-- **LLVM Library** (`space.norb.llvm`): External library for constructing LLVM IR
+- **LLVM Library** (`space.norb.llvm`): Vendored library source under `vendor/llvm/` for constructing LLVM IR
 
 ### Directory Structure
 
