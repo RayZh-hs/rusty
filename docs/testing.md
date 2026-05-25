@@ -60,3 +60,14 @@ You can pass additional arguments to the tests using the `-D<arg>=<value>` synta
 - `-Dname [name]`: Filter by name of the test (string inclusion).
 - `-DnoClang`: Do not use clang for IR generation.
 - `-DclangPath [path]`: Specify a custom path to the clang binary.
+- `-DclangArgs [args]`: Extra whitespace-separated arguments forwarded to clang when linking rv64 test executables.
+- `-DqemuPath [path]`: Specify a custom path to the `qemu-riscv64` binary.
+- `-DqemuArgs [args]`: Extra whitespace-separated arguments forwarded to QEMU.
+- `-DqemuSysroot [path]`: Pass `-L <path>` to `qemu-riscv64` when running dynamically linked rv64 binaries.
+- `-DqemuClangTarget [triple]`: Override the clang link/assembly target used for the QEMU backend. The default is `riscv64-linux-gnu`.
+
+## Runtime Backend
+
+IR, opt, and asm execution tests now target `rv64im`, link a riscv64 Linux executable with clang, and run that executable under `qemu-riscv64`.
+
+If your cross-linker setup is not on the default search path, use `-DclangArgs` to provide the relevant toolchain or sysroot flags and `-DqemuSysroot` to point QEMU at the matching runtime.

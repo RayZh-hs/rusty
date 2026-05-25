@@ -17,6 +17,7 @@ abstract class AsmValidationTestBase : TestBase() {
     override fun runTestCase(case: TestCase) {
         val outputRoot = Paths.get("build", "asm-tests").resolve(Paths.get(baseResourcePath))
         val clangBinary = IrPipeline.resolveClangBinary()
+        val qemuBinary = IrPipeline.resolveQemuBinary()
         val targetDir = outputRoot.resolve(case.stage.ifBlank { "manual" })
         Files.createDirectories(targetDir)
 
@@ -25,7 +26,7 @@ abstract class AsmValidationTestBase : TestBase() {
         val baseName = "$rawName-$hashSuffix"
         val userIr = targetDir.resolve("$baseName.user.ll")
         val userAsmSource = targetDir.resolve("$baseName.user.s.source")
-        val userAsm = targetDir.resolve("$baseName.user.s")
+        val exeOutput = targetDir.resolve("$baseName.out")
 
         val compileThrowable = try {
             assertTimeoutPreemptively(Duration.ofSeconds(compileTimeoutSeconds)) {
@@ -53,6 +54,11 @@ abstract class AsmValidationTestBase : TestBase() {
         if (!IrPipeline.commandAvailable(clangBinary)) {
             fail("clang not available (looked for '$clangBinary'); ASM tests need clang for runtime/prelude assembly.")
         }
+        if (!IrPipeline.commandAvailable(qemuBinary)) {
+            fail(
+                "QEMU rv64 backend not available (looked for '$qemuBinary'); set -D${IrPipeline.PROP_QEMU_PATH}=... to override."
+            )
+        }
 
         val stdinContent = case.input?.takeIf { Files.exists(it) }?.readText() ?: ""
         val runResult = assertTimeoutPreemptively<IrPipeline.ProcessResult>(Duration.ofSeconds(executionTimeoutSeconds)) {
@@ -65,8 +71,6 @@ abstract class AsmValidationTestBase : TestBase() {
 
             val preludeAsmSource = targetDir.resolve("$baseName.prelude.s.source")
             val builtinAsmSource = targetDir.resolve("$baseName.builtin.s.source")
-            val preludeAsm = targetDir.resolve("$baseName.prelude.s")
-            val builtinAsm = targetDir.resolve("$baseName.builtin.s")
 
             fun ensureOk(label: String, result: IrPipeline.ProcessResult) {
                 if (result.exitCode != 0) {
@@ -97,12 +101,20 @@ abstract class AsmValidationTestBase : TestBase() {
                 )
             )
 
-            IrPipeline.stripPltSuffix(userAsmSource, userAsm)
-            IrPipeline.stripPltSuffix(preludeAsmSource, preludeAsm)
-            IrPipeline.patchPreludeExitForReimu(preludeAsm)
-            IrPipeline.stripPltSuffix(builtinAsmSource, builtinAsm)
+            val linkResult = IrPipeline.linkRiscvExecutable(
+                inputFiles = listOf(userAsmSource, preludeAsmSource, builtinAsmSource),
+                exeOutput = exeOutput,
+                clangBinary = clangBinary,
+            )
+            if (linkResult.exitCode != 0) {
+                fail(
+                    "clang (link rv64 qemu executable) failed for ${case.name} (exit ${linkResult.exitCode})\n" +
+                        "Command: ${linkResult.args.joinToString(" ")}\n" +
+                        "Output:\n${linkResult.output}"
+                )
+            }
 
-            IrPipeline.runReimu(listOf(userAsm, preludeAsm, builtinAsm), stdinContent)
+            IrPipeline.runExecutable(exeOutput, stdinContent)
         }
 
         val expectedRunExit = case.expectedRunExit ?: 0

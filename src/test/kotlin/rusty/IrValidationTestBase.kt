@@ -17,12 +17,11 @@ abstract class IrValidationTestBase : TestBase() {
 
     private val noClang: Boolean =
         System.getProperty(IrPipeline.PROP_NO_CLANG)?.equals("true", ignoreCase = true) == true
-    private val useReimu: Boolean =
-        System.getProperty(IrPipeline.PROP_REIMU)?.equals("true", ignoreCase = true) == true
 
     override fun runTestCase(case: TestCase) {
         val outputRoot = Paths.get("build", "$emitMode-tests").resolve(Paths.get(baseResourcePath))
         val clangBinary = IrPipeline.resolveClangBinary()
+        val qemuBinary = IrPipeline.resolveQemuBinary()
         
         val targetDir = outputRoot.resolve(case.stage.ifBlank { "manual" })
         val artifacts = IrPipeline.artifactPathsFor(case.source, targetDir)
@@ -64,74 +63,26 @@ abstract class IrValidationTestBase : TestBase() {
                 "clang not available (looked for '$clangBinary'); set -D${IrPipeline.PROP_NO_CLANG}=true to skip linking/execution."
             )
         }
+        if (!IrPipeline.commandAvailable(qemuBinary)) {
+            fail(
+                "QEMU rv64 backend not available (looked for '$qemuBinary'); set -D${IrPipeline.PROP_QEMU_PATH}=... to override."
+            )
+        }
 
         val stdinContent = case.input?.takeIf { Files.exists(it) }?.readText() ?: ""
-        val backendTimeoutSeconds = if (useReimu) maxOf(executionTimeoutSeconds, 60) else executionTimeoutSeconds
+        val backendTimeoutSeconds = maxOf(executionTimeoutSeconds, 60)
         val runResult = assertTimeoutPreemptively<IrPipeline.ProcessResult>(Duration.ofSeconds(backendTimeoutSeconds)) {
-            if (useReimu) {
-                val preludeDir = Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude")
-                val preludeLl = preludeDir.resolve("prelude.ll")
-                val preludeCLl = IrPipeline.ensurePreludeCIr(IrPipeline.PreludeCTarget.RISCV, clangBinary)
-                listOf(preludeLl, preludeCLl).forEach {
-                    require(Files.exists(it)) { "Prelude missing: $it" }
-                }
-
-                val baseName = artifacts.irOutput.fileName.toString().substringBeforeLast('.')
-                val userAsmSource = targetDir.resolve("$baseName.user.s.source")
-                val preludeAsmSource = targetDir.resolve("$baseName.prelude.s.source")
-                val builtinAsmSource = targetDir.resolve("$baseName.builtin.s.source")
-                val userAsm = targetDir.resolve("$baseName.user.s")
-                val preludeAsm = targetDir.resolve("$baseName.prelude.s")
-                val builtinAsm = targetDir.resolve("$baseName.builtin.s")
-
-                fun ensureOk(label: String, result: IrPipeline.ProcessResult) {
-                    if (result.exitCode != 0) {
-                        fail(
-                            "$label failed for ${case.name} (exit ${result.exitCode})\n" +
-                                "Command: ${result.args.joinToString(" ")}\n" +
-                                "Output:\n${result.output}"
-                        )
+            val linkResult = IrPipeline.linkWithPrelude(artifacts.irOutput, artifacts.exeOutput, clangBinary)
+            if (linkResult.exitCode != 0) {
+                fail(
+                    buildString {
+                        append("clang failed for ${case.name} (exit ${linkResult.exitCode})\n")
+                        append("Command: ${linkResult.args.joinToString(" ")}\n")
+                        append("Output:\n${linkResult.output}")
                     }
-                }
-
-                ensureOk(
-                    "clang (riscv asm from user IR)",
-                    IrPipeline.compileToRiscvAssembly(artifacts.irOutput, userAsmSource, clangBinary)
                 )
-                ensureOk(
-                    "clang (riscv asm from prelude.ll)",
-                    IrPipeline.compileToRiscvAssembly(preludeLl, preludeAsmSource, clangBinary)
-                )
-                ensureOk(
-                    "clang (riscv asm from prelude.c.ll)",
-                    IrPipeline.compileToRiscvAssembly(
-                        preludeCLl,
-                        builtinAsmSource,
-                        clangBinary,
-                        optimize = true,
-                        extraArgs = listOf("-fno-builtin"),
-                    )
-                )
-
-                IrPipeline.stripPltSuffix(userAsmSource, userAsm)
-                IrPipeline.stripPltSuffix(preludeAsmSource, preludeAsm)
-                IrPipeline.patchPreludeExitForReimu(preludeAsm)
-                IrPipeline.stripPltSuffix(builtinAsmSource, builtinAsm)
-
-                IrPipeline.runReimu(listOf(userAsm, preludeAsm, builtinAsm), stdinContent)
-            } else {
-                val linkResult = IrPipeline.linkWithPrelude(artifacts.irOutput, artifacts.exeOutput, clangBinary)
-                if (linkResult.exitCode != 0) {
-                    fail(
-                        buildString {
-                            append("clang failed for ${case.name} (exit ${linkResult.exitCode})\n")
-                            append("Command: ${linkResult.args.joinToString(" ")}\n")
-                            append("Output:\n${linkResult.output}")
-                        }
-                    )
-                }
-                IrPipeline.runExecutable(artifacts.exeOutput, stdinContent)
             }
+            IrPipeline.runExecutable(artifacts.exeOutput, stdinContent)
         }
         val expectedRunExit = case.expectedRunExit ?: 0
         if (runResult.exitCode != expectedRunExit) {

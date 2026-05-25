@@ -1,6 +1,4 @@
 import org.gradle.api.tasks.testing.Test
-import org.gradle.api.tasks.options.Option
-import org.gradle.api.tasks.Input
 
 plugins {
     kotlin("jvm") version "1.9.22"
@@ -58,23 +56,6 @@ tasks.test {
     }
 }
 
-abstract class IrTestTask : Test() {
-    @get:Option(
-        option = "reimu",
-        description = "Run IR execution using the bundled REIMU RISC-V simulator."
-    )
-    @get:Input
-    var reimu: Boolean = false
-
-    init {
-        doFirst {
-            if (reimu) {
-                systemProperty("irReimu", "true")
-            }
-        }
-    }
-}
-
 private fun Array<String>.toLowerCamelCase(): String {
     return this.joinToString("") {
         it.lowercase().replaceFirstChar { ch ->
@@ -85,8 +66,7 @@ private fun Array<String>.toLowerCamelCase(): String {
 
 fun registerTask(stage: String, source: String) {
     val taskName = arrayOf(source, stage, "tests").toLowerCamelCase()
-    val taskType = if (stage in setOf("ir", "opt", "asm")) IrTestTask::class.java else Test::class.java
-    tasks.register(taskName, taskType) {
+    tasks.register(taskName, Test::class.java) {
         description = "Run $source tests for the $stage stage."
         group = "verification"
 

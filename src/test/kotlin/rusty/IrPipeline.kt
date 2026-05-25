@@ -16,10 +16,10 @@ object IrPipeline {
     const val PROP_CLANG = "clangPath"
     const val PROP_NO_CLANG = "noClang"
     const val PROP_CLANG_ARGS = "clangArgs"
-    const val PROP_REIMU = "irReimu"
-    const val PROP_REIMU_PATH = "reimuPath"
-    const val PROP_REIMU_MEMORY = "reimuMemory"
-    const val PROP_REIMU_STACK = "reimuStack"
+    const val PROP_QEMU_PATH = "qemuPath"
+    const val PROP_QEMU_ARGS = "qemuArgs"
+    const val PROP_QEMU_SYSROOT = "qemuSysroot"
+    const val PROP_QEMU_CLANG_TARGET = "qemuClangTarget"
 
     data class ArtifactPaths(val irOutput: Path, val exeOutput: Path)
     data class ProcessResult(val exitCode: Int, val output: String, val args: List<String>)
@@ -27,15 +27,23 @@ object IrPipeline {
     enum class PreludeCTarget { X86, RISCV }
 
     fun resolveClangBinary(): String = System.getProperty(PROP_CLANG) ?: "clang"
-    fun resolveClangArgs(): String = System.getProperty(PROP_CLANG_ARGS) ?: ""
-    private fun resolveReimuBinary(): Path =
-        System.getProperty(PROP_REIMU_PATH)?.let { Paths.get(it) }
-            ?: Paths.get("src", "test", "resources", "bin", "reimu")
+    fun resolveClangArgs(): List<String> = splitArgs(System.getProperty(PROP_CLANG_ARGS))
+    fun resolveQemuBinary(): String = System.getProperty(PROP_QEMU_PATH) ?: "qemu-riscv64"
+    fun resolveQemuArgs(): List<String> = splitArgs(System.getProperty(PROP_QEMU_ARGS))
+    fun resolveQemuSysroot(): String? = System.getProperty(PROP_QEMU_SYSROOT)?.takeIf { it.isNotBlank() }
+    fun resolveQemuClangTarget(): String = System.getProperty(PROP_QEMU_CLANG_TARGET) ?: "riscv64-linux-gnu"
 
     private fun preludeCSource(): Path =
         Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude", "prelude.c")
 
     private fun preludeCOutputDir(): Path = Paths.get("build", "ir-prelude")
+
+    private fun splitArgs(raw: String?): List<String> =
+        raw
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.split(Regex("\\s+"))
+            ?: emptyList()
 
     fun ensurePreludeCIr(
         target: PreludeCTarget,
@@ -64,7 +72,7 @@ object IrPipeline {
                 PreludeCTarget.X86 -> Unit
                 PreludeCTarget.RISCV -> addAll(
                     listOf(
-                        "--target=${RiscvTargetConfig.CLANG_TRIPLE}",
+                        "--target=${resolveQemuClangTarget()}",
                         "-march=${RiscvTargetConfig.ARCH}",
                         "-mabi=${RiscvTargetConfig.ABI}",
                     )
@@ -114,25 +122,49 @@ object IrPipeline {
     fun linkWithPrelude(irOutput: Path, exeOutput: Path, clangBinary: String = resolveClangBinary()): ProcessResult {
         val preludeDir = Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude")
         val preludeLl = preludeDir.resolve("prelude.ll")
-        val preludeCLl = ensurePreludeCIr(PreludeCTarget.X86, clangBinary)
+        val preludeCLl = ensurePreludeCIr(PreludeCTarget.RISCV, clangBinary)
         listOf(preludeLl, preludeCLl).forEach {
             require(Files.exists(it)) { "Prelude IR missing: $it" }
         }
 
-        val clangArgs = listOf(
-            clangBinary,
-            irOutput.toString(),
-            preludeLl.toString(),
-            preludeCLl.toString(),
-            resolveClangArgs(),
-            "-o",
-            exeOutput.toString(),
+        return linkRiscvExecutable(
+            inputFiles = listOf(irOutput, preludeLl, preludeCLl),
+            exeOutput = exeOutput,
+            clangBinary = clangBinary,
         )
+    }
+
+    fun linkRiscvExecutable(
+        inputFiles: List<Path>,
+        exeOutput: Path,
+        clangBinary: String = resolveClangBinary(),
+        extraArgs: List<String> = emptyList(),
+    ): ProcessResult {
+        exeOutput.parent?.let { Files.createDirectories(it) }
+        val clangArgs = buildList {
+            add(clangBinary)
+            add("--target=${resolveQemuClangTarget()}")
+            add("-march=${RiscvTargetConfig.ARCH}")
+            add("-mabi=${RiscvTargetConfig.ABI}")
+            addAll(resolveClangArgs())
+            addAll(extraArgs)
+            addAll(inputFiles.map(Path::toString))
+            add("-o")
+            add(exeOutput.toString())
+        }
         return runProcess(clangArgs)
     }
 
     fun runExecutable(exeFile: Path, stdinContent: String): ProcessResult {
-        val args = listOf(exeFile.toString())
+        val args = buildList {
+            add(resolveQemuBinary())
+            resolveQemuSysroot()?.let {
+                add("-L")
+                add(it)
+            }
+            addAll(resolveQemuArgs())
+            add(exeFile.toString())
+        }
         val process = ProcessBuilder(args)
             .redirectErrorStream(true)
             .start()
@@ -158,7 +190,7 @@ object IrPipeline {
         val clangArgs = buildList {
             add(clangBinary)
             add("-S")
-            add("--target=${RiscvTargetConfig.CLANG_TRIPLE}")
+            add("--target=${resolveQemuClangTarget()}")
             add("-march=${RiscvTargetConfig.ARCH}")
             add("-mabi=${RiscvTargetConfig.ABI}")
             if (optimize) add("-O2")
@@ -168,65 +200,6 @@ object IrPipeline {
             add(asmOutput.toString())
         }
         return runProcess(clangArgs)
-    }
-
-    fun stripPltSuffix(inputAsm: Path, outputAsm: Path = inputAsm): Path {
-        val content = Files.readString(inputAsm)
-        val stripped = content.replace("@plt", "")
-        if (outputAsm == inputAsm) {
-            Files.writeString(inputAsm, stripped)
-        } else {
-            outputAsm.parent?.let { Files.createDirectories(it) }
-            Files.writeString(outputAsm, stripped)
-        }
-        return outputAsm
-    }
-
-    fun patchPreludeExitForReimu(inputAsm: Path, outputAsm: Path = inputAsm): Path {
-        val content = Files.readString(inputAsm)
-        val patched = Regex(
-            pattern = """(?ms)^prelude\.func\.exit:\s*.*?(?=^\.Lfunc_end\d+:)"""
-        ).replace(content, "prelude.func.exit:\n\tret\n")
-        if (outputAsm == inputAsm) {
-            Files.writeString(inputAsm, patched)
-        } else {
-            outputAsm.parent?.let { Files.createDirectories(it) }
-            Files.writeString(outputAsm, patched)
-        }
-        return outputAsm
-    }
-
-    fun runReimu(
-        asmFiles: List<Path>,
-        stdinContent: String,
-        memory: String = System.getProperty(PROP_REIMU_MEMORY) ?: "64M",
-        stack: String = System.getProperty(PROP_REIMU_STACK) ?: "8M",
-    ): ProcessResult {
-        val reimu = resolveReimuBinary()
-        require(Files.exists(reimu)) { "reimu binary not found at $reimu (set -D$PROP_REIMU_PATH=... to override)" }
-
-        val args = buildList {
-            add(reimu.toString())
-            add("--silent")
-            add("-m=$memory")
-            add("-s=$stack")
-            add("-i=<stdin>")
-            add("-o=<stdout>")
-            add("-p=/dev/null")
-            add("-f=${asmFiles.joinToString(",") { it.toAbsolutePath().normalize().toString() }}")
-        }
-        val process = ProcessBuilder(args)
-            .redirectErrorStream(true)
-            .start()
-
-        process.outputStream.bufferedWriter().use { writer ->
-            writer.write(stdinContent)
-            writer.flush()
-        }
-
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        val exit = process.waitFor()
-        return ProcessResult(exit, output, args)
     }
 
     fun runProcess(args: List<String>): ProcessResult {
