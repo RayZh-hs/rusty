@@ -1,5 +1,6 @@
 package rusty.asm
 
+import rusty.core.RiscvTargetConfig
 import rusty.asm.support.AsmContext
 import rusty.asm.support.PlacedStackObject
 import rusty.asm.support.StackFrame
@@ -55,6 +56,8 @@ import space.norb.riscv.Register as RvRegister
 
 internal class AsmTranslator(private val context: AsmContext) {
     private val argumentRegisters = listOf(a0, a1, a2, a3, a4, a5, a6, a7)
+    private val registerBytes = RiscvTargetConfig.REGISTER_BYTES
+    private val pointerWidthBits = RiscvTargetConfig.POINTER_WIDTH_BITS
     private val module: Module = context.module
     private lateinit var asm: RiscvAsm
     private lateinit var function: Function
@@ -65,7 +68,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     private lateinit var edgePhiMoves: Map<Pair<BasicBlock, BasicBlock>, List<Pair<PhiNode, Value>>>
 
     fun translate(): String {
-        return riscv {
+        return riscv(target = RiscvTargetConfig.ASM_TARGET) {
             asm = this
             emitGlobals()
             text()
@@ -94,10 +97,28 @@ internal class AsmTranslator(private val context: AsmContext) {
         val initializer = global.initializer
         when (initializer) {
             is ArrayConstant -> asm.emitArrayConstant(initializer)
-            is IntConstant -> asm.word(initializer.value.toInt())
-            is NullPointerConstant -> asm.word(0)
+            is IntConstant -> emitIntegerConstant(initializer)
+            is NullPointerConstant -> emitPointerWord(0)
             null -> asm.zero(global.elementType?.sizeBytes(module) ?: 4)
             else -> asm.zero(initializer.type.sizeBytes(module))
+        }
+    }
+
+    private fun emitIntegerConstant(value: IntConstant) {
+        when (value.type.bitWidth) {
+            in 1..8 -> asm.byte(value.value.toInt())
+            in 9..16 -> asm.half(value.value.toInt())
+            in 17..32 -> asm.word(expr(value.value.toString()))
+            in 33..64 -> asm.directive(".dword", expr(value.value.toString()))
+            else -> throw UnsupportedOperationException("Unsupported integer width ${value.type.bitWidth} in global")
+        }
+    }
+
+    private fun emitPointerWord(value: Long) {
+        if (registerBytes == 8) {
+            asm.directive(".dword", expr(value.toString()))
+        } else {
+            asm.word(expr(value.toString()))
         }
     }
 
@@ -112,10 +133,14 @@ internal class AsmTranslator(private val context: AsmContext) {
                 is IntConstant -> when (element.type.bitWidth) {
                     in 1..8 -> byte(element.value.toInt())
                     in 9..16 -> half(element.value.toInt())
-                    else -> word(element.value.toInt())
+                    in 17..32 -> word(expr(element.value.toString()))
+                    in 33..64 -> directive(".dword", expr(element.value.toString()))
+                    else -> throw UnsupportedOperationException(
+                        "Unsupported integer width ${element.type.bitWidth} in array initializer"
+                    )
                 }
                 is ArrayConstant -> emitArrayConstant(element)
-                is NullPointerConstant -> word(0)
+                is NullPointerConstant -> emitPointerWord(0)
                 else -> zero(element.type.sizeBytes(module))
             }
         }
@@ -165,7 +190,7 @@ internal class AsmTranslator(private val context: AsmContext) {
                 ?: frame.alloca(
                     sizeBytes = (alloca.allocatedType.sizeBytes(module).toLong() * alloca.constantArraySize())
                         .toIntExact("alloca $name"),
-                    alignBytes = alloca.allocatedType.computeLayout(module, 32).alignment,
+                    alignBytes = alloca.allocatedType.computeLayout(module, pointerWidthBits).alignment,
                     name = name,
                 )
         }
@@ -176,14 +201,14 @@ internal class AsmTranslator(private val context: AsmContext) {
         adjustStack(-frame.frameSizeBytes)
         for (saved in frame.frameObjects.filter { it.stackObject.savedRegister != null }) {
             val register = saved.stackObject.savedRegister!!.toRv()
-            storeWord(register, addressOfStack(saved, t6))
+            storeRegister(register, addressOfStack(saved, t6))
         }
     }
 
     private fun emitEpilogue() {
         for (saved in frame.frameObjects.filter { it.stackObject.savedRegister != null }.asReversed()) {
             val register = saved.stackObject.savedRegister!!.toRv()
-            loadWord(register, addressOfStack(saved, t6))
+            loadRegister(register, addressOfStack(saved, t6))
         }
         adjustStack(frame.frameSizeBytes)
         asm.ret()
@@ -204,12 +229,12 @@ internal class AsmTranslator(private val context: AsmContext) {
             val incoming = if (index < argumentRegisters.size) {
                 argumentRegisters[index]
             } else {
-                val offset = frame.frameSizeBytes + (index - argumentRegisters.size) * 4
-                loadWord(t4, stackArgumentAddress(offset, t6))
+                val offset = frame.frameSizeBytes + (index - argumentRegisters.size) * registerBytes
+                loadRegister(t4, stackArgumentAddress(offset, t6))
                 t4
             }
             val size = parameter.type.sizeBytes(module)
-            if (size <= 4) {
+            if (size <= registerBytes) {
                 writeValue(parameter, incoming)
             } else {
                 val destination = addressOf(parameter, t6)
@@ -247,7 +272,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerLoad(instruction: LoadInst) {
         val size = instruction.loadedType.sizeBytes(module)
         val source = addressOf(instruction.pointer, t6)
-        if (size <= 4) {
+        if (size <= registerBytes) {
             val loaded = loadSized(t5, source, size)
             writeValue(instruction, loaded)
         } else {
@@ -258,7 +283,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerStore(instruction: StoreInst) {
         val size = instruction.storedType.sizeBytes(module)
         val destination = addressOf(instruction.pointer, t6)
-        if (size <= 4) {
+        if (size <= registerBytes) {
             storeSized(loadValue(instruction.value, t5), destination, size)
         } else {
             copyMemory(destination, addressOf(instruction.value, t5), size)
@@ -419,7 +444,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             }.takeIf { it >= 0 } ?: 0
 
             val (phi, incoming) = pending.removeAt(nextIndex)
-            if (phi.type.sizeBytes(module) <= 4) {
+            if (phi.type.sizeBytes(module) <= registerBytes) {
                 val loaded = loadValue(incoming, t5)
                 writeValue(phi, loaded)
             } else {
@@ -432,7 +457,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         val returnValue = instruction.getReturnValue()
         if (returnValue != null && returnValue.type != VoidType) {
             val size = returnValue.type.sizeBytes(module)
-            if (size <= 4) {
+            if (size <= registerBytes) {
                 val reg = loadValue(returnValue, a0)
                 if (reg != a0) asm.mv(a0, reg)
             } else {
@@ -445,34 +470,34 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerCall(instruction: CallInst) {
         val callerSavedTemps = callerSavedTemps()
         for ((register, temp) in callerSavedTemps) {
-            storeWord(register.toRv(), addressOfStack(temp, t6))
+            storeRegister(register.toRv(), addressOfStack(temp, t6))
         }
 
         for ((index, argument) in instruction.arguments.withIndex()) {
             val temp = frame.objectWithName(callArgumentTempName(index))
                 ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
-            val value = if (argument.type.sizeBytes(module) <= 4) {
+            val value = if (argument.type.sizeBytes(module) <= registerBytes) {
                 loadValue(argument, t5)
             } else {
                 addressOf(argument, t5)
             }
-            storeWord(value, addressOfStack(temp, t6))
+            storeRegister(value, addressOfStack(temp, t6))
         }
 
         for (index in instruction.arguments.indices.take(argumentRegisters.size)) {
             val temp = frame.objectWithName(callArgumentTempName(index))
                 ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
-            loadWord(argumentRegisters[index], addressOfStack(temp, t6))
+            loadRegister(argumentRegisters[index], addressOfStack(temp, t6))
         }
 
         val stackArgumentCount = (instruction.arguments.size - argumentRegisters.size).coerceAtLeast(0)
-        val stackArgumentBytes = alignUp(stackArgumentCount * 4, 16)
+        val stackArgumentBytes = alignUp(stackArgumentCount * registerBytes, 16)
         for (stackIndex in 0 until stackArgumentCount) {
             val argumentIndex = argumentRegisters.size + stackIndex
             val temp = frame.objectWithName(callArgumentTempName(argumentIndex))
                 ?: throw IllegalStateException("Missing call argument temp $argumentIndex in ${function.name}")
-            loadWord(t4, addressOfStack(temp, t6))
-            storeWord(t4, stackArgumentAddress(stackIndex * 4 - stackArgumentBytes, t6))
+            loadRegister(t4, addressOfStack(temp, t6))
+            storeRegister(t4, stackArgumentAddress(stackIndex * registerBytes - stackArgumentBytes, t6))
         }
 
         adjustStack(-stackArgumentBytes)
@@ -492,7 +517,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
 
         for ((register, temp) in callerSavedTemps.asReversed()) {
-            loadWord(register.toRv(), addressOfStack(temp, t6))
+            loadRegister(register.toRv(), addressOfStack(temp, t6))
         }
 
         if (instruction.producesValue() && instruction in allocation) {
@@ -523,10 +548,10 @@ internal class AsmTranslator(private val context: AsmContext) {
             }
             is TruncInst -> {
                 val bits = instruction.getDestinationBitWidth()
-                if (bits >= 32) {
+                if (bits >= registerBytes * 8) {
                     if (dst != source) asm.mv(dst, source)
                 } else {
-                    val shift = 32 - bits
+                    val shift = registerBytes * 8 - bits
                     asm.slli(dst, source, shift)
                     asm.srli(dst, dst, shift)
                 }
@@ -534,10 +559,10 @@ internal class AsmTranslator(private val context: AsmContext) {
             is ZExtInst -> {
                 val bits = instruction.getSourceBitWidth()
                 when {
-                    bits >= 32 -> if (dst != source) asm.mv(dst, source)
+                    bits >= registerBytes * 8 -> if (dst != source) asm.mv(dst, source)
                     bits <= 0 -> asm.li(dst, 0)
                     else -> {
-                        val shift = 32 - bits
+                        val shift = registerBytes * 8 - bits
                         asm.slli(dst, source, shift)
                         asm.srli(dst, dst, shift)
                     }
@@ -545,10 +570,10 @@ internal class AsmTranslator(private val context: AsmContext) {
             }
             is SExtInst -> {
                 val bits = instruction.getSourceBitWidth()
-                if (bits >= 32) {
+                if (bits >= registerBytes * 8) {
                     if (dst != source) asm.mv(dst, source)
                 } else {
-                    val shift = 32 - bits
+                    val shift = registerBytes * 8 - bits
                     asm.slli(dst, source, shift)
                     asm.srai(dst, dst, shift)
                 }
@@ -568,11 +593,11 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun loadValue(value: Value, scratch: RvRegister): RvRegister {
         when (value) {
             is IntConstant -> {
-                asm.li(scratch, value.value.toInt())
+                loadImmediate(scratch, value.value)
                 return scratch
             }
             is NullPointerConstant -> {
-                asm.li(scratch, 0)
+                loadImmediate(scratch, 0)
                 return scratch
             }
             is GlobalVariable -> {
@@ -621,7 +646,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             }
             else -> {
                 val slot = allocation[value]
-                if (slot is SavableSlot.Stack && value.type.sizeBytes(module) > 4) {
+                if (slot is SavableSlot.Stack && value.type.sizeBytes(module) > registerBytes) {
                     val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                         ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
                     addressOfStack(obj, scratch)
@@ -647,6 +672,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             1 -> asm.lbu(destination, mem(0, address))
             2 -> asm.lhu(destination, mem(0, address))
             3, 4 -> asm.lw(destination, mem(0, address))
+            5, 6, 7, 8 -> asm.emit("ld", destination, mem(0, address))
             else -> throw UnsupportedOperationException("Cannot scalar-load $sizeBytes bytes in ${function.name}")
         }
         return destination
@@ -657,24 +683,46 @@ internal class AsmTranslator(private val context: AsmContext) {
             1 -> asm.sb(source, mem(0, address))
             2 -> asm.sh(source, mem(0, address))
             3, 4 -> asm.sw(source, mem(0, address))
+            5, 6, 7, 8 -> asm.emit("sd", source, mem(0, address))
             else -> throw UnsupportedOperationException("Cannot scalar-store $sizeBytes bytes in ${function.name}")
         }
     }
 
-    private fun loadWord(destination: RvRegister, address: RvRegister) {
-        asm.lw(destination, mem(0, address))
+    private fun loadRegister(destination: RvRegister, address: RvRegister) {
+        if (registerBytes == 8) {
+            asm.emit("ld", destination, mem(0, address))
+        } else {
+            asm.lw(destination, mem(0, address))
+        }
     }
 
-    private fun storeWord(source: RvRegister, address: RvRegister) {
-        asm.sw(source, mem(0, address))
+    private fun storeRegister(source: RvRegister, address: RvRegister) {
+        if (registerBytes == 8) {
+            asm.emit("sd", source, mem(0, address))
+        } else {
+            asm.sw(source, mem(0, address))
+        }
+    }
+
+    private fun loadImmediate(destination: RvRegister, value: Long) {
+        if (value in Int.MIN_VALUE..Int.MAX_VALUE) {
+            asm.li(destination, value.toInt())
+        } else {
+            asm.emit("li", destination, expr(value.toString()))
+        }
     }
 
     private fun copyMemory(destination: RvRegister, source: RvRegister, sizeBytes: Int) {
         var offset = 0
-        while (offset + 4 <= sizeBytes) {
-            asm.lw(t4, mem(offset, source))
-            asm.sw(t4, mem(offset, destination))
-            offset += 4
+        while (offset + registerBytes <= sizeBytes) {
+            if (registerBytes == 8) {
+                asm.emit("ld", t4, mem(offset, source))
+                asm.emit("sd", t4, mem(offset, destination))
+            } else {
+                asm.lw(t4, mem(offset, source))
+                asm.sw(t4, mem(offset, destination))
+            }
+            offset += registerBytes
         }
         while (offset < sizeBytes) {
             asm.lbu(t4, mem(offset, source))
@@ -698,12 +746,12 @@ internal class AsmTranslator(private val context: AsmContext) {
         require(field in fields.indices) { "Struct field $field out of bounds" }
         var offset = 0
         for (index in 0 until field) {
-            val layout = fields[index].computeLayout(module, 32)
+            val layout = fields[index].computeLayout(module, pointerWidthBits)
             val align = if (packed) 1 else layout.alignment
             offset = alignUp(offset, align)
             offset += layout.sizeInBytes.toIntExact("struct field")
         }
-        val fieldAlign = if (packed) 1 else fields[field].computeLayout(module, 32).alignment
+        val fieldAlign = if (packed) 1 else fields[field].computeLayout(module, pointerWidthBits).alignment
         return alignUp(offset, fieldAlign)
     }
 }

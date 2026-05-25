@@ -1,5 +1,6 @@
 package rusty.asm.support
 
+import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function
@@ -68,14 +69,18 @@ class StackFrame(
 
     fun spill(
         sizeBytes: Int,
-        alignBytes: Int = 4,
+        alignBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
         name: String? = null,
         stackSlotId: Int? = null,
     ): PlacedStackObject {
         return place(StackObject(StackObjectKind.Spill, sizeBytes, alignBytes, name, stackSlotId = stackSlotId))
     }
 
-    fun temp(sizeBytes: Int, alignBytes: Int = 4, name: String? = null): PlacedStackObject {
+    fun temp(
+        sizeBytes: Int,
+        alignBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
+        name: String? = null,
+    ): PlacedStackObject {
         return place(StackObject(StackObjectKind.LoweringTemp, sizeBytes, alignBytes, name))
     }
 
@@ -83,7 +88,11 @@ class StackFrame(
         return place(StackObject(StackObjectKind.Alloca, sizeBytes, alignBytes, name))
     }
 
-    fun save(register: Register, sizeBytes: Int = 4, alignBytes: Int = sizeBytes): PlacedStackObject {
+    fun save(
+        register: Register,
+        sizeBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
+        alignBytes: Int = sizeBytes,
+    ): PlacedStackObject {
         return place(
             StackObject(
                 kind = StackObjectKind.SavedRegister,
@@ -143,7 +152,7 @@ class StackManager(
     fun materializeSpills(
         function: Function,
         allocation: Map<Value, SavableSlot>,
-        registerBytes: Int = 4,
+        registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
     ): Map<Int, PlacedStackObject> {
         require(registerBytes > 0) { "Register size must be positive" }
 

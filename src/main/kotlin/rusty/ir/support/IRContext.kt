@@ -1,5 +1,6 @@
 package rusty.ir.support
 
+import rusty.core.RiscvTargetConfig
 import rusty.semantic.support.SemanticSymbol
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
@@ -31,8 +32,8 @@ object IRContext {
 
     fun reset(moduleName: String = "rusty_generated_module") {
         module = Module(moduleName).apply {
-            targetTriple = "riscv32-unknown-unknown-elf"
-            dataLayout = "e-p:32:32-i64:64"
+            targetTriple = RiscvTargetConfig.LLVM_TRIPLE
+            dataLayout = RiscvTargetConfig.DATA_LAYOUT
         }
         enumIntegerLookup.clear()
         functionNameLookup.clear()

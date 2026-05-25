@@ -1,5 +1,6 @@
 package rusty.asm.support
 
+import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
 import rusty.asm.hasBody
 import space.norb.llvm.analysis.AnalysisManager
@@ -18,7 +19,7 @@ import space.norb.llvm.utils.computeLayout
 object RegisterAllocator {
     data class Config(
         val allocatableRegisters: List<Register> = defaultAllocatableRegisters,
-        val registerBytes: Int = 4,
+        val registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
     )
 
     val defaultAllocatableRegisters: List<Register> =

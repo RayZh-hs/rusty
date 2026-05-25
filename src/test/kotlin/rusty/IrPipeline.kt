@@ -1,5 +1,6 @@
 package rusty
 
+import rusty.core.RiscvTargetConfig
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -61,7 +62,13 @@ object IrPipeline {
             add("-O0")
             when (target) {
                 PreludeCTarget.X86 -> Unit
-                PreludeCTarget.RISCV -> addAll(listOf("--target=riscv32-unknown-elf", "-march=rv32im", "-mabi=ilp32"))
+                PreludeCTarget.RISCV -> addAll(
+                    listOf(
+                        "--target=${RiscvTargetConfig.CLANG_TRIPLE}",
+                        "-march=${RiscvTargetConfig.ARCH}",
+                        "-mabi=${RiscvTargetConfig.ABI}",
+                    )
+                )
             }
             add(source.toString())
             add("-o")
@@ -151,9 +158,9 @@ object IrPipeline {
         val clangArgs = buildList {
             add(clangBinary)
             add("-S")
-            add("--target=riscv32-unknown-elf")
-            add("-march=rv32im")
-            add("-mabi=ilp32")
+            add("--target=${RiscvTargetConfig.CLANG_TRIPLE}")
+            add("-march=${RiscvTargetConfig.ARCH}")
+            add("-mabi=${RiscvTargetConfig.ABI}")
             if (optimize) add("-O2")
             addAll(extraArgs)
             add(input.toString())

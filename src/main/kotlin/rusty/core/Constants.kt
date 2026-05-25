@@ -22,7 +22,7 @@ val CompileModeMap = mapOf(
     "optimization" to CompileMode.OPT,
     "asm" to CompileMode.ASM,
     "s" to CompileMode.ASM,
-    "rv32im" to CompileMode.ASM,
+    RiscvTargetConfig.ARCH to CompileMode.ASM,
     "riscv" to CompileMode.ASM,
 )
 

@@ -1,5 +1,6 @@
 package rusty.asm
 
+import rusty.core.RiscvTargetConfig
 import space.norb.llvm.core.Constant
 import space.norb.llvm.core.Type
 import space.norb.llvm.core.Value
@@ -62,7 +63,7 @@ internal fun rusty.asm.utils.Register.callSaveTempName(): String = "call.${name.
 internal fun callArgumentTempName(index: Int): String = "call.arg.$index"
 
 internal fun Type.sizeBytes(module: Module): Int =
-    computeLayout(module, pointerWidthBits = 32).sizeInBytes.toIntExact("type $this")
+    computeLayout(module, pointerWidthBits = RiscvTargetConfig.POINTER_WIDTH_BITS).sizeInBytes.toIntExact("type $this")
 
 internal fun Constant.sizeBytes(module: Module): Int = type.sizeBytes(module)
 
