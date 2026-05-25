@@ -68,6 +68,8 @@ You can pass additional arguments to the tests using the `-D<arg>=<value>` synta
 
 ## Runtime Backend
 
-IR, opt, and asm execution tests now target `rv64im`, link a riscv64 Linux executable with clang, and run that executable under `qemu-riscv64`.
+IR, opt, and asm execution tests link a riscv64 Linux executable with clang and run that executable under `qemu-riscv64`.
+
+The compiler's own instruction selection still targets the `rv64im` subset, but the Linux/QEMU execution backend uses a glibc-compatible `rv64gc` / `lp64d` link target so it can interoperate with standard riscv64 distro sysroots.
 
 If your cross-linker setup is not on the default search path, use `-DclangArgs` to provide the relevant toolchain or sysroot flags and `-DqemuSysroot` to point QEMU at the matching runtime.

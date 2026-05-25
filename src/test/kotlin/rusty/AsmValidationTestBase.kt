@@ -25,7 +25,7 @@ abstract class AsmValidationTestBase : TestBase() {
         val hashSuffix = Integer.toHexString(case.source.toAbsolutePath().normalize().toString().hashCode())
         val baseName = "$rawName-$hashSuffix"
         val userIr = targetDir.resolve("$baseName.user.ll")
-        val userAsmSource = targetDir.resolve("$baseName.user.s.source")
+        val userAsmSource = targetDir.resolve("$baseName.user.s")
         val exeOutput = targetDir.resolve("$baseName.out")
 
         val compileThrowable = try {
@@ -69,8 +69,8 @@ abstract class AsmValidationTestBase : TestBase() {
                 require(Files.exists(it)) { "Prelude missing: $it" }
             }
 
-            val preludeAsmSource = targetDir.resolve("$baseName.prelude.s.source")
-            val builtinAsmSource = targetDir.resolve("$baseName.builtin.s.source")
+            val preludeAsmSource = targetDir.resolve("$baseName.prelude.s")
+            val builtinAsmSource = targetDir.resolve("$baseName.builtin.s")
 
             fun ensureOk(label: String, result: IrPipeline.ProcessResult) {
                 if (result.exitCode != 0) {

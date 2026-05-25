@@ -38,6 +38,15 @@ object IrPipeline {
 
     private fun preludeCOutputDir(): Path = Paths.get("build", "ir-prelude")
 
+    private fun preludeCOutputName(target: PreludeCTarget): String =
+        when (target) {
+            PreludeCTarget.X86 -> "prelude.c.x86.ll"
+            PreludeCTarget.RISCV -> {
+                val targetTag = resolveQemuClangTarget().replace(Regex("[^A-Za-z0-9._-]"), "_")
+                "prelude.c.$targetTag.${RiscvTargetConfig.LINUX_ARCH}.${RiscvTargetConfig.LINUX_ABI}.ll"
+            }
+        }
+
     private fun splitArgs(raw: String?): List<String> =
         raw
             ?.trim()
@@ -52,11 +61,7 @@ object IrPipeline {
         val source = preludeCSource()
         require(Files.exists(source)) { "Prelude C source missing: $source" }
 
-        val outputName = when (target) {
-            PreludeCTarget.X86 -> "prelude.c.x86.ll"
-            PreludeCTarget.RISCV -> "prelude.c.riscv.ll"
-        }
-        val output = preludeCOutputDir().resolve(outputName)
+        val output = preludeCOutputDir().resolve(preludeCOutputName(target))
 
         val sourceMtime = Files.getLastModifiedTime(source)
         val outputMtime = if (Files.exists(output)) Files.getLastModifiedTime(output) else FileTime.fromMillis(0)
@@ -73,8 +78,8 @@ object IrPipeline {
                 PreludeCTarget.RISCV -> addAll(
                     listOf(
                         "--target=${resolveQemuClangTarget()}",
-                        "-march=${RiscvTargetConfig.ARCH}",
-                        "-mabi=${RiscvTargetConfig.ABI}",
+                        "-march=${RiscvTargetConfig.LINUX_ARCH}",
+                        "-mabi=${RiscvTargetConfig.LINUX_ABI}",
                     )
                 )
             }
@@ -144,8 +149,8 @@ object IrPipeline {
         val clangArgs = buildList {
             add(clangBinary)
             add("--target=${resolveQemuClangTarget()}")
-            add("-march=${RiscvTargetConfig.ARCH}")
-            add("-mabi=${RiscvTargetConfig.ABI}")
+            add("-march=${RiscvTargetConfig.LINUX_ARCH}")
+            add("-mabi=${RiscvTargetConfig.LINUX_ABI}")
             addAll(resolveClangArgs())
             addAll(extraArgs)
             addAll(inputFiles.map(Path::toString))
@@ -191,8 +196,8 @@ object IrPipeline {
             add(clangBinary)
             add("-S")
             add("--target=${resolveQemuClangTarget()}")
-            add("-march=${RiscvTargetConfig.ARCH}")
-            add("-mabi=${RiscvTargetConfig.ABI}")
+            add("-march=${RiscvTargetConfig.LINUX_ARCH}")
+            add("-mabi=${RiscvTargetConfig.LINUX_ABI}")
             if (optimize) add("-O2")
             addAll(extraArgs)
             add(input.toString())

@@ -12,6 +12,8 @@ Install a riscv64 user-mode QEMU binary such as `qemu-riscv64`, plus a riscv64 L
 
 The Gradle-backed execution tests compile a riscv64 Linux executable and run it through QEMU.
 
+The compiler output itself stays within the `rv64im` subset, but the Linux execution backend links with a glibc-compatible `rv64gc` / `lp64d` target so it can use standard riscv64 sysroots.
+
 Examples:
 
 ```shell
