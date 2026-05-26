@@ -30,6 +30,11 @@ import rusty.semantic.dumpScreen
 import java.io.File
 
 fun main(args: Array<String>) {
+    if (OJCompileMode.isRequested(args)) {
+        OJCompileMode.run()
+        return
+    }
+
     val parser = CommandParser(listOf(
         // -i /path OR --input /path
         CommandParserConfigEntry("input", Requirement.REQUIRED, ArgType.VALUE, listOf("i")),

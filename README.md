@@ -56,6 +56,17 @@ The compiler can be run using Gradle:
 ./gradlew run --args="arguments"
 ```
 
+For the judge-style streaming path requested by the current backend, use:
+
+```bash
+./gradlew installDist
+make run < program.rx > user.s 2> builtin.s
+```
+
+This mode reads RX source from `stdin`, writes the compiler-emitted user assembly
+to `stdout`, and writes a GCC-compatible rv64gc/lp64d runtime `builtin.s` to
+`stderr`.
+
 It supports a range of arguments for different compilation stages:
 - `-i <file>`: Specify input source file.
 - `-o <file>`: Specify output file.
