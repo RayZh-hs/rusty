@@ -13,8 +13,7 @@ ref/
 
 ### Gradle ###
 .gradle/
-build/*
-!build/install/
+build/
 
 ### Eclipse ###
 .apt_generated
