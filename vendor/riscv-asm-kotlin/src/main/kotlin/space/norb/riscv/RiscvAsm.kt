@@ -696,7 +696,13 @@ public class RiscvAsm(public val target: RiscvTarget = RiscvTarget.RV32IM) {
 
     private fun shift(mnemonic: String, rd: Register, rs1: Register, shamt: Int) {
         requireI()
-        require(shamt in 0..31) { "$mnemonic shift amount for RV32 must be in 0..31, got $shamt." }
+        val maxShift = when (target.xlen) {
+            XLen.RV32 -> 31
+            XLen.RV64 -> 63
+        }
+        require(shamt in 0..maxShift) {
+            "$mnemonic shift amount for ${target.xlen} must be in 0..$maxShift, got $shamt."
+        }
         emit(mnemonic, rd, rs1, Immediate(shamt))
     }
 

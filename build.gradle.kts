@@ -116,4 +116,5 @@ tasks.register<Test>("manualTests") {
 
 application {
     mainClass.set("rusty.MainKt")
+    applicationDefaultJvmArgs = listOf("-XX:-UsePerfData")
 }

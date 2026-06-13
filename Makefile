@@ -7,4 +7,4 @@ build:
 	kotlinc $(SOURCES) -d build/classes
 
 run:
-	kotlin -cp build/classes rusty.MainKt --stdio-asm
+	kotlin -J-XX:-UsePerfData -cp build/classes rusty.MainKt --stdio-asm
