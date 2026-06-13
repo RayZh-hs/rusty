@@ -31,4 +31,20 @@ class OJCompileModeTest {
         assertContains(userAsm, "call prelude.func.println")
         assertEquals(".globl main\nmain:\n    ret\n", builtinAsm)
     }
+
+    @Test
+    fun `oj mode uses checked in builtin assembly`() {
+        val source = """
+            fn main() {
+                println("Hello, world!");
+                exit(0);
+            }
+        """.trimIndent()
+
+        val output = OJCompileMode.compile(source)
+
+        assertContains(output.userAsm, "call prelude.func.println")
+        assertContains(output.builtinAsm, ".globl\tmain")
+        assertContains(output.builtinAsm, ".globl\t__c_print_int")
+    }
 }
