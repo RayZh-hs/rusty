@@ -187,6 +187,7 @@ class ExpressionEmitter(
                 ?: throw IllegalStateException("Self not bound in IR generation")
             return resolveVariable(selfVar)
         }
+        emitEnumVariantPath(node)?.let { return it }
         val identifier = seg.name ?: return null
 
         val localMatch = env.findLocalSymbol(identifier)
@@ -206,6 +207,24 @@ class ExpressionEmitter(
             return GeneratedValue(fn, buildFunctionHeader(symbol))
         }
         throw IllegalStateException("Unresolved path '$identifier' in IR generation")
+    }
+
+    private fun emitEnumVariantPath(
+        node: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode
+    ): GeneratedValue? {
+        val path = node.pathInExpressionNode.path
+        if (path.size != 2) return null
+        val enumName = path[0].name ?: return null
+        val variantName = path[1].name ?: return null
+        val enumSymbol = sequentialLookup(enumName, scopeMaintainer.currentScope) { it.typeST }?.symbol as? SemanticSymbol.Enum
+            ?: return null
+        val fields = enumSymbol.fields ?: return null
+        val discriminant = fields.indexOf(variantName)
+        if (discriminant < 0) return null
+        return GeneratedValue(
+            BuilderUtils.getIntConstant(discriminant.toLong(), TypeUtils.I32 as IntegerType),
+            enumSymbol.definesType
+        )
     }
 
     private fun emitStructLiteral(
@@ -891,11 +910,17 @@ class ExpressionEmitter(
                 SemanticType.UnitType
             )
             is SemanticValue.EnumValue -> GeneratedValue(
-                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
+                BuilderUtils.getIntConstant(enumDiscriminant(value).toLong(), TypeUtils.I32 as IntegerType),
                 value.type
             )
             else -> GeneratedValue(BuilderUtils.getIntConstant(0, TypeUtils.I8 as IntegerType), value.type)
         }
+    }
+
+    private fun enumDiscriminant(value: SemanticValue.EnumValue): Int {
+        val fields = value.type.fields.getOrNull() ?: return 0
+        val index = fields.indexOf(value.field)
+        return if (index >= 0) index else 0
     }
 
     private fun boolConstant(value: Boolean): Value =

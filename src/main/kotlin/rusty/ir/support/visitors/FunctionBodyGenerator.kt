@@ -216,6 +216,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             currentScope()
         )
         val value = node.expressionNode?.let { exprEmitter.emitExpression(it) }
+        if (currentEnv().terminated) return
         val initializerType = value?.type
         if (initializerType != null) {
             symbols.forEach { symbol ->
