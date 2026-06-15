@@ -753,8 +753,10 @@ internal class AsmTranslator(private val context: AsmContext) {
                     offset += 1
                 }
             } else {
-                addImmediate(t6, source, offset)
-                addImmediate(t3, destination, offset)
+                val srcBase = if (source == t3) { asm.mv(t5, source); t5 } else source
+                val dstBase = if (destination == t6) { asm.mv(t4, destination); t4 } else destination
+                addImmediate(t6, srcBase, offset)
+                addImmediate(t3, dstBase, offset)
                 var chunk = 0
                 val chunkSize = kotlin.math.min(remaining, chunkBytes)
                 while (chunk + registerBytes <= chunkSize) {
@@ -783,8 +785,13 @@ internal class AsmTranslator(private val context: AsmContext) {
         } else if (immediate in -2048..2047) {
             asm.addi(destination, base, immediate)
         } else {
-            asm.li(t6, immediate)
-            asm.add(destination, base, t6)
+            val scratch = when {
+                t6 != destination && t6 != base -> t6
+                t5 != destination && t5 != base -> t5
+                else -> t4
+            }
+            asm.li(scratch, immediate)
+            asm.add(destination, base, scratch)
         }
     }
 
