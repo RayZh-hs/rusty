@@ -366,21 +366,22 @@ internal class AsmTranslator(private val context: AsmContext) {
         val lhs = loadValue(instruction.lhs, t5)
         val rhs = loadValue(instruction.rhs, t6)
         val dst = valueDestinationRegister(instruction, t5)
+        val isI32 = instruction.type is IntegerType && (instruction.type as IntegerType).bitWidth == 32
 
         when (instruction) {
-            is AddInst -> asm.add(dst, lhs, rhs)
-            is SubInst -> asm.sub(dst, lhs, rhs)
-            is MulInst -> asm.mul(dst, lhs, rhs)
-            is SDivInst -> asm.div(dst, lhs, rhs)
-            is UDivInst -> asm.divu(dst, lhs, rhs)
-            is SRemInst -> asm.rem(dst, lhs, rhs)
-            is URemInst -> asm.remu(dst, lhs, rhs)
+            is AddInst -> if (isI32) asm.emit("addw", dst, lhs, rhs) else asm.add(dst, lhs, rhs)
+            is SubInst -> if (isI32) asm.emit("subw", dst, lhs, rhs) else asm.sub(dst, lhs, rhs)
+            is MulInst -> if (isI32) asm.emit("mulw", dst, lhs, rhs) else asm.mul(dst, lhs, rhs)
+            is SDivInst -> if (isI32) asm.emit("divw", dst, lhs, rhs) else asm.div(dst, lhs, rhs)
+            is UDivInst -> if (isI32) asm.emit("divuw", dst, lhs, rhs) else asm.divu(dst, lhs, rhs)
+            is SRemInst -> if (isI32) asm.emit("remw", dst, lhs, rhs) else asm.rem(dst, lhs, rhs)
+            is URemInst -> if (isI32) asm.emit("remuw", dst, lhs, rhs) else asm.remu(dst, lhs, rhs)
             is AndInst -> asm.and(dst, lhs, rhs)
             is OrInst -> asm.or(dst, lhs, rhs)
             is XorInst -> asm.xor(dst, lhs, rhs)
-            is ShlInst -> asm.sll(dst, lhs, rhs)
-            is LShrInst -> asm.srl(dst, lhs, rhs)
-            is AShrInst -> asm.sra(dst, lhs, rhs)
+            is ShlInst -> if (isI32) asm.emit("sllw", dst, lhs, rhs) else asm.sll(dst, lhs, rhs)
+            is LShrInst -> if (isI32) asm.emit("srlw", dst, lhs, rhs) else asm.srl(dst, lhs, rhs)
+            is AShrInst -> if (isI32) asm.emit("sraw", dst, lhs, rhs) else asm.sra(dst, lhs, rhs)
             else -> throw UnsupportedOperationException(
                 "Cannot lower binary ${instruction::class.simpleName} in ${function.name}"
             )
