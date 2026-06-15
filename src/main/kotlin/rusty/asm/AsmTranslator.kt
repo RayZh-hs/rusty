@@ -506,7 +506,8 @@ internal class AsmTranslator(private val context: AsmContext) {
             } else {
                 addressOf(argument, t5)
             }
-            storeRegister(value, addressOfStack(temp, t6))
+            asm.mv(t3, value)
+            storeRegister(t3, addressOfStack(temp, t6))
         }
 
         for (index in instruction.arguments.indices.take(argumentRegisters.size)) {
