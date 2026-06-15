@@ -244,8 +244,9 @@ internal class AsmTranslator(private val context: AsmContext) {
             if (size <= registerBytes) {
                 writeValue(parameter, loaded)
             } else {
+                val safeSrc = if (loaded == t5) { asm.mv(t4, loaded); t4 } else loaded
                 val destination = addressOf(parameter, t6)
-                copyMemory(destination, loaded, size)
+                copyMemory(destination, safeSrc, size)
             }
         }
     }
@@ -319,17 +320,24 @@ internal class AsmTranslator(private val context: AsmContext) {
 
         var currentType = instruction.elementType
         for ((indexPosition, indexValue) in instruction.indices.withIndex()) {
-            val strideAndNext = gepStrideAndNextType(currentType, indexPosition, indexValue)
-            val stride = strideAndNext.first
-            currentType = strideAndNext.second
-            if (stride == 0) continue
+            val step = gepStep(currentType, indexPosition, indexValue)
+            currentType = step.nextType
+            if (step.offsetOrStride == 0) continue
 
             val constantIndex = (indexValue as? IntConstant)?.value
             if (constantIndex != null) {
-                addImmediate(result, result, (constantIndex * stride).toIntExact("gep offset"))
+                val offset = if (step.scaleByIndex) {
+                    constantIndex * step.offsetOrStride
+                } else {
+                    step.offsetOrStride.toLong()
+                }
+                addImmediate(result, result, offset.toIntExact("gep offset"))
             } else {
+                if (!step.scaleByIndex) {
+                    throw UnsupportedOperationException("Dynamic struct GEP index in ${function.name}")
+                }
                 val indexRegister = loadValue(indexValue, t6)
-                asm.li(t5, stride)
+                asm.li(t5, step.offsetOrStride)
                 asm.mul(t5, indexRegister, t5)
                 asm.add(result, result, t5)
             }
@@ -338,31 +346,46 @@ internal class AsmTranslator(private val context: AsmContext) {
         writeValue(instruction, result)
     }
 
-    private fun gepStrideAndNextType(
+    private data class GepStep(
+        val offsetOrStride: Int,
+        val nextType: Type,
+        val scaleByIndex: Boolean,
+    )
+
+    private fun gepStep(
         currentType: Type,
         indexPosition: Int,
         indexValue: Value,
-    ): Pair<Int, Type> {
+    ): GepStep {
         if (indexPosition == 0) {
-            return currentType.sizeBytes(module) to currentType
+            return GepStep(currentType.sizeBytes(module), currentType, scaleByIndex = true)
         }
 
         return when (currentType) {
-            is ArrayType -> currentType.elementType.sizeBytes(module) to currentType.elementType
+            is ArrayType -> GepStep(currentType.elementType.sizeBytes(module), currentType.elementType, scaleByIndex = true)
             is StructType.AnonymousStructType -> {
                 val field = (indexValue as? IntConstant)?.value?.toInt()
                     ?: throw UnsupportedOperationException("Dynamic struct GEP index in ${function.name}")
-                structFieldOffset(currentType.elementTypes, currentType.isPacked, field) to currentType.elementTypes[field]
+                GepStep(
+                    structFieldOffset(currentType.elementTypes, currentType.isPacked, field),
+                    currentType.elementTypes[field],
+                    scaleByIndex = false,
+                )
             }
             is StructType.NamedStructType -> {
                 val field = (indexValue as? IntConstant)?.value?.toInt()
                     ?: throw UnsupportedOperationException("Dynamic struct GEP index in ${function.name}")
-                val fields = (if (currentType.isOpaque()) module.getNamedStructType(currentType.name) else currentType)
-                    ?.elementTypes
+                val resolvedType = (if (currentType.isOpaque()) module.getNamedStructType(currentType.name) else currentType)
                     ?: throw UnsupportedOperationException("Opaque struct GEP for ${currentType.name}")
-                structFieldOffset(fields, currentType.isPacked, field) to fields[field]
+                val fields = resolvedType.elementTypes
+                    ?: throw UnsupportedOperationException("Opaque struct GEP for ${currentType.name}")
+                GepStep(
+                    structFieldOffset(fields, resolvedType.isPacked, field),
+                    fields[field],
+                    scaleByIndex = false,
+                )
             }
-            else -> currentType.sizeBytes(module) to currentType
+            else -> GepStep(currentType.sizeBytes(module), currentType, scaleByIndex = true)
         }
     }
 
@@ -459,22 +482,76 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun emitPhiMoves(from: BasicBlock, to: BasicBlock) {
-        val pending = edgePhiMoves[from to to].orEmpty().toMutableList()
-        while (pending.isNotEmpty()) {
-            val nextIndex = pending.indexOfFirst { (candidatePhi, _) ->
-                val candidateDestination = allocation[candidatePhi]
-                pending.none { (_, incoming) -> incoming !== candidatePhi && allocation[incoming] == candidateDestination }
-            }.takeIf { it >= 0 } ?: 0
+        val moves = edgePhiMoves[from to to].orEmpty()
+        val scalarMoves = moves
+            .filter { (phi, _) -> phi.type.sizeBytes(module) <= registerBytes }
+            .map { (phi, incoming) -> ScalarPhiMove(phi, PhiMoveSource.ValueSource(incoming)) }
+            .toMutableList()
 
-            val (phi, incoming) = pending.removeAt(nextIndex)
-            if (phi.type.sizeBytes(module) <= registerBytes) {
-                val loaded = loadValue(incoming, t5)
-                writeValue(phi, loaded)
-            } else {
-                val phiDest = addressOf(phi, t3)
-                val incomingSrc = addressOf(incoming, t6)
-                copyMemory(phiDest, incomingSrc, phi.type.sizeBytes(module))
+        emitScalarPhiMoves(scalarMoves)
+
+        for ((phi, incoming) in moves) {
+            if (phi.type.sizeBytes(module) <= registerBytes) continue
+            val phiDest = addressOf(phi, t3)
+            val incomingSrc = addressOf(incoming, t6)
+            copyMemory(phiDest, incomingSrc, phi.type.sizeBytes(module))
+        }
+    }
+
+    private sealed class PhiMoveSource {
+        data class ValueSource(val value: Value) : PhiMoveSource()
+        data object ScratchSource : PhiMoveSource()
+    }
+
+    private data class ScalarPhiMove(
+        val phi: PhiNode,
+        var source: PhiMoveSource,
+    )
+
+    private fun emitScalarPhiMoves(pending: MutableList<ScalarPhiMove>) {
+        while (pending.isNotEmpty()) {
+            pending.removeAll { move ->
+                val destination = allocation[move.phi]
+                val source = move.source.slot()
+                destination != null && destination == source
             }
+            if (pending.isEmpty()) return
+
+            val nextIndex = pending.indexOfFirst { candidate ->
+                val destination = allocation[candidate.phi]
+                destination == null || pending.none { other ->
+                    other !== candidate && other.source.slot() == destination
+                }
+            }
+
+            if (nextIndex >= 0) {
+                val move = pending.removeAt(nextIndex)
+                emitScalarPhiMove(move)
+                continue
+            }
+
+            val cycleSlot = allocation.getValue(pending.first().phi)
+            readSlotToRegister(cycleSlot, t3, pending.first().phi.type.sizeBytes(module))
+            for (move in pending) {
+                if (move.source.slot() == cycleSlot) {
+                    move.source = PhiMoveSource.ScratchSource
+                }
+            }
+        }
+    }
+
+    private fun emitScalarPhiMove(move: ScalarPhiMove) {
+        val loaded = when (val source = move.source) {
+            is PhiMoveSource.ValueSource -> loadValue(source.value, t5)
+            PhiMoveSource.ScratchSource -> t3
+        }
+        writeValue(move.phi, loaded)
+    }
+
+    private fun PhiMoveSource.slot(): SavableSlot? {
+        return when (this) {
+            is PhiMoveSource.ValueSource -> allocation[value]
+            PhiMoveSource.ScratchSource -> null
         }
     }
 
@@ -537,7 +614,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
         adjustStack(stackArgumentBytes)
 
-        val returnScratch = if (instruction.producesValue()) t5 else null
+        val returnScratch = if (instruction.producesValue()) t4 else null
         if (instruction.producesValue() && instruction in allocation) {
             asm.mv(returnScratch!!, a0)
         }
@@ -664,6 +741,21 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
     }
 
+    private fun readSlotToRegister(slot: SavableSlot, destination: RvRegister, sizeBytes: Int): RvRegister {
+        when (slot) {
+            is SavableSlot.Register -> {
+                val source = slot.physical.toRv()
+                if (destination != source) asm.mv(destination, source)
+            }
+            is SavableSlot.Stack -> {
+                val obj = frame.objectWithStackSlotId(slot.stackSlotId)
+                    ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
+                loadSized(destination, addressOfStack(obj, t6), sizeBytes)
+            }
+        }
+        return destination
+    }
+
     private fun addressOf(value: Value, scratch: RvRegister): RvRegister {
         return when (value) {
             is AllocaInst -> addressOfStack(allocaObjects.getValue(value), scratch)
@@ -740,49 +832,58 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun copyMemory(destination: RvRegister, source: RvRegister, sizeBytes: Int) {
-        var offset = 0
+        if (sizeBytes == 0 || destination == source) return
+
+        moveCopyPointers(destination, source)
+
+        var remaining = sizeBytes
         val chunkBytes = 2040 / registerBytes * registerBytes
-        while (offset < sizeBytes) {
-            val remaining = sizeBytes - offset
-            if (offset in -2048..2047 && remaining <= chunkBytes) {
-                while (offset + registerBytes <= sizeBytes) {
-                    if (registerBytes == 8) {
-                        asm.emit("ld", t4, mem(offset, source))
-                        asm.emit("sd", t4, mem(offset, destination))
-                    } else {
-                        asm.lw(t4, mem(offset, source))
-                        asm.sw(t4, mem(offset, destination))
-                    }
-                    offset += registerBytes
+        while (remaining > 0) {
+            val chunkSize = kotlin.math.min(remaining, chunkBytes)
+            var chunk = 0
+            while (chunk + registerBytes <= chunkSize) {
+                if (registerBytes == 8) {
+                    asm.emit("ld", t4, mem(chunk, t6))
+                    asm.emit("sd", t4, mem(chunk, t3))
+                } else {
+                    asm.lw(t4, mem(chunk, t6))
+                    asm.sw(t4, mem(chunk, t3))
                 }
-                while (offset < sizeBytes) {
-                    asm.lbu(t4, mem(offset, source))
-                    asm.sb(t4, mem(offset, destination))
-                    offset += 1
-                }
-            } else {
-                val srcBase = if (source == t3) { asm.mv(t5, source); t5 } else source
-                val dstBase = if (destination == t6) { asm.mv(t4, destination); t4 } else destination
-                addImmediate(t3, dstBase, offset)
-                addImmediate(t6, srcBase, offset)
-                var chunk = 0
-                val chunkSize = kotlin.math.min(remaining, chunkBytes)
-                while (chunk + registerBytes <= chunkSize) {
-                    if (registerBytes == 8) {
-                        asm.emit("ld", t4, mem(chunk, t6))
-                        asm.emit("sd", t4, mem(chunk, t3))
-                    } else {
-                        asm.lw(t4, mem(chunk, t6))
-                        asm.sw(t4, mem(chunk, t3))
-                    }
-                    chunk += registerBytes
-                }
-                while (chunk < chunkSize) {
-                    asm.lbu(t4, mem(chunk, t6))
-                    asm.sb(t4, mem(chunk, t3))
-                    chunk += 1
-                }
-                offset += chunk
+                chunk += registerBytes
+            }
+            while (chunk < chunkSize) {
+                asm.lbu(t4, mem(chunk, t6))
+                asm.sb(t4, mem(chunk, t3))
+                chunk += 1
+            }
+
+            remaining -= chunkSize
+            if (remaining > 0) {
+                addImmediate(t3, t3, chunkSize)
+                addImmediate(t6, t6, chunkSize)
+            }
+        }
+    }
+
+    private fun moveCopyPointers(destination: RvRegister, source: RvRegister) {
+        when {
+            destination == t3 && source == t6 -> Unit
+            destination == t6 && source == t3 -> {
+                asm.mv(t5, source)
+                asm.mv(t3, destination)
+                asm.mv(t6, t5)
+            }
+            source == t3 -> {
+                asm.mv(t6, source)
+                if (destination != t3) asm.mv(t3, destination)
+            }
+            destination == t6 -> {
+                asm.mv(t3, destination)
+                if (source != t6) asm.mv(t6, source)
+            }
+            else -> {
+                if (destination != t3) asm.mv(t3, destination)
+                if (source != t6) asm.mv(t6, source)
             }
         }
     }

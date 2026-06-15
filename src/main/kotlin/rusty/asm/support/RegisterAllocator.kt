@@ -59,8 +59,9 @@ object RegisterAllocator {
             return SavableSlot.Stack(nextStackSlotId++)
         }
 
+        val parameters = function.parameters.toSet()
         for (value in candidates) {
-            if (value.sizeInBytes(function, config.registerBytes) > config.registerBytes) {
+            if (value in parameters || value.sizeInBytes(function, config.registerBytes) > config.registerBytes) {
                 forcedStackSlots[value] = nextStackSlot()
             } else {
                 registerCandidates.add(value)

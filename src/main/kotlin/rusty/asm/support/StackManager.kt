@@ -52,7 +52,8 @@ class StackFrame(
     private var usedBytes: Int = 0
 
     fun place(stackObject: StackObject): PlacedStackObject {
-        val end = alignUp(usedBytes + stackObject.sizeBytes, stackObject.alignBytes)
+        val start = alignUp(usedBytes, stackObject.alignBytes)
+        val end = start + stackObject.sizeBytes
         val placed = PlacedStackObject(
             stackObject = stackObject,
             ofStackFrame = this,
@@ -119,7 +120,7 @@ class StackFrame(
     private fun refreshSize() {
         frameSizeBytes = alignUp(usedBytes, alignBytes)
         for (placed in frameObjects) {
-            placed.offsetFromSp = frameSizeBytes + placed.offsetFromFp
+            placed.offsetFromSp = -placed.offsetFromFp - placed.sizeBytes
         }
     }
 }
@@ -176,7 +177,7 @@ class StackManager(
             slots[stackSlot.stackSlotId] = frame.spill(
                 sizeBytes = sizeBytes,
                 alignBytes = layout.alignment,
-                name = value.name,
+                name = value.name?.let { "spill.$it" },
                 stackSlotId = stackSlot.stackSlotId,
             )
         }
