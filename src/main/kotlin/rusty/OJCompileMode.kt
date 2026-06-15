@@ -77,6 +77,7 @@ object OJCompileMode {
         return asm
             .lineSequence()
             .filterNot { it == "\t.addrsig" || it.startsWith("\t.addrsig_sym") }
+            .filterNot { it.startsWith("\t.attribute") }
             .joinToString(separator = "\n")
     }
 

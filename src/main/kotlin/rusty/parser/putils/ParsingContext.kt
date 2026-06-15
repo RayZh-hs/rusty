@@ -73,6 +73,7 @@ data class ParsingContext(
 
     fun peekToken(): Token? = stream.peekOrNull()?.token
     fun peekPointer(): CompilerPointer {
+        if (stream.size == 0) return CompilerPointer(1, 1)
         val pos = stream.cur.coerceIn(0, stream.size - 1)
         val bearer = stream.peekAt(pos)
         return CompilerPointer(bearer.lineNumber, bearer.columnNumber)
