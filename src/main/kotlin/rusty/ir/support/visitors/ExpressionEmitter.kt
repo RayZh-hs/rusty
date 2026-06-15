@@ -772,7 +772,10 @@ class ExpressionEmitter(
                 val zero = BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType)
                 GeneratedValue(env.bodyBuilder.insertSub(zero, expr.value, temp("neg")), expr.type)
             }
-            Token.O_NOT -> GeneratedValue(env.bodyBuilder.insertNot(expr.value, temp("not")), expr.type)
+            Token.O_NOT -> {
+                val zero = BuilderUtils.getIntConstant(0, expr.value.type as IntegerType)
+                GeneratedValue(env.bodyBuilder.insertICmp(IcmpPredicate.EQ, expr.value, zero, temp("not")), expr.type)
+            }
             else -> expr
         }
     }
