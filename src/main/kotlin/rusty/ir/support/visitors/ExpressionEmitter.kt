@@ -812,8 +812,32 @@ class ExpressionEmitter(
                 )
                 GeneratedValue(inner.value, referenceType)
             }
-            else -> null
+            else -> emitRValueReference(base, cachedType, node.isMut)
         }
+    }
+
+    private fun emitRValueReference(
+        base: ExpressionNode,
+        resolvedType: SemanticType.ReferenceType?,
+        isMut: Boolean,
+    ): GeneratedValue? {
+        val value = emitExpression(base) ?: return null
+        val targetType = resolvedType?.type?.getOrNull()
+            ?: ctx.expressionTypeMemory.recall(base) { value.type }
+        if (targetType.isUnitDerived()) return null
+
+        val pointerValue = if (targetType.requiresAggregateStorageCopy()) {
+            value.value
+        } else {
+            val slot = currentEnv().allocaBuilder.insertAlloca(targetType.toIRType(), temp("ref.tmp"))
+            currentEnv().bodyBuilder.insertStore(value.value, slot)
+            slot
+        }
+        val referenceType = resolvedType ?: SemanticType.ReferenceType(
+            rusty.core.utils.Slot(targetType),
+            rusty.core.utils.Slot(isMut)
+        )
+        return GeneratedValue(pointerValue, referenceType)
     }
 
     private fun emitPathReference(

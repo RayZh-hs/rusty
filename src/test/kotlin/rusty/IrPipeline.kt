@@ -30,8 +30,19 @@ object IrPipeline {
     fun resolveClangArgs(): List<String> = splitArgs(System.getProperty(PROP_CLANG_ARGS))
     fun resolveQemuBinary(): String = System.getProperty(PROP_QEMU_PATH) ?: "qemu-riscv64"
     fun resolveQemuArgs(): List<String> = splitArgs(System.getProperty(PROP_QEMU_ARGS))
-    fun resolveQemuSysroot(): String? = System.getProperty(PROP_QEMU_SYSROOT)?.takeIf { it.isNotBlank() }
+    fun resolveQemuSysroot(): String? =
+        System.getProperty(PROP_QEMU_SYSROOT)?.takeIf { it.isNotBlank() } ?: discoveredRiscvSysroot
     fun resolveQemuClangTarget(): String = System.getProperty(PROP_QEMU_CLANG_TARGET) ?: "riscv64-linux-gnu"
+
+    private val discoveredRiscvSysroot: String? by lazy {
+        val gccBinary = "${resolveQemuClangTarget()}-gcc"
+        if (!commandAvailable(gccBinary)) return@lazy null
+        val result = runProcess(listOf(gccBinary, "-print-sysroot"))
+        if (result.exitCode != 0) return@lazy null
+        result.output.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && it != "/" }
+    }
 
     private fun preludeCSource(): Path =
         Paths.get("src", "main", "kotlin", "rusty", "ir", "prelude", "prelude.c")
@@ -151,6 +162,7 @@ object IrPipeline {
             add("--target=${resolveQemuClangTarget()}")
             add("-march=${RiscvTargetConfig.LINUX_ARCH}")
             add("-mabi=${RiscvTargetConfig.LINUX_ABI}")
+            resolveQemuSysroot()?.let { add("--sysroot=$it") }
             addAll(resolveClangArgs())
             addAll(extraArgs)
             addAll(inputFiles.map(Path::toString))
