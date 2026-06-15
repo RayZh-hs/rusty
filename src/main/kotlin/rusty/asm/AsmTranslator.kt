@@ -289,22 +289,26 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun lowerLoad(instruction: LoadInst) {
         val size = instruction.loadedType.sizeBytes(module)
-        val source = addressOf(instruction.pointer, t6)
         if (size <= registerBytes) {
+            val source = addressOf(instruction.pointer, t6)
             val loaded = loadSized(t5, source, size)
             writeValue(instruction, loaded)
         } else {
-            copyMemory(addressOf(instruction, t5), source, size)
+            val destination = addressOf(instruction, t3)
+            val source = addressOf(instruction.pointer, t6)
+            copyMemory(destination, source, size)
         }
     }
 
     private fun lowerStore(instruction: StoreInst) {
         val size = instruction.storedType.sizeBytes(module)
-        val destination = addressOf(instruction.pointer, t6)
         if (size <= registerBytes) {
-            storeSized(loadValue(instruction.value, t5), destination, size)
+            val value = loadValue(instruction.value, t4)
+            storeSized(value, addressOf(instruction.pointer, t6), size)
         } else {
-            copyMemory(destination, addressOf(instruction.value, t5), size)
+            val destination = addressOf(instruction.pointer, t3)
+            val source = addressOf(instruction.value, t6)
+            copyMemory(destination, source, size)
         }
     }
 
@@ -363,9 +367,9 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerBinary(instruction: BinaryInst) {
-        val lhs = loadValue(instruction.lhs, t5)
-        val rhs = loadValue(instruction.rhs, t6)
-        val dst = valueDestinationRegister(instruction, t5)
+        val lhs = loadValue(instruction.lhs, t4)
+        val rhs = loadValue(instruction.rhs, t5)
+        val dst = valueDestinationRegister(instruction, t6)
         val isI32 = instruction.type is IntegerType && (instruction.type as IntegerType).bitWidth == 32
 
         when (instruction) {
@@ -391,9 +395,9 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerIcmp(instruction: ICmpInst) {
-        val lhs = loadValue(instruction.lhs, t5)
-        val rhs = loadValue(instruction.rhs, t6)
-        val dst = valueDestinationRegister(instruction, t5)
+        val lhs = loadValue(instruction.lhs, t4)
+        val rhs = loadValue(instruction.rhs, t5)
+        val dst = valueDestinationRegister(instruction, t6)
 
         when (instruction.predicate.name) {
             "EQ" -> {
@@ -467,7 +471,9 @@ internal class AsmTranslator(private val context: AsmContext) {
                 val loaded = loadValue(incoming, t5)
                 writeValue(phi, loaded)
             } else {
-                copyMemory(addressOf(phi, t6), addressOf(incoming, t5), phi.type.sizeBytes(module))
+                val phiDest = addressOf(phi, t3)
+                val incomingSrc = addressOf(incoming, t6)
+                copyMemory(phiDest, incomingSrc, phi.type.sizeBytes(module))
             }
         }
     }
@@ -650,7 +656,8 @@ internal class AsmTranslator(private val context: AsmContext) {
                 val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                     ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
                 val addressScratch = if (source == t4) t6 else t4
-                storeSized(source, addressOfStack(obj, addressScratch), value.type.sizeBytes(module))
+                val safeSource = if (source == t6) { asm.mv(t3, source); t3 } else source
+                storeSized(safeSource, addressOfStack(obj, addressScratch), value.type.sizeBytes(module))
             }
             null -> Unit
         }
@@ -755,8 +762,8 @@ internal class AsmTranslator(private val context: AsmContext) {
             } else {
                 val srcBase = if (source == t3) { asm.mv(t5, source); t5 } else source
                 val dstBase = if (destination == t6) { asm.mv(t4, destination); t4 } else destination
-                addImmediate(t6, srcBase, offset)
                 addImmediate(t3, dstBase, offset)
+                addImmediate(t6, srcBase, offset)
                 var chunk = 0
                 val chunkSize = kotlin.math.min(remaining, chunkBytes)
                 while (chunk + registerBytes <= chunkSize) {
