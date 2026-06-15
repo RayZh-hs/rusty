@@ -732,20 +732,47 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun copyMemory(destination: RvRegister, source: RvRegister, sizeBytes: Int) {
         var offset = 0
-        while (offset + registerBytes <= sizeBytes) {
-            if (registerBytes == 8) {
-                asm.emit("ld", t4, mem(offset, source))
-                asm.emit("sd", t4, mem(offset, destination))
-            } else {
-                asm.lw(t4, mem(offset, source))
-                asm.sw(t4, mem(offset, destination))
-            }
-            offset += registerBytes
-        }
+        val chunkBytes = 2040 / registerBytes * registerBytes
         while (offset < sizeBytes) {
-            asm.lbu(t4, mem(offset, source))
-            asm.sb(t4, mem(offset, destination))
-            offset += 1
+            val remaining = sizeBytes - offset
+            if (offset in -2048..2047 && remaining <= chunkBytes) {
+                while (offset + registerBytes <= sizeBytes) {
+                    if (registerBytes == 8) {
+                        asm.emit("ld", t4, mem(offset, source))
+                        asm.emit("sd", t4, mem(offset, destination))
+                    } else {
+                        asm.lw(t4, mem(offset, source))
+                        asm.sw(t4, mem(offset, destination))
+                    }
+                    offset += registerBytes
+                }
+                while (offset < sizeBytes) {
+                    asm.lbu(t4, mem(offset, source))
+                    asm.sb(t4, mem(offset, destination))
+                    offset += 1
+                }
+            } else {
+                addImmediate(t6, source, offset)
+                addImmediate(t3, destination, offset)
+                var chunk = 0
+                val chunkSize = kotlin.math.min(remaining, chunkBytes)
+                while (chunk + registerBytes <= chunkSize) {
+                    if (registerBytes == 8) {
+                        asm.emit("ld", t4, mem(chunk, t6))
+                        asm.emit("sd", t4, mem(chunk, t3))
+                    } else {
+                        asm.lw(t4, mem(chunk, t6))
+                        asm.sw(t4, mem(chunk, t3))
+                    }
+                    chunk += registerBytes
+                }
+                while (chunk < chunkSize) {
+                    asm.lbu(t4, mem(chunk, t6))
+                    asm.sb(t4, mem(chunk, t3))
+                    chunk += 1
+                }
+                offset += chunk
+            }
         }
     }
 
