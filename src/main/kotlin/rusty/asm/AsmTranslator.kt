@@ -225,22 +225,40 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun moveParametersToAllocatedLocations() {
-        for ((index, parameter) in function.parameters.withIndex()) {
-            val incoming = if (index < argumentRegisters.size) {
+        for ((index, _) in function.parameters.withIndex()) {
+            val src = if (index < argumentRegisters.size) {
                 argumentRegisters[index]
             } else {
                 val offset = frame.frameSizeBytes + (index - argumentRegisters.size) * registerBytes
                 loadRegister(t4, stackArgumentAddress(offset, t6))
                 t4
             }
+            val saveTemp = resolveCallArgTemp(frame, index)
+            storeRegister(src, addressOfStack(saveTemp, t6))
+        }
+
+        for ((index, parameter) in function.parameters.withIndex()) {
+            val temp = resolveCallArgTemp(frame, index)
+            val loaded = loadRegisterScratch(temp)
             val size = parameter.type.sizeBytes(module)
             if (size <= registerBytes) {
-                writeValue(parameter, incoming)
+                writeValue(parameter, loaded)
             } else {
                 val destination = addressOf(parameter, t6)
-                copyMemory(destination, incoming, size)
+                copyMemory(destination, loaded, size)
             }
         }
+    }
+
+    private fun resolveCallArgTemp(frame: StackFrame, index: Int): PlacedStackObject {
+        val name = callArgumentTempName(index)
+        return frame.objectWithName(name)
+            ?: frame.temp(sizeBytes = registerBytes, alignBytes = registerBytes, name = name)
+    }
+
+    private fun loadRegisterScratch(temp: PlacedStackObject): RvRegister {
+        loadRegister(t5, addressOfStack(temp, t6))
+        return t5
     }
 
     private fun lowerInstruction(instruction: Instruction) {

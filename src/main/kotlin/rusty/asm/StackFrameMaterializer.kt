@@ -17,7 +17,7 @@ internal object StackFrameMaterializer {
             val frame = asmContext.stackManager.getStackFrame(function)
             asmContext.stackManager.materializeSpills(function, allocation, registerBytes)
             materializeAllocas(function, frame, registerBytes)
-            materializeSavedRegisters(function, frame, allocation)
+            materializeSavedRegisters(function, frame, allocation, registerBytes)
         }
     }
 
@@ -40,6 +40,7 @@ internal object StackFrameMaterializer {
         function: Function,
         frame: StackFrame,
         allocation: Map<Value, SavableSlot>,
+        registerBytes: Int,
     ) {
         val allocatedCalleeSaved = allocation.values
             .asSequence()
@@ -54,11 +55,14 @@ internal object StackFrameMaterializer {
             }
         }
 
-        if (function.containsCall() && frame.objectWithName("ra") == null) {
+        val needsArgTemps = function.parameters.isNotEmpty()
+        val hasCalls = function.containsCall()
+
+        if (hasCalls && frame.objectWithName("ra") == null) {
             frame.save(rusty.asm.utils.Register.RA)
         }
 
-        if (function.containsCall()) {
+        if (hasCalls) {
             val allocatedCallerSaved = allocation.values
                 .asSequence()
                 .filterIsInstance<SavableSlot.Register>()
@@ -69,18 +73,23 @@ internal object StackFrameMaterializer {
             for (register in allocatedCallerSaved) {
                 val name = register.callSaveTempName()
                 if (frame.objectWithName(name) == null) {
-                    frame.temp(sizeBytes = 4, alignBytes = 4, name = name)
+                    frame.temp(sizeBytes = registerBytes, alignBytes = registerBytes, name = name)
                 }
             }
+        }
 
-            val maxCallArguments = function.instructions()
-                .filterIsInstance<CallInst>()
-                .maxOfOrNull { it.arguments.size }
-                ?: 0
+        if (hasCalls || needsArgTemps) {
+            val maxCallArguments = maxOf(
+                function.parameters.size,
+                function.instructions()
+                    .filterIsInstance<CallInst>()
+                    .maxOfOrNull { it.arguments.size }
+                    ?: 0,
+            )
             for (index in 0 until maxCallArguments) {
                 val name = callArgumentTempName(index)
                 if (frame.objectWithName(name) == null) {
-                    frame.temp(sizeBytes = 4, alignBytes = 4, name = name)
+                    frame.temp(sizeBytes = registerBytes, alignBytes = registerBytes, name = name)
                 }
             }
         }
