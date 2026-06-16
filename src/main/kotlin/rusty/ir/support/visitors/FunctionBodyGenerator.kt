@@ -220,7 +220,8 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val deferAggregateCall = callInitializer != null &&
             symbols.size == 1 &&
             (expectedType?.requiresAggregateValueCopy() == true ||
-                symbols.single().type.getOrNull()?.requiresAggregateValueCopy() == true)
+                symbols.single().type.getOrNull()?.requiresAggregateValueCopy() == true) &&
+            exprEmitter.canEmitCallInto(callInitializer)
         val value = if (deferAggregateCall) {
             null
         } else {

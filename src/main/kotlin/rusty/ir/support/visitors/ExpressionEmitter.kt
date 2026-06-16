@@ -358,35 +358,46 @@ class ExpressionEmitter(
         returnDestination: Value,
     ): GeneratedValue? = emitCall(node, returnDestination)
 
+    fun canEmitCallInto(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): Boolean {
+        val symbol = when (val callee = node.callee) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
+                resolvePathFunctionSymbol(callee) { it.selfParam.getOrNull() == null }
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
+                val calleeType = ctx.expressionTypeMemory.recall(callee) { SemanticType.UnitType }
+                val builtinHeader = calleeType as? SemanticType.FunctionHeader
+                if (builtinHeader != null && builtinHeader.identifier == "to_string") {
+                    return false
+                }
+                val baseType = ctx.expressionTypeMemory
+                    .recall(callee.base) { SemanticType.UnitType }
+                    .unwrapReferences()
+                resolveFunction(callee.field) { fn ->
+                    val selfType = fn.selfParam.getOrNull()?.type?.getOrNull()?.unwrapReferences()
+                    selfType != null && selfType == baseType
+                }
+            }
+            else -> null
+        } ?: return false
+
+        val plan = IRContext.functionPlans[symbol] ?: return false
+        return plan.returnsByPointer
+    }
+
     private fun emitCall(
         node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode,
         returnDestination: Value? = null,
     ): GeneratedValue? {
         val callee = node.callee
-
-        data class Target(val symbol: SemanticSymbol.Function, val selfArg: space.norb.llvm.core.Value?)
-
-        val target: Target = when (callee) {
-            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
-                val symbol = resolvePathFunctionSymbol(callee) { it.selfParam.getOrNull() == null } ?: return null
-                Target(symbol, null)
-            }
-            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
-                val calleeType = ctx.expressionTypeMemory.recall(callee) { SemanticType.UnitType }
+        if (callee is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode) {
+            val calleeType = ctx.expressionTypeMemory.recall(callee) { SemanticType.UnitType }
+            val builtinHeader = calleeType as? SemanticType.FunctionHeader
+            if (builtinHeader != null && builtinHeader.identifier == "to_string") {
                 val baseValue = emitExpression(callee.base) ?: return null
-                val builtinHeader = calleeType as? SemanticType.FunctionHeader
-                if (builtinHeader != null && builtinHeader.identifier == "to_string") {
-                    return emitBuiltinToString(callee.base, baseValue)
-                }
-                val (selfValue, baseType) = prepareMethodReceiver(callee.base, baseValue)
-                val symbol = resolveFunction(callee.field) { fn ->
-                    val selfType = fn.selfParam.getOrNull()?.type?.getOrNull()?.unwrapReferences()
-                    selfType != null && selfType == baseType
-                } ?: return null
-                Target(symbol, selfValue.value)
+                return emitBuiltinToString(callee.base, baseValue)
             }
-            else -> return null
         }
+
+        val target = resolveCallTarget(node) ?: return null
 
         val plan = IRContext.functionPlans[target.symbol] ?: return null
         val fn = IRContext.functionLookup[target.symbol] ?: return null
@@ -442,6 +453,34 @@ class ExpressionEmitter(
         val callInstName = temp("call")
         val callInst = env.bodyBuilder.insertCall(fn, callArgs, callInstName)
         return GeneratedValue(callInst, plan.returnType)
+    }
+
+    private data class CallTarget(val symbol: SemanticSymbol.Function, val selfArg: Value?)
+
+    private fun resolveCallTarget(
+        node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode,
+    ): CallTarget? {
+        return when (val callee = node.callee) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+                val symbol = resolvePathFunctionSymbol(callee) { it.selfParam.getOrNull() == null } ?: return null
+                CallTarget(symbol, null)
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
+                val calleeType = ctx.expressionTypeMemory.recall(callee) { SemanticType.UnitType }
+                val baseValue = emitExpression(callee.base) ?: return null
+                val builtinHeader = calleeType as? SemanticType.FunctionHeader
+                if (builtinHeader != null && builtinHeader.identifier == "to_string") {
+                    return null
+                }
+                val (selfValue, baseType) = prepareMethodReceiver(callee.base, baseValue)
+                val symbol = resolveFunction(callee.field) { fn ->
+                    val selfType = fn.selfParam.getOrNull()?.type?.getOrNull()?.unwrapReferences()
+                    selfType != null && selfType == baseType
+                } ?: return null
+                CallTarget(symbol, selfValue.value)
+            }
+            else -> null
+        }
     }
 
     private fun prepareCallArguments(
