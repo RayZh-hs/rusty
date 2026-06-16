@@ -293,46 +293,45 @@ object Mem2RegPass : IRPass() {
         dominanceInfo: FunctionDominanceInfo,
         blockOrder: Map<BasicBlockId, Int>
     ) {
-        val block = BasicBlock.fromId(blockId) ?: return
-        var value = phiNodes[blockId] ?: currentValue
+        data class RenameFrame(val blockId: BasicBlockId, val incomingValue: Value?)
 
-        for (instruction in block.instructions.toList()) {
-            when (instruction) {
-                alloca -> instructionsToRemove.add(instruction)
-                is LoadInst -> if (instruction.pointer == alloca) {
-                    val replacement = value
-                        ?: error("Load from ${alloca.name} is not definitely initialized in block ${block.name}")
-                    loadReplacements[instruction] = replacement
-                    instructionsToRemove.add(instruction)
-                }
-                is StoreInst -> if (instruction.pointer == alloca) {
-                    value = loadReplacements[instruction.value as? LoadInst] ?: instruction.value
-                    instructionsToRemove.add(instruction)
+        val stack = ArrayDeque<RenameFrame>()
+        stack.addLast(RenameFrame(blockId, currentValue))
+
+        while (stack.isNotEmpty()) {
+            val frame = stack.removeLast()
+            val block = BasicBlock.fromId(frame.blockId) ?: continue
+            var value = phiNodes[frame.blockId] ?: frame.incomingValue
+
+            for (instruction in block.instructions.toList()) {
+                when (instruction) {
+                    alloca -> instructionsToRemove.add(instruction)
+                    is LoadInst -> if (instruction.pointer == alloca) {
+                        val replacement = value
+                            ?: error("Load from ${alloca.name} is not definitely initialized in block ${block.name}")
+                        loadReplacements[instruction] = replacement
+                        instructionsToRemove.add(instruction)
+                    }
+                    is StoreInst -> if (instruction.pointer == alloca) {
+                        value = loadReplacements[instruction.value as? LoadInst] ?: instruction.value
+                        instructionsToRemove.add(instruction)
+                    }
                 }
             }
-        }
 
-        for (successor in block.getSuccessors()) {
-            val phi = phiNodes[successor.id] ?: continue
-            val incoming = value
-                ?: error("Phi node for ${alloca.name} in block ${successor.name} requires an undefined value from ${block.name}")
-            phi.addIncomingMutable(incoming, block)
-        }
+            for (successor in block.getSuccessors()) {
+                val phi = phiNodes[successor.id] ?: continue
+                val incoming = value
+                    ?: error("Phi node for ${alloca.name} in block ${successor.name} requires an undefined value from ${block.name}")
+                phi.addIncomingMutable(incoming, block)
+            }
 
-        val children = dominanceInfo.treeChildren[blockId]
-            .orEmpty()
-            .sortedBy { blockOrder[it] ?: Int.MAX_VALUE }
-        for (child in children) {
-            renamePromotedValue(
-                blockId = child,
-                currentValue = value,
-                alloca = alloca,
-                phiNodes = phiNodes,
-                loadReplacements = loadReplacements,
-                instructionsToRemove = instructionsToRemove,
-                dominanceInfo = dominanceInfo,
-                blockOrder = blockOrder
-            )
+            val children = dominanceInfo.treeChildren[frame.blockId]
+                .orEmpty()
+                .sortedByDescending { blockOrder[it] ?: Int.MAX_VALUE }
+            for (child in children) {
+                stack.addLast(RenameFrame(child, value))
+            }
         }
     }
 
