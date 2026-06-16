@@ -256,12 +256,15 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
             if (slot != null && deferAggregateCall && resolvedType?.requiresAggregateValueCopy() == true) {
+                val aggregateCallInitializer = requireNotNull(callInitializer) {
+                    "Aggregate call initializer missing for ${sym.identifier}"
+                }
                 val storageType = resolvedType.unwrapReferences().toStorageIRType()
                 val storageAlloca = env.allocaBuilder.insertAlloca(
                     storageType,
                     Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                 )
-                val generated = exprEmitter.emitCallInto(callInitializer, storageAlloca)
+                val generated = exprEmitter.emitCallInto(aggregateCallInitializer, storageAlloca)
                     ?: throw IllegalStateException("Aggregate call initializer did not produce a value for ${sym.identifier}")
                 env.bodyBuilder.insertStore(generated.value, slot)
             } else if (slot != null && value != null) {

@@ -102,3 +102,25 @@ To exercise the official IR suites (tagged and skipped by default), run:
 ```
 
 Pass `-DirNoClang=true` to skip the clang/link/run phase when you only want IR emission.
+
+### Profiling rv64/qemu runtime
+
+To measure official IR-1 testcase runtime on rv64 under qemu, excluding compiler
+and link time, run:
+
+```bash
+python3 scripts/profile_ir1_rv64.py
+```
+
+The profiler builds each testcase once for `--emit ir` and `--emit opt`, links
+the rv64 executable, checks the testcase output, then times repeated
+`qemu-riscv64` executions. Reports are written to
+`build/ir1-rv64-profile/reports/profile.md` and `profile.csv`.
+
+Useful options:
+
+```bash
+python3 scripts/profile_ir1_rv64.py --runs 10 --warmups 2
+python3 scripts/profile_ir1_rv64.py --case comprehensive1 --case comprehensive2
+python3 scripts/profile_ir1_rv64.py --mode opt --timeout 60
+```
