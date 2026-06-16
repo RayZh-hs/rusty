@@ -353,7 +353,15 @@ class ExpressionEmitter(
         return GeneratedValue(destPtr, arrayType)
     }
 
-    private fun emitCall(node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode): GeneratedValue? {
+    fun emitCallInto(
+        node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode,
+        returnDestination: Value,
+    ): GeneratedValue? = emitCall(node, returnDestination)
+
+    private fun emitCall(
+        node: ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode,
+        returnDestination: Value? = null,
+    ): GeneratedValue? {
         val callee = node.callee
 
         data class Target(val symbol: SemanticSymbol.Function, val selfArg: space.norb.llvm.core.Value?)
@@ -402,7 +410,8 @@ class ExpressionEmitter(
 
         var retSlot: Value? = null
         if (plan.returnsByPointer) {
-            retSlot = env.allocaBuilder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.slot"))
+            retSlot = returnDestination
+                ?: env.allocaBuilder.insertAlloca(plan.returnType.toStorageIRType(), temp("ret.slot"))
             plan.retParamIndex?.let { idx ->
                 while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
                 callArgs.add(idx, retSlot)

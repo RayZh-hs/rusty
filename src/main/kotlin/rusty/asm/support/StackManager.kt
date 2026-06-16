@@ -2,6 +2,7 @@ package rusty.asm.support
 
 import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
+import space.norb.llvm.instructions.memory.AllocaInst
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function
 import space.norb.llvm.utils.computeLayout
@@ -20,6 +21,7 @@ data class StackObject(
     val name: String? = null,
     val savedRegister: Register? = null,
     val stackSlotId: Int? = null,
+    val alloca: AllocaInst? = null,
 )
 
 class PlacedStackObject(
@@ -85,8 +87,13 @@ class StackFrame(
         return place(StackObject(StackObjectKind.LoweringTemp, sizeBytes, alignBytes, name))
     }
 
-    fun alloca(sizeBytes: Int, alignBytes: Int, name: String? = null): PlacedStackObject {
-        return place(StackObject(StackObjectKind.Alloca, sizeBytes, alignBytes, name))
+    fun alloca(
+        sizeBytes: Int,
+        alignBytes: Int,
+        name: String? = null,
+        alloca: AllocaInst? = null,
+    ): PlacedStackObject {
+        return place(StackObject(StackObjectKind.Alloca, sizeBytes, alignBytes, name, alloca = alloca))
     }
 
     fun save(
@@ -115,6 +122,10 @@ class StackFrame(
 
     fun objectWithStackSlotId(id: Int): PlacedStackObject? {
         return frameObjects.firstOrNull { it.stackObject.stackSlotId == id }
+    }
+
+    fun objectForAlloca(alloca: AllocaInst): PlacedStackObject? {
+        return frameObjects.firstOrNull { it.stackObject.alloca === alloca }
     }
 
     private fun refreshSize() {

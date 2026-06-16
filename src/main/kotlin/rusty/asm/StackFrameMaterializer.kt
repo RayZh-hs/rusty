@@ -24,7 +24,7 @@ internal object StackFrameMaterializer {
     private fun materializeAllocas(function: Function, frame: StackFrame, registerBytes: Int) {
         for ((index, alloca) in function.instructions().filterIsInstance<AllocaInst>().withIndex()) {
             val name = alloca.stackObjectName(index)
-            if (frame.objectWithName(name) != null) continue
+            if (frame.objectForAlloca(alloca) != null) continue
 
             val layout = alloca.allocatedType.computeLayout(function.module, pointerWidthBits = registerBytes * 8)
             val count = alloca.constantArraySize()
@@ -32,6 +32,7 @@ internal object StackFrameMaterializer {
                 sizeBytes = (layout.sizeInBytes * count).toIntExact("alloca $name"),
                 alignBytes = layout.alignment,
                 name = name,
+                alloca = alloca,
             )
         }
     }

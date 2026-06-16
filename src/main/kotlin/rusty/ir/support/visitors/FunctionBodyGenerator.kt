@@ -22,6 +22,7 @@ import space.norb.llvm.builder.IRBuilder
 import space.norb.llvm.enums.LinkageType
 import space.norb.llvm.types.TypeUtils
 import rusty.core.CompilerPointer
+import rusty.parser.nodes.ExpressionNode
 
 class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
     private val staticResolver = StaticResolverCompanion(ctx, SelfResolverCompanion())
@@ -215,9 +216,18 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             expectedType ?: SemanticType.WildcardType,
             currentScope()
         )
-        val value = node.expressionNode?.let { exprEmitter.emitExpression(it) }
+        val callInitializer = node.expressionNode as? ExpressionNode.WithoutBlockExpressionNode.CallExpressionNode
+        val deferAggregateCall = callInitializer != null &&
+            symbols.size == 1 &&
+            (expectedType?.requiresAggregateValueCopy() == true ||
+                symbols.single().type.getOrNull()?.requiresAggregateValueCopy() == true)
+        val value = if (deferAggregateCall) {
+            null
+        } else {
+            node.expressionNode?.let { exprEmitter.emitExpression(it) }
+        }
         if (currentEnv().terminated) return
-        val initializerType = value?.type
+        val initializerType = value?.type ?: expectedType
         if (initializerType != null) {
             symbols.forEach { symbol ->
                 when (val current = symbol.type.getOrNull()) {
@@ -244,7 +254,16 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             
             val slot = declareVariable(sym)
             insertLetComment(node.pointer, sym.identifier)
-            if (slot != null && value != null) {
+            if (slot != null && deferAggregateCall && resolvedType?.requiresAggregateValueCopy() == true) {
+                val storageType = resolvedType.unwrapReferences().toStorageIRType()
+                val storageAlloca = env.allocaBuilder.insertAlloca(
+                    storageType,
+                    Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
+                )
+                val generated = exprEmitter.emitCallInto(callInitializer, storageAlloca)
+                    ?: throw IllegalStateException("Aggregate call initializer did not produce a value for ${sym.identifier}")
+                env.bodyBuilder.insertStore(generated.value, slot)
+            } else if (slot != null && value != null) {
                 val generated = value
                 if (resolvedType != null && resolvedType.requiresAggregateValueCopy()) {
                     val storageType = resolvedType.unwrapReferences().toStorageIRType()

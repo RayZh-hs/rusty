@@ -186,12 +186,13 @@ internal class AsmTranslator(private val context: AsmContext) {
         val result = linkedMapOf<AllocaInst, PlacedStackObject>()
         for ((index, alloca) in fn.instructions().filterIsInstance<AllocaInst>().withIndex()) {
             val name = alloca.stackObjectName(index)
-            result[alloca] = frame.objectWithName(name)
+            result[alloca] = frame.objectForAlloca(alloca)
                 ?: frame.alloca(
                     sizeBytes = (alloca.allocatedType.sizeBytes(module).toLong() * alloca.constantArraySize())
                         .toIntExact("alloca $name"),
                     alignBytes = alloca.allocatedType.computeLayout(module, pointerWidthBits).alignment,
                     name = name,
+                    alloca = alloca,
                 )
         }
         return result

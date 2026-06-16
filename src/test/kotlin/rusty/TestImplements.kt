@@ -52,6 +52,12 @@ class ManualIrTests : IrValidationTestBase() {
 	override val baseResourcePath: String = "ir"
 }
 
+@Tag("asm")
+@Tag("manual")
+class ManualAsmTests : AsmValidationTestBase() {
+	override val baseResourcePath: String = "asm"
+}
+
 @Tag("lexer")
 @Tag("manual")
 class ManualLexerTests: ExitValidationTestBase(TestMode.LEXER) {
