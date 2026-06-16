@@ -73,9 +73,6 @@ object SmallMemcopyLoweringPass : IRPass() {
             block.instructions.removeAt(index)
             block.instructions.add(index, store)
             block.instructions.add(index, load)
-            removeDeadBitcast(copy.sourcePtr, block)
-            removeDeadBitcast(copy.destPtr, block)
-            removeDeadMemfillWrapper(function.module)
             changed = true
             index += 2
         }
@@ -105,24 +102,6 @@ object SmallMemcopyLoweringPass : IRPass() {
 
     private fun Value.asIntConstant(): Int? =
         (this as? IntConstant)?.value?.toInt()
-
-    private fun removeDeadBitcast(value: Value, block: BasicBlock) {
-        val inst = value as? Instruction ?: return
-        if (inst.hasUses()) return
-        block.instructions.remove(inst)
-    }
-
-    private fun removeDeadMemfillWrapper(module: Module) {
-        val memfill = module.functions.firstOrNull { it.name == MEMFILL_NAME } ?: return
-        val hasUses = module.functions.any { function ->
-            function.basicBlocks.any { block ->
-                block.instructions.any { inst -> inst is CallInst && inst.callee == memfill }
-            }
-        }
-        if (!hasUses) {
-            module.functions.remove(memfill)
-        }
-    }
 
     private data class SmallMemcpy(
         val destPtr: Value,
