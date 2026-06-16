@@ -499,23 +499,14 @@ class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false):
                 }
             }
 
-            fun ensureReachable(stmt: StatementNode) {
-                if (flowTerminated && stmt !is StatementNode.ItemStatementNode) {
-                    throw CompileError("Unreachable code after calling exit()")
-                        .with(stmt).at(stmt.pointer)
-                }
-            }
-
             // iterate through all statements
             for (stmt in node.statements) {
                 when (stmt) {
                     is StatementNode.ExpressionStatementNode -> {
-                        ensureReachable(stmt)
                         val exprType = resolveExpression(stmt.expression)
                         markTerminated(exprType)
                     }
                     is StatementNode.LetStatementNode -> {
-                        ensureReachable(stmt)
                         val expectedType = when (stmt.typeNode) {
                             null -> SemanticType.WildcardType
                             else -> resolveType(stmt.typeNode)
@@ -544,9 +535,7 @@ class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false):
                         }
                     }
                     is StatementNode.ItemStatementNode -> visit(stmt.item)
-                    is StatementNode.NullStatementNode -> {
-                        ensureReachable(stmt)
-                    }
+                    is StatementNode.NullStatementNode -> Unit
                 }
             }
             // handle trailing expression
@@ -590,12 +579,12 @@ class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false):
                 }
                 else -> {
                     if (flowTerminated) {
-                        throw CompileError("Unreachable trailing expression after calling exit()")
-                            .with(node.trailingExpression).at(node.trailingExpression.pointer)
+                        SemanticType.ExitType
+                    } else {
+                        val type = resolveExpression(node.trailingExpression)
+                        markTerminated(type)
+                        type
                     }
-                    val type = resolveExpression(node.trailingExpression)
-                    markTerminated(type)
-                    type
                 }
             }
         }

@@ -722,7 +722,7 @@ class ExpressionEmitter(
                 } else {
                     env.bodyBuilder.insertSRem(lhsValue, rhs.value, temp("rem"))
                 }
-                else -> TODO("Compound assignment operator $op not yet supported")
+                else -> throw IllegalStateException("Unexpected assignment operator $op")
             }
             env.bodyBuilder.insertStore(result, lhsPtr)
             // (REFACTORED) Compound assignment returns unit (void), so return null
