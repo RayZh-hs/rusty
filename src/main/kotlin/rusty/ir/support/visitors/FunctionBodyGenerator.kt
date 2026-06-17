@@ -145,6 +145,9 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
             storageType,
             (nameOverride ?: Name.ofVariable(symbol, env.renamer)).identifier
         )
+        if (symbolType !is SemanticType.ReferenceType) {
+            exprEmitter.recordPointerProvenance(slot, "local:${System.identityHashCode(symbol)}")
+        }
         env.locals.last()[symbol] = slot
         return slot
     }
@@ -161,6 +164,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
         val slot = env.findLocalSlot(symbol)
             ?: throw IllegalStateException("Variable ${symbol.identifier} not bound in IR generation")
         val loaded = env.bodyBuilder.insertLoad(symbolType.toIRType(), slot, Name.ofVariable(symbol, env.renamer).identifier)
+        exprEmitter.pointerProvenance(slot)?.let { exprEmitter.recordPointerProvenance(loaded, it) }
         return GeneratedValue(loaded, symbolType)
     }
 
@@ -264,9 +268,12 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                     storageType,
                     Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                 )
+                exprEmitter.recordPointerProvenance(storageAlloca, "local:${System.identityHashCode(sym)}")
                 val generated = exprEmitter.emitCallInto(aggregateCallInitializer, storageAlloca)
                     ?: throw IllegalStateException("Aggregate call initializer did not produce a value for ${sym.identifier}")
                 env.bodyBuilder.insertStore(generated.value, slot)
+                exprEmitter.recordPointerProvenance(slot, "local:${System.identityHashCode(sym)}")
+                exprEmitter.recordPointerProvenance(generated.value, "local:${System.identityHashCode(sym)}")
             } else if (slot != null && value != null) {
                 val generated = value
                 if (resolvedType != null && resolvedType.requiresAggregateValueCopy()) {
@@ -275,6 +282,7 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                         storageType,
                         Name.auxTemp("${sym.identifier}.storage", env.renamer).identifier
                     )
+                    exprEmitter.recordPointerProvenance(storageAlloca, "local:${System.identityHashCode(sym)}")
                     // Use memcpy for aggregate types to avoid LLVM crashes with large structs
                     exprEmitter.copyAggregate(
                         resolvedType.unwrapReferences(),
@@ -283,8 +291,13 @@ class FunctionBodyGenerator(ctx: SemanticContext) : ScopeAwareVisitorBase(ctx) {
                         "${sym.identifier}.copy"
                     )
                     env.bodyBuilder.insertStore(storageAlloca, slot)
+                    exprEmitter.recordPointerProvenance(slot, "local:${System.identityHashCode(sym)}")
+                    exprEmitter.recordPointerProvenance(storageAlloca, "local:${System.identityHashCode(sym)}")
                 } else {
                     env.bodyBuilder.insertStore(generated.value, slot)
+                    if (resolvedType !is SemanticType.ReferenceType) {
+                        exprEmitter.recordPointerProvenance(slot, "local:${System.identityHashCode(sym)}")
+                    }
                 }
             }
         }

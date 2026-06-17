@@ -114,6 +114,11 @@ object RegisterAllocator {
             }
         }
 
+        // Parameters are all materialized from ABI argument locations at function entry.
+        // Even if their later live ranges do not overlap, assigning two used parameters
+        // to the same register would make eager entry moves overwrite one input value.
+        connectAll(function.parameters.toSet())
+
         for (block in function.basicBlocks) {
             connectAll(blockLiveness.liveInTable[block.id].orEmpty())
             connectAll(blockLiveness.liveOutTable[block.id].orEmpty())

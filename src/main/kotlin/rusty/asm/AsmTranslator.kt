@@ -8,6 +8,8 @@ import rusty.asm.utils.SavableSlot
 import rusty.asm.utils.calleeSavedRegisters
 import rusty.asm.utils.callerSavedRegisters
 import rusty.asm.utils.Register
+import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import space.norb.llvm.core.Type
 import space.norb.llvm.core.Value
 import space.norb.llvm.instructions.base.BinaryInst
@@ -42,11 +44,13 @@ import space.norb.llvm.instructions.other.PhiNode
 import space.norb.llvm.instructions.terminators.BranchInst
 import space.norb.llvm.instructions.terminators.ReturnInst
 import space.norb.llvm.structure.BasicBlock
+import space.norb.llvm.structure.BasicBlockId
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
 import space.norb.llvm.structure.Argument
 import space.norb.llvm.types.ArrayType
 import space.norb.llvm.types.IntegerType
+import space.norb.llvm.types.PointerType
 import space.norb.llvm.types.StructType
 import space.norb.llvm.types.VoidType
 import space.norb.llvm.utils.computeLayout
@@ -54,6 +58,7 @@ import space.norb.llvm.values.constants.ArrayConstant
 import space.norb.llvm.values.constants.IntConstant
 import space.norb.llvm.values.constants.NullPointerConstant
 import space.norb.llvm.values.globals.GlobalVariable
+import space.norb.llvm.values.MDString
 import space.norb.riscv.*
 import space.norb.riscv.Register as RvRegister
 
@@ -70,12 +75,18 @@ internal class AsmTranslator(private val context: AsmContext) {
     private lateinit var blockLabels: Map<BasicBlock, String>
     private lateinit var edgePhiMoves: Map<Pair<BasicBlock, BasicBlock>, List<Pair<PhiNode, Value>>>
     private lateinit var cachedFields: Map<GetElementPtrInst, CachedField>
+    private lateinit var cachedFieldAvailability: Map<Instruction, Set<FieldAddressKey>>
+    private lateinit var noAliasArgumentPairs: Set<Pair<Argument, Argument>>
 
     private data class CachedField(
         val gep: GetElementPtrInst,
+        val key: FieldAddressKey,
         val savedRegister: Register,
         val register: RvRegister,
         val sizeBytes: Int,
+        val dirty: Boolean,
+        val hasLoad: Boolean,
+        val initializeAt: Instruction?,
     )
 
     fun translate(): String {
@@ -164,7 +175,9 @@ internal class AsmTranslator(private val context: AsmContext) {
         blockLabels = fn.basicBlocks.associateWith { block -> "${fn.asmName()}.${block.asmName()}" }
         edgePhiMoves = buildEdgePhiMoves(fn)
         allocaObjects = collectAllocaObjects(fn)
+        noAliasArgumentPairs = proveNoAliasArgumentPairs(fn)
         cachedFields = planCachedFields(fn)
+        cachedFieldAvailability = analyzeCachedFieldAvailability(fn)
 
         asm.global(fn.asmName())
         asm.type(fn.asmName(), "@function")
@@ -217,14 +230,24 @@ internal class AsmTranslator(private val context: AsmContext) {
 
         val canonical = linkedMapOf<FieldAddressKey, GetElementPtrInst>()
         val useCounts = linkedMapOf<FieldAddressKey, Int>()
+        val hasStore = linkedMapOf<FieldAddressKey, Boolean>()
+        val hasLoad = linkedMapOf<FieldAddressKey, Boolean>()
         val geps = fn.instructions().filterIsInstance<GetElementPtrInst>().toList()
+        val dominanceInfo = context.analysisManager.get(DominatorTreeAnalysis::class).getFunctionInfo(fn)
 
         for (gep in geps) {
             val key = fieldAddressKey(gep) ?: continue
             if (!isCacheableFieldUse(gep)) continue
+            if (key.base is AllocaInst && !hasOnlyCacheableFieldUses(key.base)) continue
             canonical.putIfAbsent(key, gep)
             useCounts[key] = (useCounts[key] ?: 0) + gep.getUses().count { user ->
                 (user is LoadInst && user.pointer == gep) || (user is StoreInst && user.pointer == gep)
+            }
+            hasStore[key] = hasStore[key] == true || gep.getUses().any { user ->
+                user is StoreInst && user.pointer == gep
+            }
+            hasLoad[key] = hasLoad[key] == true || gep.getUses().any { user ->
+                user is LoadInst && user.pointer == gep
             }
         }
 
@@ -236,6 +259,7 @@ internal class AsmTranslator(private val context: AsmContext) {
 
         val selected = useCounts.entries
             .filter { (_, count) -> count >= 2 }
+            .filter { (key, _) -> key.base is AllocaInst || findDominatingCachedLoad(key, geps, dominanceInfo) != null }
             .sortedByDescending { it.value }
             .take(available.size)
             .map { it.key to canonical.getValue(it.key) }
@@ -249,14 +273,160 @@ internal class AsmTranslator(private val context: AsmContext) {
             val key = fieldAddressKey(gep) ?: continue
             if (key !in selectedKeys) continue
             val register = registerByKey.getValue(key)
+            val keyHasLoad = hasLoad[key] == true
             result[gep] = CachedField(
                 gep = canonical.getValue(key),
+                key = key,
                 savedRegister = register,
                 register = register.toRv(),
                 sizeBytes = gep.getFinalElementType().sizeBytes(module),
+                dirty = hasStore[key] == true,
+                hasLoad = keyHasLoad,
+                initializeAt = if (key.base is AllocaInst) null else findDominatingCachedLoad(key, geps, dominanceInfo),
             )
         }
         return result
+    }
+
+    private fun analyzeCachedFieldAvailability(fn: Function): Map<Instruction, Set<FieldAddressKey>> {
+        val keys = cachedFields.values.map { it.key }.toSet()
+        if (keys.isEmpty()) return emptyMap()
+
+        val entryAvailable = keys.filterTo(linkedSetOf()) { it.base is AllocaInst }
+        val predecessors = fn.basicBlocks.associateWith { block -> mutableListOf<BasicBlock>() }
+        for (block in fn.basicBlocks) {
+            for (successor in block.getSuccessors()) {
+                predecessors.getValue(successor).add(block)
+            }
+        }
+
+        val inSets = fn.basicBlocks.associateWith { linkedSetOf<FieldAddressKey>() }.toMutableMap()
+        val outSets = fn.basicBlocks.associateWith { linkedSetOf<FieldAddressKey>() }.toMutableMap()
+        inSets[fn.basicBlocks.first()] = entryAvailable
+
+        var changed: Boolean
+        do {
+            changed = false
+            for (block in fn.basicBlocks) {
+                val nextIn = if (block === fn.basicBlocks.first()) {
+                    entryAvailable
+                } else {
+                    val preds = predecessors.getValue(block)
+                    if (preds.isEmpty()) {
+                        linkedSetOf()
+                    } else {
+                        preds.map { outSets.getValue(it) }
+                            .reduce { acc, set -> acc.intersect(set).toCollection(linkedSetOf()) }
+                    }
+                }
+                if (inSets.getValue(block) != nextIn) {
+                    inSets[block] = nextIn
+                    changed = true
+                }
+
+                val nextOut = transferCachedAvailability(block, nextIn)
+                if (outSets.getValue(block) != nextOut) {
+                    outSets[block] = nextOut
+                    changed = true
+                }
+            }
+        } while (changed)
+
+        val result = linkedMapOf<Instruction, Set<FieldAddressKey>>()
+        for (block in fn.basicBlocks) {
+            var available = inSets.getValue(block)
+            for (instruction in block.instructionsIncludingTerminator()) {
+                result[instruction] = available
+                available = transferCachedAvailability(instruction, available)
+            }
+        }
+        return result
+    }
+
+    private fun transferCachedAvailability(
+        block: BasicBlock,
+        input: Set<FieldAddressKey>,
+    ): LinkedHashSet<FieldAddressKey> {
+        var available = input.toCollection(linkedSetOf())
+        for (instruction in block.instructionsIncludingTerminator()) {
+            available = transferCachedAvailability(instruction, available)
+        }
+        return available
+    }
+
+    private fun transferCachedAvailability(
+        instruction: Instruction,
+        input: Set<FieldAddressKey>,
+    ): LinkedHashSet<FieldAddressKey> {
+        val available = input.toCollection(linkedSetOf())
+        when (instruction) {
+            is LoadInst -> cachedFields[instruction.pointer]?.let { available.add(it.key) }
+            is StoreInst -> {
+                val cached = cachedFields[instruction.pointer]
+                for (field in cachedFields.values.distinctBy { it.key }) {
+                    if (mayAliasCachedField(field, instruction.pointer)) {
+                        available.remove(field.key)
+                    }
+                }
+                if (cached != null) available.add(cached.key)
+            }
+            is CallInst -> available.clear()
+        }
+        return available
+    }
+
+    private fun findDominatingCachedLoad(
+        key: FieldAddressKey,
+        geps: List<GetElementPtrInst>,
+        dominanceInfo: FunctionDominanceInfo?,
+    ): LoadInst? {
+        if (dominanceInfo == null) return null
+        val loads = cachedMemoryUsers(key, geps).filterIsInstance<LoadInst>()
+        val firstLoad = loads.minWithOrNull(compareBy<LoadInst> { instructionOrder(it) })
+            ?: return null
+        val users = cachedMemoryUsers(key, geps)
+        return if (users.all { dominates(firstLoad, it, dominanceInfo) }) firstLoad else null
+    }
+
+    private fun cachedMemoryUsers(key: FieldAddressKey, geps: List<GetElementPtrInst>): List<Instruction> {
+        return geps
+            .filter { fieldAddressKey(it) == key }
+            .flatMap { gep ->
+                gep.getUses().filterIsInstance<Instruction>().filter { user ->
+                    (user is LoadInst && user.pointer == gep) || (user is StoreInst && user.pointer == gep)
+                }
+            }
+    }
+
+    private fun dominates(
+        dominator: Instruction,
+        dominated: Instruction,
+        dominanceInfo: FunctionDominanceInfo,
+    ): Boolean {
+        val dominatorBlock = dominator.getParent() as? BasicBlock ?: return false
+        val dominatedBlock = dominated.getParent() as? BasicBlock ?: return false
+        if (dominatorBlock === dominatedBlock) {
+            val instructions = dominatorBlock.instructionsIncludingTerminator().toList()
+            return instructions.indexOf(dominator) <= instructions.indexOf(dominated)
+        }
+
+        var current: BasicBlockId? = dominatedBlock.id
+        while (current != null) {
+            if (current == dominatorBlock.id) return true
+            current = dominanceInfo.immediateDominators[current]
+        }
+        return false
+    }
+
+    private fun instructionOrder(instruction: Instruction): Int {
+        var order = 0
+        for (block in function.basicBlocks) {
+            for (candidate in block.instructionsIncludingTerminator()) {
+                if (candidate === instruction) return order
+                order += 1
+            }
+        }
+        return Int.MAX_VALUE
     }
 
     private data class FieldAddressKey(
@@ -266,7 +436,7 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun fieldAddressKey(gep: GetElementPtrInst): FieldAddressKey? {
         if (gep.getFinalElementType().sizeBytes(module) > registerBytes) return null
-        if (gep.pointer !is Argument && gep.pointer !is AllocaInst) return null
+        val base = canonicalFieldBase(gep.pointer) ?: return null
 
         val indices = gep.indices
         if (indices.size < 2) return null
@@ -277,7 +447,16 @@ internal class AsmTranslator(private val context: AsmContext) {
             (index as? IntConstant)?.value ?: return null
         }
         if (path.isEmpty()) return null
-        return FieldAddressKey(gep.pointer, path)
+        return FieldAddressKey(base, path)
+    }
+
+    private fun canonicalFieldBase(value: Value): Value? {
+        if (value is Argument || value is AllocaInst) return value
+        val load = value as? LoadInst ?: return null
+        val alloca = load.pointer as? AllocaInst ?: return null
+        val stores = alloca.getUses().filterIsInstance<StoreInst>().filter { it.pointer == alloca }
+        if (stores.size != 1) return null
+        return stores.single().value as? Argument
     }
 
     private fun isCacheableFieldUse(gep: GetElementPtrInst): Boolean {
@@ -287,6 +466,12 @@ internal class AsmTranslator(private val context: AsmContext) {
                 is StoreInst -> user.pointer == gep && user.storedType.sizeBytes(module) <= registerBytes
                 else -> false
             }
+        }
+    }
+
+    private fun hasOnlyCacheableFieldUses(alloca: AllocaInst): Boolean {
+        return alloca.getUses().isNotEmpty() && alloca.getUses().all { user ->
+            user is GetElementPtrInst && user.pointer == alloca && fieldAddressKey(user) != null && isCacheableFieldUse(user)
         }
     }
 
@@ -300,14 +485,132 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun initializeCachedFields() {
         for (field in cachedFields.values.distinctBy { it.gep }) {
+            if (field.key.base !is AllocaInst) continue
+            if (!field.hasLoad) continue
             loadSized(field.register, emitGepAddress(field.gep, t6), field.sizeBytes)
         }
     }
 
     private fun flushCachedFields() {
-        for (field in cachedFields.values.distinctBy { it.gep }) {
+        for (field in cachedFields.values.distinctBy { it.gep }.filter { it.dirty }) {
             storeSized(field.register, emitGepAddress(field.gep, t6), field.sizeBytes)
         }
+    }
+
+    private fun reloadCachedFieldsAliasedBy(pointer: Value, except: CachedField? = null) {
+        for (field in cachedFields.values.distinctBy { it.gep }) {
+            if (!field.hasLoad || field == except) continue
+            if (mayAliasCachedField(field, pointer)) {
+                loadSized(field.register, emitGepAddress(field.gep, t6), field.sizeBytes)
+            }
+        }
+    }
+
+    private fun mayAliasCachedField(field: CachedField, pointer: Value): Boolean {
+        val storeKey = (pointer as? GetElementPtrInst)?.let { fieldAddressKey(it) }
+        if (storeKey != null) {
+            if (!mayAliasBase(field.key.base, storeKey.base)) return false
+            if (field.key.base === storeKey.base && field.key.indices != storeKey.indices) return false
+            return true
+        }
+
+        val root = pointerRoot(pointer)
+        if (root != null) {
+            return mayAliasBase(field.key.base, root)
+        }
+
+        return field.key.base is Argument
+    }
+
+    private fun pointerRoot(value: Value): Value? {
+        return when (value) {
+            is AllocaInst, is Argument, is GlobalVariable -> value
+            is GetElementPtrInst -> pointerRoot(value.pointer)
+            is BitcastInst -> pointerRoot(value.value)
+            else -> null
+        }
+    }
+
+    private fun mayAliasBase(lhs: Value, rhs: Value): Boolean {
+        if (lhs === rhs) return true
+        if (lhs is AllocaInst || rhs is AllocaInst) return false
+        if (lhs is Argument && rhs is Argument && argumentsProvenNoAlias(lhs, rhs)) return false
+        return true
+    }
+
+    private fun argumentsProvenNoAlias(lhs: Argument, rhs: Argument): Boolean {
+        return lhs to rhs in noAliasArgumentPairs || rhs to lhs in noAliasArgumentPairs
+    }
+
+    private fun proveNoAliasArgumentPairs(fn: Function): Set<Pair<Argument, Argument>> {
+        val pointerArgs = fn.parameters
+            .mapIndexedNotNull { index, argument -> if (argument.type is PointerType) index to argument else null }
+        if (pointerArgs.size < 2) return emptySet()
+
+        val callSites = module.functions
+            .asSequence()
+            .filter { it.hasBody() }
+            .flatMap { it.instructions() }
+            .filterIsInstance<CallInst>()
+            .filter { it.callee === fn }
+            .toList()
+        if (callSites.isEmpty()) return emptySet()
+
+        val result = linkedSetOf<Pair<Argument, Argument>>()
+        for (i in pointerArgs.indices) {
+            for (j in i + 1 until pointerArgs.size) {
+                val (lhsIndex, lhsArg) = pointerArgs[i]
+                val (rhsIndex, rhsArg) = pointerArgs[j]
+                if (callSites.all { call ->
+                        val provenance = call.pointerArgumentProvenance()
+                        val lhs = provenance[lhsIndex]
+                        val rhs = provenance[rhsIndex]
+                        lhs != null && rhs != null && provenNoAliasProvenance(lhs, rhs)
+                    }
+                ) {
+                    result.add(lhsArg to rhsArg)
+                }
+            }
+        }
+        return result
+    }
+
+    private fun provenNoAliasProvenance(lhs: String, rhs: String): Boolean {
+        val lhsPath = PointerProvenancePath.parse(lhs) ?: return false
+        val rhsPath = PointerProvenancePath.parse(rhs) ?: return false
+        if (lhsPath.root != rhsPath.root) return true
+        val commonLength = minOf(lhsPath.fields.size, rhsPath.fields.size)
+        for (index in 0 until commonLength) {
+            if (lhsPath.fields[index] != rhsPath.fields[index]) return true
+        }
+        return false
+    }
+
+    private data class PointerProvenancePath(
+        val root: String,
+        val fields: List<Int>,
+    ) {
+        companion object {
+            fun parse(value: String): PointerProvenancePath? {
+                val parts = value.split('.')
+                val root = parts.firstOrNull()?.takeIf { it.isNotBlank() } ?: return null
+                val fields = parts.drop(1).map { it.toIntOrNull() ?: return null }
+                return PointerProvenancePath(root, fields)
+            }
+        }
+    }
+
+    private fun CallInst.pointerArgumentProvenance(): Map<Int, String> {
+        val encoded = (getMetadata("rx.ptr.args") as? MDString)?.value ?: return emptyMap()
+        return encoded
+            .split(';')
+            .mapNotNull { entry ->
+                val separator = entry.indexOf(':')
+                if (separator <= 0) return@mapNotNull null
+                val index = entry.substring(0, separator).toIntOrNull() ?: return@mapNotNull null
+                index to entry.substring(separator + 1)
+            }
+            .toMap()
     }
 
     private fun emitPrologue() {
@@ -456,6 +759,10 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerLoad(instruction: LoadInst) {
         val cached = cachedFields[instruction.pointer]
         if (cached != null && instruction.loadedType.sizeBytes(module) <= registerBytes) {
+            val available = cached.key in cachedFieldAvailability[instruction].orEmpty()
+            if (!available) {
+                loadSized(cached.register, emitGepAddress(cached.gep, t6), cached.sizeBytes)
+            }
             writeValue(instruction, cached.register)
             return
         }
@@ -477,6 +784,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         if (cached != null && instruction.storedType.sizeBytes(module) <= registerBytes) {
             val value = loadValue(instruction.value, t4)
             if (cached.register != value) asm.mv(cached.register, value)
+            storeSized(cached.register, emitGepAddress(cached.gep, t6), cached.sizeBytes)
             return
         }
 
@@ -798,7 +1106,6 @@ internal class AsmTranslator(private val context: AsmContext) {
                 throw UnsupportedOperationException("Direct aggregate returns are not lowered yet in ${function.name}")
             }
         }
-        flushCachedFields()
         emitEpilogue()
     }
 

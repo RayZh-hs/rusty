@@ -2,6 +2,7 @@ package rusty.opt
 
 import rusty.opt.passes.SizeInliningPass
 import rusty.opt.passes.LoopInvariantCodeMotionPass
+import rusty.opt.passes.PointerSlotForwardingPass
 import rusty.opt.passes.ScalarReplacementOfAggregatesPass
 import rusty.opt.passes.SmallMemcopyLoweringPass
 import space.norb.llvm.instructions.base.TerminatorInst
@@ -22,6 +23,7 @@ object IROptimizer {
     private val passes: List<IRPass> = listOf(
         SizeInliningPass,
         SmallMemcopyLoweringPass,
+        PointerSlotForwardingPass,
         ScalarReplacementOfAggregatesPass,
         Mem2RegPass,
         LoopInvariantCodeMotionPass,

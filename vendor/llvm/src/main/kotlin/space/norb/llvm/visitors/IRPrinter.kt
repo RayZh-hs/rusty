@@ -91,8 +91,11 @@ class IRPrinter : IRVisitor<Unit> {
 
     private fun formatMetadata(capable: MetadataCapable, includeComma: Boolean = false): String {
         if (!capable.hasMetadata()) return ""
+        val printableMetadata = capable.getAllMetadata().entries
+            .filterNot { (kind, _) -> kind.startsWith("rx.") }
+        if (printableMetadata.isEmpty()) return ""
         val prefix = if (includeComma) ", " else " "
-        return prefix + capable.getAllMetadata().entries.joinToString(", ") { (kind, md) ->
+        return prefix + printableMetadata.joinToString(", ") { (kind, md) ->
             "!$kind ${md.toIRString()}"
         }
     }

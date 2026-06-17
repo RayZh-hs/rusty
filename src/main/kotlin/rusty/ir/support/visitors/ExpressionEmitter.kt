@@ -27,9 +27,12 @@ import space.norb.llvm.structure.Function
 import space.norb.llvm.types.ArrayType
 import space.norb.llvm.types.FunctionType
 import space.norb.llvm.types.IntegerType
+import space.norb.llvm.types.PointerType
 import space.norb.llvm.types.TypeUtils
 import space.norb.llvm.values.constants.ArrayConstant
+import space.norb.llvm.values.MDString
 import rusty.core.CompilerPointer
+import java.util.IdentityHashMap
 import kotlin.sequences.generateSequence
 
 class ExpressionEmitter(
@@ -43,6 +46,8 @@ class ExpressionEmitter(
     private val currentEnv: () -> FunctionEnvironment,
     private val addBlockComment: (CompilerPointer, String) -> Unit,
 ) {
+    private val pointerProvenance = IdentityHashMap<Value, String>()
+
     private val controlFlowEmitter = ControlFlowEmitter(
         ctx = ctx,
         emitExpr = { emitExpression(it) },
@@ -404,19 +409,23 @@ class ExpressionEmitter(
 
         val env = currentEnv()
         val argumentValues = node.arguments.mapIndexed { index, argument ->
-            emitExpression(argument)
+            val value = emitExpression(argument)
                 ?: throw IllegalStateException(
                     "Failed to emit argument ${index + 1} for ${plan.name.identifier} " +
                         "at ${node.pointer.line}:${node.pointer.column}"
                 )
+            derivePointerProvenance(argument)?.let { pointerProvenance[value.value] = it }
+            value
         }
         val normalizedArgs = prepareCallArguments(argumentValues, target.symbol)
         val callArgs = mutableListOf<Value>()
+        val callArgProvenance = mutableMapOf<Int, String>()
 
         plan.selfParamIndex?.let { idx ->
             while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
             val self = target.selfArg ?: BuilderUtils.getNullPointer(TypeUtils.PTR)
             callArgs.add(idx, self)
+            pointerProvenanceOf(self)?.let { callArgProvenance[idx] = it }
         }
 
         var retSlot: Value? = null
@@ -426,9 +435,14 @@ class ExpressionEmitter(
             plan.retParamIndex?.let { idx ->
                 while (callArgs.size < idx) callArgs.add(BuilderUtils.getNullPointer(TypeUtils.PTR))
                 callArgs.add(idx, retSlot)
+                pointerProvenanceOf(retSlot)?.let { callArgProvenance[idx] = it }
             }
         }
+        val firstNormalIndex = callArgs.size
         callArgs.addAll(normalizedArgs)
+        normalizedArgs.forEachIndexed { index, value ->
+            pointerProvenanceOf(value)?.let { callArgProvenance[firstNormalIndex + index] = it }
+        }
 
         val expectedArgs = plan.type.paramTypes.size
         require(callArgs.size == expectedArgs) {
@@ -436,9 +450,14 @@ class ExpressionEmitter(
         }
 
         // (REFACTORED) Handle void-returning functions differently
+        val pointerCallArgProvenance = callArgProvenance.filterKeys { index ->
+            plan.type.paramTypes[index] is PointerType
+        }
+
         if (plan.returnsByPointer) {
             // Functions returning by pointer now return void, use insertVoidCall
-            env.bodyBuilder.insertVoidCall(fn, callArgs)
+            val call = env.bodyBuilder.insertVoidCall(fn, callArgs)
+            attachCallPointerProvenance(call, pointerCallArgProvenance)
             val slot = retSlot
                 ?: throw IllegalStateException("Return slot missing for pointer-returning call ${plan.name.identifier}")
             return GeneratedValue(slot, plan.returnType)
@@ -446,13 +465,72 @@ class ExpressionEmitter(
         
         // Check if the return type is void (UnitType or NeverType)
         if (plan.returnType.isUnitDerived()) {
-            env.bodyBuilder.insertVoidCall(fn, callArgs)
+            val call = env.bodyBuilder.insertVoidCall(fn, callArgs)
+            attachCallPointerProvenance(call, pointerCallArgProvenance)
             return null  // Void functions don't produce a value
         }
         
         val callInstName = temp("call")
         val callInst = env.bodyBuilder.insertCall(fn, callArgs, callInstName)
+        attachCallPointerProvenance(callInst, pointerCallArgProvenance)
         return GeneratedValue(callInst, plan.returnType)
+    }
+
+    private fun attachCallPointerProvenance(call: space.norb.llvm.instructions.other.CallInst, provenance: Map<Int, String>) {
+        if (provenance.isEmpty()) return
+        val encoded = provenance.entries
+            .sortedBy { it.key }
+            .joinToString(";") { (index, root) -> "$index:$root" }
+        call.setMetadata("rx.ptr.args", MDString(encoded))
+    }
+
+    private fun pointerProvenanceOf(value: Value): String? {
+        pointerProvenance[value]?.let { return it }
+        val load = value as? space.norb.llvm.instructions.memory.LoadInst ?: return null
+        return pointerProvenance[load.pointer]
+    }
+
+    private fun derivePointerProvenance(node: ExpressionNode): String? {
+        return when (node) {
+            is ExpressionNode.WithoutBlockExpressionNode.ReferenceExpressionNode ->
+                deriveLValueProvenance(node.expr)
+            else -> null
+        }
+    }
+
+    private fun deriveLValueProvenance(node: ExpressionNode): String? {
+        return when (node) {
+            is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode -> {
+                val symbol = resolvePathVariable(node) ?: return null
+                val type = symbol.type.getOrNull() ?: return null
+                when (type) {
+                    is SemanticType.ReferenceType -> null
+                    else -> "local:${System.identityHashCode(symbol)}"
+                }
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
+                val base = deriveLValueProvenance(node.base) ?: return null
+                val fieldIndex = fieldIndexOf(node) ?: return null
+                "$base.$fieldIndex"
+            }
+            is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode ->
+                deriveLValueProvenance(node.base)
+            else -> null
+        }
+    }
+
+    private fun resolvePathVariable(node: ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode): SemanticSymbol.Variable? {
+        val name = node.pathInExpressionNode.path.firstOrNull()?.name ?: return null
+        return currentEnv().findLocalSymbol(name)
+            ?: sequentialLookup(name, scopeMaintainer.currentScope) { it.variableST }?.symbol as? SemanticSymbol.Variable
+    }
+
+    private fun fieldIndexOf(node: ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode): Int? {
+        val baseType = ctx.expressionTypeMemory.recall(node.base) { SemanticType.UnitType }.unwrapReferences()
+        val structType = baseType as? SemanticType.StructType ?: return null
+        val structSymbol = sequentialLookup(structType.identifier, scopeMaintainer.currentScope) { it.typeST }?.symbol
+            as? SemanticSymbol.Struct ?: return null
+        return structSymbol.fields.keys.toList().indexOf(node.field).takeIf { it >= 0 }
     }
 
     private data class CallTarget(val symbol: SemanticSymbol.Function, val selfArg: Value?)
@@ -516,7 +594,9 @@ class ExpressionEmitter(
             temp("arg$index.copy.load")
         )
         env.bodyBuilder.insertStore(copiedValue, tempAlloca)
-        return env.bodyBuilder.insertBitcast(tempAlloca, TypeUtils.PTR, temp("arg$index.copy.ptr"))
+        val copiedPointer = env.bodyBuilder.insertBitcast(tempAlloca, TypeUtils.PTR, temp("arg$index.copy.ptr"))
+        pointerProvenance[copiedPointer] = "argcopy:${System.identityHashCode(tempAlloca)}"
+        return copiedPointer
     }
 
     private fun prepareMethodReceiver(
@@ -838,9 +918,12 @@ class ExpressionEmitter(
 
         return when (val base = node.expr) {
             is ExpressionNode.WithoutBlockExpressionNode.PathExpressionNode ->
-                emitPathReference(base, cachedType, node.isMut)
+                emitPathReference(base, cachedType, node.isMut)?.also { generated ->
+                    deriveLValueProvenance(base)?.let { pointerProvenance[generated.value] = it }
+                }
             is ExpressionNode.WithoutBlockExpressionNode.FieldExpressionNode -> {
                 val (ptr, fieldType) = emitFieldPointer(base) ?: return null
+                deriveLValueProvenance(base)?.let { pointerProvenance[ptr] = it }
                 val referenceType = cachedType ?: SemanticType.ReferenceType(
                     rusty.core.utils.Slot(fieldType),
                     rusty.core.utils.Slot(node.isMut)
@@ -849,6 +932,7 @@ class ExpressionEmitter(
             }
             is ExpressionNode.WithoutBlockExpressionNode.IndexExpressionNode -> {
                 val (ptr, elementType) = emitIndexPointer(base) ?: return null
+                deriveLValueProvenance(base)?.let { pointerProvenance[ptr] = it }
                 val referenceType = cachedType ?: SemanticType.ReferenceType(
                     rusty.core.utils.Slot(elementType),
                     rusty.core.utils.Slot(node.isMut)
@@ -884,6 +968,7 @@ class ExpressionEmitter(
             currentEnv().bodyBuilder.insertStore(value.value, slot)
             slot
         }
+        pointerProvenance[pointerValue] = pointerProvenance[pointerValue] ?: "fresh:${System.identityHashCode(pointerValue)}"
         val referenceType = resolvedType ?: SemanticType.ReferenceType(
             rusty.core.utils.Slot(targetType),
             rusty.core.utils.Slot(isMut)
@@ -917,6 +1002,15 @@ class ExpressionEmitter(
                 temp("addr.load")
             )
             else -> slot
+        }
+        val provenance = if (symbolType is SemanticType.ReferenceType) {
+            pointerProvenance[slot]
+        } else {
+            "local:${System.identityHashCode(symbol)}"
+        }
+        if (provenance != null) {
+            pointerProvenance[pointerValue] = provenance
+            pointerProvenance[slot] = provenance
         }
         val referenceType = resolvedType ?: SemanticType.ReferenceType(symbol.type, rusty.core.utils.Slot(isMut))
         return GeneratedValue(pointerValue, referenceType)
@@ -1048,6 +1142,7 @@ class ExpressionEmitter(
             ),
             temp("${node.field}.addr")
         )
+        pointerProvenance[resolvedBase.value]?.let { pointerProvenance[gep] = "$it.$fieldIndex" }
         return Pair(gep, fieldType)
     }
 
@@ -1067,6 +1162,7 @@ class ExpressionEmitter(
             ),
             temp("index.addr")
         )
+        pointerProvenance[resolvedBase.value]?.let { pointerProvenance[gep] = it }
         return Pair(gep, elementType)
     }
 
@@ -1173,6 +1269,12 @@ class ExpressionEmitter(
         val one = BuilderUtils.getIntConstant(1, TypeUtils.I32 as IntegerType)
         callMemfill(destPtrCast, srcPtrCast, size, one)
     }
+
+    fun recordPointerProvenance(value: Value, provenance: String) {
+        pointerProvenance[value] = provenance
+    }
+
+    fun pointerProvenance(value: Value): String? = pointerProvenanceOf(value)
 
     private fun callMemfill(
         destPtr: Value,
