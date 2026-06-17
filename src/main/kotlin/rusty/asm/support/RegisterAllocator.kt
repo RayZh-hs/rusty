@@ -4,12 +4,18 @@ import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
 import rusty.asm.containsCall
 import rusty.asm.hasBody
+import rusty.asm.instructionsIncludingTerminator
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.InstructionLivenessAnalysis
 import space.norb.llvm.analysis.presets.InstructionLivenessLookup
+import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
+import space.norb.llvm.analysis.presets.BlockLivenessLookup
 import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.analysis.presets.UseDefChain
 import space.norb.llvm.core.Value
+import space.norb.llvm.instructions.base.Instruction
+import space.norb.llvm.instructions.other.PhiNode
+import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
 import space.norb.llvm.types.VoidType
@@ -19,6 +25,7 @@ object RegisterAllocator {
     data class Config(
         val allocatableRegisters: List<Register> = defaultAllocatableRegisters,
         val registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
+        val linearScanThreshold: Int = 512,
     )
 
     val defaultAllocatableRegisters: List<Register> =
@@ -45,9 +52,6 @@ object RegisterAllocator {
         require(config.allocatableRegisters.isNotEmpty()) { "At least one allocatable register is required" }
         require(config.registerBytes > 0) { "Register size must be positive" }
 
-        val useDef = analysisManager.get(UseDefAnalysis::class)
-        val instructionLiveness = analysisManager.get(InstructionLivenessAnalysis::class)
-
         val candidates = collectCandidates(function)
         val forcedStackSlots = linkedMapOf<Value, SavableSlot.Stack>()
         val registerCandidates = LinkedHashSet<Value>()
@@ -69,8 +73,15 @@ object RegisterAllocator {
             }
         }
 
-        val graph = buildInterferenceGraph(function, registerCandidates, instructionLiveness)
-        val colored = colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
+        val useDef = analysisManager.get(UseDefAnalysis::class)
+        val colored = if (registerCandidates.size > config.linearScanThreshold) {
+            val blockLiveness = analysisManager.get(BlockLivenessAnalysis::class)
+            linearScanAllocate(function, registerCandidates, useDef, blockLiveness, config, ::nextStackSlot)
+        } else {
+            val instructionLiveness = analysisManager.get(InstructionLivenessAnalysis::class)
+            val graph = buildInterferenceGraph(function, registerCandidates, instructionLiveness)
+            colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
+        }
 
         return candidates.associateWithTo(linkedMapOf()) { value ->
             forcedStackSlots[value] ?: colored.getValue(value)
@@ -126,6 +137,143 @@ object RegisterAllocator {
         }
 
         return graph
+    }
+
+    private data class LiveInterval(
+        val value: Value,
+        val start: Int,
+        val end: Int,
+        val order: Int,
+        var register: Register? = null,
+    )
+
+    private fun linearScanAllocate(
+        function: Function,
+        candidates: LinkedHashSet<Value>,
+        useDef: UseDefChain,
+        blockLiveness: BlockLivenessLookup,
+        config: Config,
+        nextStackSlot: () -> SavableSlot.Stack,
+    ): Map<Value, SavableSlot> {
+        if (candidates.isEmpty()) return emptyMap()
+
+        val positions = linkedMapOf<Instruction, Int>()
+        val blockFirstPosition = linkedMapOf<BasicBlock, Int>()
+        val blockLastPosition = linkedMapOf<BasicBlock, Int>()
+        var nextPosition = 1
+        for (block in function.basicBlocks) {
+            val firstPosition = nextPosition
+            var lastPosition = nextPosition
+            for (instruction in block.instructionsIncludingTerminator()) {
+                positions[instruction] = nextPosition
+                lastPosition = nextPosition
+                nextPosition += 1
+            }
+            blockFirstPosition[block] = firstPosition
+            blockLastPosition[block] = lastPosition
+        }
+
+        val functionEnd = nextPosition
+        val parameters = function.parameters.toSet()
+        val stableOrder = candidates.withIndex().associate { (index, value) -> value to index }
+
+        val intervals = candidates.map { value ->
+            var start = if (value in parameters) 0 else (positions[value as? Instruction] ?: 0)
+            var end = start
+
+            for (user in useDef.getUses(value)) {
+                val userPosition = positions[user as? Instruction] ?: functionEnd
+                end = maxOf(end, userPosition)
+
+                if (user is PhiNode) {
+                    for ((incomingValue, incomingBlock) in user.incomingValues) {
+                        if (incomingValue == value) {
+                            end = maxOf(end, blockLastPosition[incomingBlock] ?: userPosition)
+                        }
+                    }
+                }
+            }
+
+            for (block in function.basicBlocks) {
+                val (liveIn, liveOut) = blockLiveness.ofBlock(block)
+                if (value in liveIn) {
+                    start = minOf(start, blockFirstPosition.getValue(block))
+                    end = maxOf(end, blockFirstPosition.getValue(block))
+                }
+                if (value in liveOut) {
+                    start = minOf(start, blockFirstPosition.getValue(block))
+                    end = maxOf(end, blockLastPosition.getValue(block))
+                }
+            }
+
+            if (start > end) start = end
+
+            LiveInterval(
+                value = value,
+                start = start,
+                end = end,
+                order = stableOrder.getValue(value),
+            )
+        }.sortedWith(compareBy<LiveInterval> { it.start }.thenBy { it.end }.thenBy { it.order })
+
+        val registers = linearScanRegisterOrder(function, config.allocatableRegisters)
+        if (registers.isEmpty()) {
+            return candidates.associateWithTo(linkedMapOf()) { nextStackSlot() }
+        }
+
+        val allocation = linkedMapOf<Value, SavableSlot>()
+        val active = mutableListOf<LiveInterval>()
+
+        fun sortActive() {
+            active.sortWith(compareBy<LiveInterval> { it.end }.thenBy { it.order })
+        }
+
+        fun expireOldIntervals(start: Int) {
+            active.removeAll { it.end < start }
+            sortActive()
+        }
+
+        fun firstFreeRegister(): Register {
+            val used = active.mapNotNullTo(mutableSetOf()) { it.register }
+            return registers.first { it !in used }
+        }
+
+        for (interval in intervals) {
+            expireOldIntervals(interval.start)
+
+            if (active.size == registers.size) {
+                val spill = active.maxWith(compareBy<LiveInterval> { it.end }.thenByDescending { it.order })
+                if (spill.end > interval.end) {
+                    val register = spill.register ?: firstFreeRegister()
+                    allocation[spill.value] = nextStackSlot()
+                    active.remove(spill)
+                    interval.register = register
+                    allocation[interval.value] = SavableSlot.Register(register)
+                    active.add(interval)
+                    sortActive()
+                } else {
+                    allocation[interval.value] = nextStackSlot()
+                }
+            } else {
+                val register = firstFreeRegister()
+                interval.register = register
+                allocation[interval.value] = SavableSlot.Register(register)
+                active.add(interval)
+                sortActive()
+            }
+        }
+
+        for (value in candidates) {
+            allocation.putIfAbsent(value, nextStackSlot())
+        }
+        return allocation
+    }
+
+    private fun linearScanRegisterOrder(function: Function, registers: List<Register>): List<Register> {
+        if (!function.containsCall()) return registers
+
+        val calleeSaved = calleeSavedRegisters.toSet()
+        return registers.filter { it in calleeSaved }
     }
 
     private fun colorGraph(
