@@ -165,35 +165,99 @@ __c_strcpy:                             # @__c_strcpy
 __c_memfill:                            # @__c_memfill
 	.cfi_startproc
 # %bb.0:
-	blez	a3, .LC_BB8_6
+	addi	sp, sp, -32
+	.cfi_def_cfa_offset 32
+	sd	ra, 24(sp)                      # 8-byte Folded Spill
+	sd	s0, 16(sp)                      # 8-byte Folded Spill
+	sd	s1, 8(sp)                       # 8-byte Folded Spill
+	.cfi_offset ra, -8
+	.cfi_offset s0, -16
+	.cfi_offset s1, -24
+	.cfi_remember_state
+	blez	a2, .LC_BB8_13
 # %bb.1:
+	blez	a3, .LC_BB8_13
+# %bb.2:
+	li	a4, 1
+	bne	a3, a4, .LC_BB8_4
+# %bb.3:
+	ld	ra, 24(sp)                      # 8-byte Folded Reload
+	ld	s0, 16(sp)                      # 8-byte Folded Reload
+	ld	s1, 8(sp)                       # 8-byte Folded Reload
+	.cfi_restore ra
+	.cfi_restore s0
+	.cfi_restore s1
+	addi	sp, sp, 32
+	.cfi_def_cfa_offset 0
+	tail	memcpy
+.LC_BB8_4:
+	.cfi_restore_state
+	.cfi_remember_state
+	beq	a2, a4, .LC_BB8_8
+# %bb.5:
+	li	a4, 4
+	bne	a2, a4, .LC_BB8_9
+# %bb.6:
+	mv	s0, a0
+	addi	a0, sp, 4
+	li	a2, 4
+	mv	s1, a3
+	call	memcpy
+	mv	a0, s0
+	lw	a1, 4(sp)
+	slli	s1, s1, 32
+	srli	a2, s1, 30
+	add	a2, a2, s0
+.LC_BB8_7:                                # =>This Inner Loop Header: Depth=1
+	sw	a1, 0(a0)
+	addi	a0, a0, 4
+	bne	a0, a2, .LC_BB8_7
+	j	.LC_BB8_13
+.LC_BB8_8:
+	lbu	a1, 0(a1)
+	mv	a2, a3
+	ld	ra, 24(sp)                      # 8-byte Folded Reload
+	ld	s0, 16(sp)                      # 8-byte Folded Reload
+	ld	s1, 8(sp)                       # 8-byte Folded Reload
+	.cfi_restore ra
+	.cfi_restore s0
+	.cfi_restore s1
+	addi	sp, sp, 32
+	.cfi_def_cfa_offset 0
+	tail	memset
+.LC_BB8_9:
+	.cfi_restore_state
 	li	t0, 0
-	slli	a4, a2, 32
-	srli	a6, a4, 32
+	slli	a2, a2, 32
+	srli	a6, a2, 32
 	mv	a7, a0
-	j	.LC_BB8_3
-.LC_BB8_2:                                #   in Loop: Header=BB8_3 Depth=1
+.LC_BB8_10:                               # =>This Loop Header: Depth=1
+                                        #     Child Loop BB8_11 Depth 2
+	mul	a2, a6, t0
+	add	a2, a2, a6
+	add	a2, a2, a0
+	mv	a5, a1
+	mv	a4, a7
+.LC_BB8_11:                               #   Parent Loop BB8_10 Depth=1
+                                        # =>  This Inner Loop Header: Depth=2
+	lbu	s1, 0(a5)
+	sb	s1, 0(a4)
+	addi	a4, a4, 1
+	addi	a5, a5, 1
+	bne	a4, a2, .LC_BB8_11
+# %bb.12:                               #   in Loop: Header=BB8_10 Depth=1
 	addi	t0, t0, 1
 	add	a7, a7, a6
-	beq	t0, a3, .LC_BB8_6
-.LC_BB8_3:                                # =>This Loop Header: Depth=1
-                                        #     Child Loop BB8_5 Depth 2
-	blez	a2, .LC_BB8_2
-# %bb.4:                                #   in Loop: Header=BB8_3 Depth=1
-	mul	a4, a6, t0
-	add	a4, a4, a6
-	add	t1, a0, a4
-	mv	t2, a1
-	mv	a5, a7
-.LC_BB8_5:                                #   Parent Loop BB8_3 Depth=1
-                                        # =>  This Inner Loop Header: Depth=2
-	lbu	a4, 0(t2)
-	sb	a4, 0(a5)
-	addi	a5, a5, 1
-	addi	t2, t2, 1
-	bne	a5, t1, .LC_BB8_5
-	j	.LC_BB8_2
-.LC_BB8_6:
+	bne	t0, a3, .LC_BB8_10
+.LC_BB8_13:
+	ld	ra, 24(sp)                      # 8-byte Folded Reload
+	ld	s0, 16(sp)                      # 8-byte Folded Reload
+	ld	s1, 8(sp)                       # 8-byte Folded Reload
+	.cfi_restore ra
+	.cfi_restore s0
+	.cfi_restore s1
+	addi	sp, sp, 32
+	.cfi_def_cfa_offset 0
 	ret
 .LC_func_end8:
 	.size	__c_memfill, .LC_func_end8-__c_memfill
@@ -245,3 +309,4 @@ __c_itoa:                               # @__c_itoa
 
 	.ident	"clang version 22.1.6"
 	.section	".note.GNU-stack","",@progbits
+	.addrsig

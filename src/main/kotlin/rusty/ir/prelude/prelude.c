@@ -4,6 +4,8 @@
 int printf(const char*, ...);
 int scanf(const char*, ...);
 int sprintf(char*, const char*, ...);
+void* memcpy(void*, const void*, unsigned long);
+void* memset(void*, int, unsigned long);
 
 void __c_print_int(int32_t value) {
     printf("%d", value);
@@ -50,6 +52,26 @@ void __c_strcpy(char* dest, const char* src) {
 }
 
 void __c_memfill(char* dest, const char* src, int32_t element_size_in_bytes, int32_t element_count) {
+    if (element_count <= 0 || element_size_in_bytes <= 0) {
+        return;
+    }
+    if (element_count == 1) {
+        memcpy(dest, src, (unsigned long)element_size_in_bytes);
+        return;
+    }
+    if (element_size_in_bytes == 1) {
+        memset(dest, (unsigned char)src[0], (unsigned long)element_count);
+        return;
+    }
+    if (element_size_in_bytes == 4) {
+        uint32_t value;
+        memcpy(&value, src, sizeof(value));
+        uint32_t* words = (uint32_t*)dest;
+        for (int32_t i = 0; i < element_count; i++) {
+            words[i] = value;
+        }
+        return;
+    }
     for (int32_t i = 0; i < element_count; i++) {
         for (int32_t j = 0; j < element_size_in_bytes; j++) {
             dest[i * element_size_in_bytes + j] = src[j];

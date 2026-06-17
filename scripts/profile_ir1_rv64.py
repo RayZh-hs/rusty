@@ -81,7 +81,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sysroot", default=os.environ.get("QEMU_SYSROOT"), help="RISC-V sysroot for clang/qemu.")
     parser.add_argument("--qemu-arg", action="append", default=[], help="Extra qemu argument. May be repeated.")
-    parser.add_argument("--clang-arg", action="append", default=[], help="Extra clang argument. May be repeated.")
+    parser.add_argument(
+        "--clang-arg",
+        action="append",
+        default=[],
+        help="Extra clang link argument. May be repeated; defaults already include --clang-opt.",
+    )
+    parser.add_argument(
+        "--clang-opt",
+        default="-O2",
+        help="Clang optimization level for prelude C IR and testcase linking. Use '' to disable.",
+    )
     parser.add_argument(
         "--compiler",
         type=Path,
@@ -114,7 +124,7 @@ def main() -> int:
 
     suite = args.suite.resolve()
     out_dir = args.out_dir.resolve()
-    modes = args.mode or ["ir", "opt"]
+    modes = args.mode or ["opt"]
 
     require_tool(args.clang)
     require_tool(args.qemu)
@@ -136,7 +146,8 @@ def main() -> int:
     reports_dir.mkdir(parents=True, exist_ok=True)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    prelude_c_ll = ensure_prelude_c_ir(args.clang, args.target, sysroot, out_dir)
+    prelude_c_ll = ensure_prelude_c_ir(args.clang, args.target, sysroot, out_dir, args.clang_opt)
+    clang_args = build_clang_args(args.clang_opt, args.clang_arg)
     rows: list[ProfileRow] = []
 
     print(f"Profiling {len(cases)} IR-1 cases x {len(modes)} mode(s)")
@@ -152,7 +163,7 @@ def main() -> int:
                 clang=args.clang,
                 clang_target=args.target,
                 sysroot=sysroot,
-                clang_args=args.clang_arg,
+                clang_args=clang_args,
                 qemu=args.qemu,
                 qemu_args=args.qemu_arg,
                 prelude_c_ll=prelude_c_ll,
@@ -273,8 +284,9 @@ def natural_case_key(name: str) -> tuple[str, int]:
     return (prefix, int(suffix) if suffix else -1)
 
 
-def ensure_prelude_c_ir(clang: str, target: str, sysroot: str | None, out_dir: Path) -> Path:
-    output = out_dir / "prelude" / f"prelude.c.{target}.{RV64_ARCH}.{RV64_ABI}.ll"
+def ensure_prelude_c_ir(clang: str, target: str, sysroot: str | None, out_dir: Path, clang_opt: str) -> Path:
+    opt_tag = sanitize_filename(clang_opt) if clang_opt else "O0"
+    output = out_dir / "prelude" / f"prelude.c.{target}.{RV64_ARCH}.{RV64_ABI}.{opt_tag}.ll"
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() and output.stat().st_mtime >= PRELUDE_C.stat().st_mtime:
         return output
@@ -283,11 +295,12 @@ def ensure_prelude_c_ir(clang: str, target: str, sysroot: str | None, out_dir: P
         clang,
         "-S",
         "-emit-llvm",
-        "-O0",
         f"--target={target}",
         f"-march={RV64_ARCH}",
         f"-mabi={RV64_ABI}",
     ]
+    if clang_opt:
+        cmd.append(clang_opt)
     if sysroot:
         cmd.append(f"--sysroot={sysroot}")
     cmd += [str(PRELUDE_C), "-o", str(output)]
@@ -296,6 +309,15 @@ def ensure_prelude_c_ir(clang: str, target: str, sysroot: str | None, out_dir: P
     if result.returncode != 0:
         raise SystemExit("Failed to build prelude C IR:\n" + decode(result.stdout))
     return output
+
+
+def build_clang_args(clang_opt: str, extra_args: list[str]) -> list[str]:
+    return ([clang_opt] if clang_opt else []) + extra_args
+
+
+def sanitize_filename(value: str) -> str:
+    sanitized = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)
+    return sanitized or "default"
 
 
 def profile_case_mode(

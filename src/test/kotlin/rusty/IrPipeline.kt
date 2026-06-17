@@ -83,7 +83,7 @@ object IrPipeline {
             add(clangBinary)
             add("-S")
             add("-emit-llvm")
-            add("-O0")
+            add("-O2")
             when (target) {
                 PreludeCTarget.X86 -> Unit
                 PreludeCTarget.RISCV -> addAll(
@@ -147,6 +147,7 @@ object IrPipeline {
             inputFiles = listOf(irOutput, preludeLl, preludeCLl),
             exeOutput = exeOutput,
             clangBinary = clangBinary,
+            extraArgs = listOf("-O2"),
         )
     }
 
