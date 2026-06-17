@@ -112,9 +112,10 @@ and link time, run:
 python3 scripts/profile_ir1_rv64.py
 ```
 
-The profiler builds each testcase once for `--emit ir` and `--emit opt`, links
-the rv64 executable, checks the testcase output, then times repeated
-`qemu-riscv64` executions. Reports are written to
+The profiler runs `make build`, emits testcase assembly once through `make run`
+with user assembly from `stdout` and builtin runtime assembly from `stderr`,
+links both assembly files with `riscv64-linux-gnu-gcc`, checks the testcase
+output, then times repeated `qemu-riscv64` executions. Reports are written to
 `build/ir1-rv64-profile/reports/profile.md` and `profile.csv`.
 
 Useful options:
@@ -122,5 +123,5 @@ Useful options:
 ```bash
 python3 scripts/profile_ir1_rv64.py --runs 10 --warmups 2
 python3 scripts/profile_ir1_rv64.py --case comprehensive1 --case comprehensive2
-python3 scripts/profile_ir1_rv64.py --mode opt --timeout 60
+python3 scripts/profile_ir1_rv64.py --gcc riscv64-linux-gnu-gcc --timeout 60
 ```
