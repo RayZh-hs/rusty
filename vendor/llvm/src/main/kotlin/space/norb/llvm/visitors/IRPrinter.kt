@@ -580,7 +580,7 @@ class IRPrinter : IRVisitor<Unit> {
     
     override fun visitPhiNode(inst: PhiNode) {
         val pairsStr = inst.incomingValues.joinToString(", ") { (value, block) ->
-            "[ ${formatValueName(value)}, ${formatBlockName(block as BasicBlock)} ]"
+            "[ ${formatValueName(value)}, ${formatBlockName(block)} ]"
         }
         appendInstructionLine(inst, "${indent()}%${inst.name} = phi ${inst.type} $pairsStr")
     }
@@ -674,6 +674,7 @@ class IRPrinter : IRVisitor<Unit> {
                         // Format floating point constants in LLVM IR format
                         formatFloatConstant(value)
                     }
+                    is space.norb.llvm.values.constants.NullPointerConstant -> "null"
                     is space.norb.llvm.values.globals.GlobalVariable -> "@${requireName(value.name, "Global variable")}"
                     else -> {
                         // For other constants, if they have a name use it, otherwise use toString
