@@ -2,6 +2,7 @@ package rusty.asm.support
 
 import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
+import rusty.asm.containsCall
 import rusty.asm.hasBody
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
@@ -60,8 +61,11 @@ object RegisterAllocator {
         }
 
         val parameters = function.parameters.toSet()
+        val keepParametersOnStack = function.containsCall()
         for (value in candidates) {
-            if (value in parameters || value.sizeInBytes(function, config.registerBytes) > config.registerBytes) {
+            if ((value in parameters && keepParametersOnStack) ||
+                value.sizeInBytes(function, config.registerBytes) > config.registerBytes
+            ) {
                 forcedStackSlots[value] = nextStackSlot()
             } else {
                 registerCandidates.add(value)

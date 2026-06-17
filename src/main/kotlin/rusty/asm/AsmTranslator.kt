@@ -5,7 +5,9 @@ import rusty.asm.support.AsmContext
 import rusty.asm.support.PlacedStackObject
 import rusty.asm.support.StackFrame
 import rusty.asm.utils.SavableSlot
+import rusty.asm.utils.calleeSavedRegisters
 import rusty.asm.utils.callerSavedRegisters
+import rusty.asm.utils.Register
 import space.norb.llvm.core.Type
 import space.norb.llvm.core.Value
 import space.norb.llvm.instructions.base.BinaryInst
@@ -42,6 +44,7 @@ import space.norb.llvm.instructions.terminators.ReturnInst
 import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
+import space.norb.llvm.structure.Argument
 import space.norb.llvm.types.ArrayType
 import space.norb.llvm.types.IntegerType
 import space.norb.llvm.types.StructType
@@ -66,6 +69,14 @@ internal class AsmTranslator(private val context: AsmContext) {
     private lateinit var allocaObjects: Map<AllocaInst, PlacedStackObject>
     private lateinit var blockLabels: Map<BasicBlock, String>
     private lateinit var edgePhiMoves: Map<Pair<BasicBlock, BasicBlock>, List<Pair<PhiNode, Value>>>
+    private lateinit var cachedFields: Map<GetElementPtrInst, CachedField>
+
+    private data class CachedField(
+        val gep: GetElementPtrInst,
+        val savedRegister: Register,
+        val register: RvRegister,
+        val sizeBytes: Int,
+    )
 
     fun translate(): String {
         return riscv(target = RiscvTargetConfig.ASM_TARGET) {
@@ -153,12 +164,15 @@ internal class AsmTranslator(private val context: AsmContext) {
         blockLabels = fn.basicBlocks.associateWith { block -> "${fn.asmName()}.${block.asmName()}" }
         edgePhiMoves = buildEdgePhiMoves(fn)
         allocaObjects = collectAllocaObjects(fn)
+        cachedFields = planCachedFields(fn)
 
         asm.global(fn.asmName())
         asm.type(fn.asmName(), "@function")
         asm.label(fn.asmName())
+        materializeCachedFieldSaves()
         emitPrologue()
         moveParametersToAllocatedLocations()
+        initializeCachedFields()
 
         for (block in fn.basicBlocks) {
             asm.label(blockLabels.getValue(block))
@@ -198,6 +212,104 @@ internal class AsmTranslator(private val context: AsmContext) {
         return result
     }
 
+    private fun planCachedFields(fn: Function): Map<GetElementPtrInst, CachedField> {
+        if (fn.containsCall()) return emptyMap()
+
+        val canonical = linkedMapOf<FieldAddressKey, GetElementPtrInst>()
+        val useCounts = linkedMapOf<FieldAddressKey, Int>()
+        val geps = fn.instructions().filterIsInstance<GetElementPtrInst>().toList()
+
+        for (gep in geps) {
+            val key = fieldAddressKey(gep) ?: continue
+            if (!isCacheableFieldUse(gep)) continue
+            canonical.putIfAbsent(key, gep)
+            useCounts[key] = (useCounts[key] ?: 0) + gep.getUses().count { user ->
+                (user is LoadInst && user.pointer == gep) || (user is StoreInst && user.pointer == gep)
+            }
+        }
+
+        val available = calleeSavedRegisters
+            .asSequence()
+            .filter { register -> frame.objectWithName(register.name.lowercase()) == null }
+            .toList()
+        if (available.isEmpty()) return emptyMap()
+
+        val selected = useCounts.entries
+            .filter { (_, count) -> count >= 2 }
+            .sortedByDescending { it.value }
+            .take(available.size)
+            .map { it.key to canonical.getValue(it.key) }
+
+        if (selected.isEmpty()) return emptyMap()
+
+        val selectedKeys = selected.map { it.first }.toSet()
+        val registerByKey = selected.mapIndexed { index, (key, _) -> key to available[index] }.toMap()
+        val result = linkedMapOf<GetElementPtrInst, CachedField>()
+        for (gep in geps) {
+            val key = fieldAddressKey(gep) ?: continue
+            if (key !in selectedKeys) continue
+            val register = registerByKey.getValue(key)
+            result[gep] = CachedField(
+                gep = canonical.getValue(key),
+                savedRegister = register,
+                register = register.toRv(),
+                sizeBytes = gep.getFinalElementType().sizeBytes(module),
+            )
+        }
+        return result
+    }
+
+    private data class FieldAddressKey(
+        val base: Value,
+        val indices: List<Long>,
+    )
+
+    private fun fieldAddressKey(gep: GetElementPtrInst): FieldAddressKey? {
+        if (gep.getFinalElementType().sizeBytes(module) > registerBytes) return null
+        if (gep.pointer !is Argument && gep.pointer !is AllocaInst) return null
+
+        val indices = gep.indices
+        if (indices.size < 2) return null
+        val first = indices.first() as? IntConstant ?: return null
+        if (first.value != 0L) return null
+
+        val path = indices.drop(1).map { index ->
+            (index as? IntConstant)?.value ?: return null
+        }
+        if (path.isEmpty()) return null
+        return FieldAddressKey(gep.pointer, path)
+    }
+
+    private fun isCacheableFieldUse(gep: GetElementPtrInst): Boolean {
+        return gep.getUses().isNotEmpty() && gep.getUses().all { user ->
+            when (user) {
+                is LoadInst -> user.pointer == gep
+                is StoreInst -> user.pointer == gep && user.storedType.sizeBytes(module) <= registerBytes
+                else -> false
+            }
+        }
+    }
+
+    private fun materializeCachedFieldSaves() {
+        for (field in cachedFields.values.distinctBy { it.savedRegister }) {
+            if (frame.objectWithName(field.savedRegister.name.lowercase()) == null) {
+                frame.save(field.savedRegister)
+            }
+        }
+    }
+
+    private fun initializeCachedFields() {
+        for (field in cachedFields.values.distinctBy { it.gep }) {
+            loadSized(field.register, emitGepAddress(field.gep, t6), field.sizeBytes)
+        }
+    }
+
+    private fun flushCachedFields() {
+        for (field in cachedFields.values.distinctBy { it.gep }) {
+            storeSized(field.register, emitGepAddress(field.gep, t6), field.sizeBytes)
+        }
+    }
+
     private fun emitPrologue() {
         adjustStack(-frame.frameSizeBytes)
         for (saved in frame.frameObjects.filter { it.stackObject.savedRegister != null }) {
@@ -226,6 +338,11 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun moveParametersToAllocatedLocations() {
+        if (!function.containsCall() && canDirectMoveParameters()) {
+            moveParametersDirectly()
+            return
+        }
+
         for ((index, _) in function.parameters.withIndex()) {
             val src = if (index < argumentRegisters.size) {
                 argumentRegisters[index]
@@ -251,6 +368,53 @@ internal class AsmTranslator(private val context: AsmContext) {
             }
         }
     }
+
+    private fun canDirectMoveParameters(): Boolean {
+        return function.parameters.withIndex().all { (index, parameter) ->
+            index < argumentRegisters.size &&
+                parameter.type.sizeBytes(module) <= registerBytes &&
+                allocation[parameter] is SavableSlot.Register
+        }
+    }
+
+    private fun moveParametersDirectly() {
+        val moves = function.parameters.mapIndexed { index, parameter ->
+            ScalarArgumentMove(parameter, argumentRegisters[index])
+        }.toMutableList()
+
+        while (moves.isNotEmpty()) {
+            moves.removeAll { move ->
+                val destination = (allocation[move.parameter] as SavableSlot.Register).physical.toRv()
+                destination == move.source
+            }
+            if (moves.isEmpty()) return
+
+            val nextIndex = moves.indexOfFirst { candidate ->
+                val destination = (allocation[candidate.parameter] as SavableSlot.Register).physical.toRv()
+                moves.none { other -> other !== candidate && other.source == destination }
+            }
+
+            if (nextIndex >= 0) {
+                val move = moves.removeAt(nextIndex)
+                val destination = (allocation[move.parameter] as SavableSlot.Register).physical.toRv()
+                asm.mv(destination, move.source)
+                continue
+            }
+
+            val cycleSource = moves.first().source
+            asm.mv(t3, cycleSource)
+            for (move in moves) {
+                if (move.source == cycleSource) {
+                    move.source = t3
+                }
+            }
+        }
+    }
+
+    private data class ScalarArgumentMove(
+        val parameter: Argument,
+        var source: RvRegister,
+    )
 
     private fun resolveCallArgTemp(frame: StackFrame, index: Int): PlacedStackObject {
         val name = callArgumentTempName(index)
@@ -290,6 +454,12 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerLoad(instruction: LoadInst) {
+        val cached = cachedFields[instruction.pointer]
+        if (cached != null && instruction.loadedType.sizeBytes(module) <= registerBytes) {
+            writeValue(instruction, cached.register)
+            return
+        }
+
         val size = instruction.loadedType.sizeBytes(module)
         if (size <= registerBytes) {
             val source = addressOf(instruction.pointer, t6)
@@ -303,6 +473,13 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerStore(instruction: StoreInst) {
+        val cached = cachedFields[instruction.pointer]
+        if (cached != null && instruction.storedType.sizeBytes(module) <= registerBytes) {
+            val value = loadValue(instruction.value, t4)
+            if (cached.register != value) asm.mv(cached.register, value)
+            return
+        }
+
         val size = instruction.storedType.sizeBytes(module)
         if (size <= registerBytes) {
             val value = loadValue(instruction.value, t4)
@@ -315,7 +492,11 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerGep(instruction: GetElementPtrInst) {
-        val result = t4
+        if (instruction in cachedFields) return
+        writeValue(instruction, emitGepAddress(instruction, t4))
+    }
+
+    private fun emitGepAddress(instruction: GetElementPtrInst, result: RvRegister): RvRegister {
         val base = addressOf(instruction.pointer, result)
         if (base != result) asm.mv(result, base)
 
@@ -338,13 +519,27 @@ internal class AsmTranslator(private val context: AsmContext) {
                     throw UnsupportedOperationException("Dynamic struct GEP index in ${function.name}")
                 }
                 val indexRegister = loadValue(indexValue, t6)
-                asm.li(t5, step.offsetOrStride)
-                asm.mul(t5, indexRegister, t5)
+                scaleIndex(t5, indexRegister, step.offsetOrStride)
                 asm.add(result, result, t5)
             }
         }
 
-        writeValue(instruction, result)
+        return result
+    }
+
+    private fun scaleIndex(destination: RvRegister, index: RvRegister, strideBytes: Int) {
+        when {
+            strideBytes == 1 -> {
+                if (destination != index) asm.mv(destination, index)
+            }
+            strideBytes > 0 && strideBytes and (strideBytes - 1) == 0 -> {
+                asm.emit("slli", destination, index, expr(Integer.numberOfTrailingZeros(strideBytes).toString()))
+            }
+            else -> {
+                asm.li(t5, strideBytes)
+                asm.mul(destination, index, t5)
+            }
+        }
     }
 
     private data class GepStep(
@@ -391,6 +586,8 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerBinary(instruction: BinaryInst) {
+        if (lowerBinaryImmediate(instruction)) return
+
         val lhs = loadValue(instruction.lhs, t4)
         val rhs = loadValue(instruction.rhs, t5)
         val dst = valueDestinationRegister(instruction, t6)
@@ -416,6 +613,40 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
 
         writeValue(instruction, dst)
+    }
+
+    private fun lowerBinaryImmediate(instruction: BinaryInst): Boolean {
+        val isI32 = instruction.type is IntegerType && (instruction.type as IntegerType).bitWidth == 32
+
+        fun emitAddImmediate(sourceValue: Value, immediate: Long): Boolean {
+            if (immediate !in -2048..2047) return false
+            val source = loadValue(sourceValue, t4)
+            val dst = valueDestinationRegister(instruction, t6)
+            if (isI32) {
+                asm.emit("addiw", dst, source, expr(immediate.toString()))
+            } else {
+                asm.addi(dst, source, immediate.toInt())
+            }
+            writeValue(instruction, dst)
+            return true
+        }
+
+        return when (instruction) {
+            is AddInst -> {
+                val lhsConstant = instruction.lhs as? IntConstant
+                val rhsConstant = instruction.rhs as? IntConstant
+                when {
+                    rhsConstant != null -> emitAddImmediate(instruction.lhs, rhsConstant.value)
+                    lhsConstant != null -> emitAddImmediate(instruction.rhs, lhsConstant.value)
+                    else -> false
+                }
+            }
+            is SubInst -> {
+                val rhsConstant = instruction.rhs as? IntConstant ?: return false
+                emitAddImmediate(instruction.lhs, -rhsConstant.value)
+            }
+            else -> false
+        }
     }
 
     private fun lowerIcmp(instruction: ICmpInst) {
@@ -567,6 +798,7 @@ internal class AsmTranslator(private val context: AsmContext) {
                 throw UnsupportedOperationException("Direct aggregate returns are not lowered yet in ${function.name}")
             }
         }
+        flushCachedFields()
         emitEpilogue()
     }
 

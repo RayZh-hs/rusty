@@ -3,9 +3,9 @@ package space.norb.llvm.transformation.presets
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
 import space.norb.llvm.analysis.presets.FunctionDominanceInfo
-import space.norb.llvm.analysis.presets.PredecessorAnalysis
 import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.analysis.presets.UseDefChain
+import space.norb.llvm.builder.BuilderUtils
 import space.norb.llvm.core.User
 import space.norb.llvm.core.Value
 import space.norb.llvm.instructions.base.Instruction
@@ -26,7 +26,6 @@ object Mem2RegPass : IRPass() {
     )
 
     override fun run(module: Module, am: AnalysisManager): Module {
-        val predecessorMap = am.get(PredecessorAnalysis::class)
         val useDefChain = am.get(UseDefAnalysis::class)
         val dominatorTree = am.get(DominatorTreeAnalysis::class)
 
@@ -37,7 +36,7 @@ object Mem2RegPass : IRPass() {
 
             val candidates = findPromotionCandidates(function, useDefChain, dominanceInfo)
             for (candidate in candidates) {
-                promoteAlloca(function, candidate, predecessorMap, dominanceInfo)
+                promoteAlloca(function, candidate, dominanceInfo)
             }
         }
 
@@ -116,14 +115,10 @@ object Mem2RegPass : IRPass() {
     private fun promoteAlloca(
         function: Function,
         candidate: PromotionCandidate,
-        predecessorMap: Map<BasicBlockId, List<BasicBlockId>>,
         dominanceInfo: FunctionDominanceInfo
     ) {
         val alloca = candidate.alloca
         val phiBlocks = computePhiBlocks(candidate.definitionBlocks, dominanceInfo)
-        if (!isDefinitelyInitialized(function, alloca, phiBlocks, predecessorMap, dominanceInfo)) {
-            return
-        }
 
         val phiNodes = insertPhiPlaceholders(function, alloca, phiBlocks)
         val loadReplacements = linkedMapOf<LoadInst, Value>()
@@ -168,77 +163,6 @@ object Mem2RegPass : IRPass() {
         }
 
         return phiBlocks
-    }
-
-    private fun isDefinitelyInitialized(
-        function: Function,
-        alloca: AllocaInst,
-        phiBlocks: Set<BasicBlockId>,
-        predecessorMap: Map<BasicBlockId, List<BasicBlockId>>,
-        dominanceInfo: FunctionDominanceInfo
-    ): Boolean {
-        val reachable = dominanceInfo.reachableBlocks
-        val entryId = function.entryBlock!!.id
-        val readsBeforeWrite = mutableMapOf<BasicBlockId, Boolean>()
-        val writesInBlock = mutableMapOf<BasicBlockId, Boolean>()
-
-        for (block in function.basicBlocks) {
-            if (block.id !in reachable) continue
-
-            var wroteValue = false
-            var readsUninitialized = false
-            for (instruction in block.instructions) {
-                when (instruction) {
-                    is StoreInst -> if (instruction.pointer == alloca) {
-                        wroteValue = true
-                    }
-                    is LoadInst -> if (instruction.pointer == alloca && !wroteValue) {
-                        readsUninitialized = true
-                    }
-                }
-            }
-
-            readsBeforeWrite[block.id] = readsUninitialized
-            writesInBlock[block.id] = wroteValue
-        }
-
-        val inState = reachable.associateWith { it != entryId }.toMutableMap()
-        val outState = reachable.associateWith { writesInBlock[it] == true }.toMutableMap()
-
-        var changed = true
-        while (changed) {
-            changed = false
-            for (block in function.basicBlocks) {
-                val blockId = block.id
-                if (blockId !in reachable) continue
-
-                val incoming = if (blockId == entryId) {
-                    false
-                } else {
-                    predecessorMap[blockId]
-                        .orEmpty()
-                        .filter { it in reachable }
-                        .all { outState[it] == true }
-                }
-
-                val outgoing = incoming || writesInBlock.getValue(blockId)
-                if (inState[blockId] != incoming || outState[blockId] != outgoing) {
-                    inState[blockId] = incoming
-                    outState[blockId] = outgoing
-                    changed = true
-                }
-            }
-        }
-
-        if (readsBeforeWrite.any { (blockId, reads) -> reads && inState[blockId] != true }) {
-            return false
-        }
-
-        if (phiBlocks.any { blockId -> inState[blockId] != true }) {
-            return false
-        }
-
-        return true
     }
 
     private fun insertPhiPlaceholders(
@@ -307,8 +231,7 @@ object Mem2RegPass : IRPass() {
                 when (instruction) {
                     alloca -> instructionsToRemove.add(instruction)
                     is LoadInst -> if (instruction.pointer == alloca) {
-                        val replacement = value
-                            ?: error("Load from ${alloca.name} is not definitely initialized in block ${block.name}")
+                        val replacement = value ?: BuilderUtils.createZeroValue(alloca.allocatedType)
                         loadReplacements[instruction] = replacement
                         instructionsToRemove.add(instruction)
                     }
@@ -321,8 +244,7 @@ object Mem2RegPass : IRPass() {
 
             for (successor in block.getSuccessors()) {
                 val phi = phiNodes[successor.id] ?: continue
-                val incoming = value
-                    ?: error("Phi node for ${alloca.name} in block ${successor.name} requires an undefined value from ${block.name}")
+                val incoming = value ?: BuilderUtils.createZeroValue(alloca.allocatedType)
                 phi.addIncomingMutable(incoming, block)
             }
 

@@ -2,6 +2,7 @@ package rusty.opt
 
 import rusty.opt.passes.SizeInliningPass
 import rusty.opt.passes.LoopInvariantCodeMotionPass
+import rusty.opt.passes.ScalarReplacementOfAggregatesPass
 import rusty.opt.passes.SmallMemcopyLoweringPass
 import space.norb.llvm.instructions.base.TerminatorInst
 import space.norb.llvm.analysis.Analysis
@@ -21,6 +22,7 @@ object IROptimizer {
     private val passes: List<IRPass> = listOf(
         SizeInliningPass,
         SmallMemcopyLoweringPass,
+        ScalarReplacementOfAggregatesPass,
         Mem2RegPass,
         LoopInvariantCodeMotionPass,
         CFGSimplifyPass,
@@ -28,6 +30,7 @@ object IROptimizer {
     
     private fun runPass(irModule: Module, manager: AnalysisManager, pass: IRPass, dumpToScreen: Boolean = false): Module {
         val optimized = pass.run(irModule, manager)
+        pass.updateAnalysisManager(manager)
         if (dumpToScreen) {
             println("After ${pass::class.simpleName}:")
             dumpScreen(optimized)
