@@ -5,8 +5,6 @@ import rusty.asm.utils.*
 import rusty.asm.containsCall
 import rusty.asm.hasBody
 import space.norb.llvm.analysis.AnalysisManager
-import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
-import space.norb.llvm.analysis.presets.BlockLivenessLookup
 import space.norb.llvm.analysis.presets.InstructionLivenessAnalysis
 import space.norb.llvm.analysis.presets.InstructionLivenessLookup
 import space.norb.llvm.analysis.presets.UseDefAnalysis
@@ -48,7 +46,6 @@ object RegisterAllocator {
         require(config.registerBytes > 0) { "Register size must be positive" }
 
         val useDef = analysisManager.get(UseDefAnalysis::class)
-        val blockLiveness = analysisManager.get(BlockLivenessAnalysis::class)
         val instructionLiveness = analysisManager.get(InstructionLivenessAnalysis::class)
 
         val candidates = collectCandidates(function)
@@ -72,7 +69,7 @@ object RegisterAllocator {
             }
         }
 
-        val graph = buildInterferenceGraph(function, registerCandidates, blockLiveness, instructionLiveness)
+        val graph = buildInterferenceGraph(function, registerCandidates, instructionLiveness)
         val colored = colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
 
         return candidates.associateWithTo(linkedMapOf()) { value ->
@@ -92,7 +89,6 @@ object RegisterAllocator {
     private fun buildInterferenceGraph(
         function: Function,
         candidates: Set<Value>,
-        blockLiveness: BlockLivenessLookup,
         instructionLiveness: InstructionLivenessLookup,
     ): MutableMap<Value, MutableSet<Value>> {
         val graph = candidates.associateWithTo(linkedMapOf<Value, MutableSet<Value>>()) { linkedSetOf() }
@@ -120,15 +116,9 @@ object RegisterAllocator {
         connectAll(function.parameters.toSet())
 
         for (block in function.basicBlocks) {
-            connectAll(blockLiveness.liveInTable[block.id].orEmpty())
-            connectAll(blockLiveness.liveOutTable[block.id].orEmpty())
-
             for (instruction in block.instructions) {
-                val (liveIn, liveOut) = instructionLiveness.ofInstruction(instruction)
-                connectAll(liveIn)
-                connectAll(liveOut)
-
                 if (instruction in candidates) {
+                    val (_, liveOut) = instructionLiveness.ofInstruction(instruction)
                     // A definition interferes with every candidate still live after it
                     liveOut.filter { it in candidates }.forEach { connect(instruction, it) }
                 }
@@ -160,22 +150,23 @@ object RegisterAllocator {
         // Initialize work set and a basic spill cost from use counts.
         val remaining = linkedSetOf<Value>()
         val spillCost = mutableMapOf<Value, Int>()
+        val currentDegree = mutableMapOf<Value, Int>()
         for (value in values) {
             remaining.add(value)
             val uses = useDef.getUses(value).size
             spillCost[value] = if (uses > 0) uses else 1
+            currentDegree[value] = graph[value].orEmpty().size
         }
 
         val selectStack = mutableListOf<Value>()
 
-        fun currentDegree(value: Value): Int {
-            var degree = 0
+        fun removeFromRemaining(value: Value) {
+            if (!remaining.remove(value)) return
             for (neighbor in graph[value].orEmpty()) {
                 if (neighbor in remaining) {
-                    degree += 1
+                    currentDegree[neighbor] = (currentDegree[neighbor] ?: 0) - 1
                 }
             }
-            return degree
         }
 
         // Simplify the graph. Prefer low-degree nodes; when forced, pick a cheap spill.
@@ -186,7 +177,7 @@ object RegisterAllocator {
             var selectedOrder = Int.MAX_VALUE
 
             for (value in remaining) {
-                val degree = currentDegree(value)
+                val degree = currentDegree[value] ?: 0
                 if (degree >= registers.size) continue
 
                 val cost = spillCost[value] ?: 1
@@ -210,7 +201,7 @@ object RegisterAllocator {
                 var spillCandidateOrder = Int.MAX_VALUE
 
                 for (value in remaining) {
-                    val degree = currentDegree(value).coerceAtLeast(1)
+                    val degree = (currentDegree[value] ?: 0).coerceAtLeast(1)
                     val cost = spillCost[value] ?: 1
                     val order = stableOrder[value] ?: Int.MAX_VALUE
 
@@ -231,7 +222,7 @@ object RegisterAllocator {
             }
 
             if (selected == null) break
-            remaining.remove(selected)
+            removeFromRemaining(selected)
             selectStack.add(selected)
         }
 
