@@ -126,8 +126,18 @@ open class SimpleVisitorBase(open val ctx: SemanticContext) : Visitor<Unit> {
         visit(node.targetType)
     }
     override fun visitInfixOperator(node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode) {
-        visit(node.left)
-        visit(node.right)
+        val pending = ArrayDeque<ExpressionNode>()
+        pending.addLast(node.right)
+        pending.addLast(node.left)
+        while (pending.isNotEmpty()) {
+            when (val current = pending.removeLast()) {
+                is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> {
+                    pending.addLast(current.right)
+                    pending.addLast(current.left)
+                }
+                else -> visit(current)
+            }
+        }
     }
     override fun visitPrefixOperator(node: ExpressionNode.WithoutBlockExpressionNode.PrefixOperatorNode) {
         visit(node.expr)

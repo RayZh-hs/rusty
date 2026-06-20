@@ -399,6 +399,7 @@ class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false):
                 return SemanticType.NeverType
             }
             is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode -> {
+                resolveLeftAssociativeInfixChain(node)?.let { return it }
                 val rightType = resolveExpression(node.right)
                 if (node.op.isAssignmentVariant()) {
                     val leftHandle = resolveLeftValueExpression(node.left)
@@ -486,6 +487,45 @@ class FunctionTracerVisitor(ctx: SemanticContext, val verbose: Boolean = false):
                 -> throw CompileError("Tuples have been removed from the language")
                 .with(node).at(node.pointer)
         }
+    }
+
+    private fun resolveLeftAssociativeInfixChain(
+        node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode,
+    ): SemanticType? {
+        if (node.op.isAssignmentVariant() || node.op == Token.O_DOUBLE_AND || node.op == Token.O_DOUBLE_OR) {
+            return null
+        }
+
+        val operands = mutableListOf<ExpressionNode>()
+        var cursor: ExpressionNode = node
+        while (cursor is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode &&
+            cursor.op == node.op &&
+            !cursor.op.isAssignmentVariant() &&
+            cursor.op != Token.O_DOUBLE_AND &&
+            cursor.op != Token.O_DOUBLE_OR
+        ) {
+            operands.add(cursor.right)
+            cursor = cursor.left
+        }
+        if (operands.size < 2) return null
+
+        operands.add(cursor)
+        operands.reverse()
+
+        var resultType = resolveExpression(operands.first())
+        for (index in 1 until operands.size) {
+            val rightExpr = operands[index]
+            val rightType = resolveExpression(rightExpr)
+            val leftType = resultType
+            resultType = runCatching {
+                ExpressionAnalyzer.tryBinaryOperate(leftType, rightType, node.op)
+            }.getOrElse {
+                throw CompileError("Cannot apply operator '${node.op}' to types '$leftType' and '$rightType'")
+                    .with(node).at(node.pointer).with(it)
+            }
+            propagateIntegerOperandsFromPeers(operands[index - 1], leftType, rightExpr, rightType, node.op)
+        }
+        return resultType
     }
 
     // ignoreFinalVerdict is used for loops, where breaks contribute to the block type

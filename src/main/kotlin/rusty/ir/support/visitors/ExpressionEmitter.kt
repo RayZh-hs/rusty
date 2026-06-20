@@ -813,9 +813,53 @@ class ExpressionEmitter(
             return emitLogicalInfix(node, op == Token.O_DOUBLE_OR)
         }
 
+        emitLeftAssociativeInfixChain(node)?.let { return it }
+
         val left = emitExpression(node.left) ?: return null
         val right = emitExpression(node.right) ?: return null
-        val arithmeticUnsigned = ctx.expressionTypeMemory.recall(node.left) { left.type }.isUnsignedInteger()
+        return emitBinaryInfix(op, left, right, node.left)
+    }
+
+    private fun emitLeftAssociativeInfixChain(
+        node: ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode,
+    ): GeneratedValue? {
+        val op = node.op
+        if (op.isAssignmentVariant() || op == Token.O_DOUBLE_AND || op == Token.O_DOUBLE_OR) {
+            return null
+        }
+
+        val operands = mutableListOf<ExpressionNode>()
+        var cursor: ExpressionNode = node
+        while (cursor is ExpressionNode.WithoutBlockExpressionNode.InfixOperatorNode &&
+            cursor.op == op &&
+            !cursor.op.isAssignmentVariant() &&
+            cursor.op != Token.O_DOUBLE_AND &&
+            cursor.op != Token.O_DOUBLE_OR
+        ) {
+            operands.add(cursor.right)
+            cursor = cursor.left
+        }
+        if (operands.size < 2) return null
+
+        operands.add(cursor)
+        operands.reverse()
+
+        var result = emitExpression(operands.first()) ?: return null
+        for (index in 1 until operands.size) {
+            val right = emitExpression(operands[index]) ?: return null
+            result = emitBinaryInfix(op, result, right, operands[index - 1]) ?: return null
+        }
+        return result
+    }
+
+    private fun emitBinaryInfix(
+        op: Token,
+        left: GeneratedValue,
+        right: GeneratedValue,
+        leftExpression: ExpressionNode,
+    ): GeneratedValue? {
+        val env = currentEnv()
+        val arithmeticUnsigned = ctx.expressionTypeMemory.recall(leftExpression) { left.type }.isUnsignedInteger()
         return when (op) {
             Token.O_PLUS -> GeneratedValue(env.bodyBuilder.insertAdd(left.value, right.value, temp("add")), left.type)
             Token.O_MINUS -> GeneratedValue(env.bodyBuilder.insertSub(left.value, right.value, temp("sub")), left.type)

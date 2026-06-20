@@ -117,4 +117,31 @@ class LongElseIfChainTest {
             main(arrayOf("-i", input.toString(), "-o", output.toString(), "--emit", "asm"))
         }
     }
+
+    @Test
+    fun `asm compilation handles long left associative variable expression`() {
+        val variableCount = 5_000
+        val source = buildString {
+            appendLine("fn main() {")
+            repeat(variableCount) { index ->
+                appendLine("    let v$index: i32 = $index;")
+            }
+            append("    let sum: i32 = ")
+            repeat(variableCount) { index ->
+                if (index > 0) append(" + ")
+                append("v$index")
+            }
+            appendLine(";")
+            appendLine("    printlnInt(sum);")
+            appendLine("    exit(0);")
+            appendLine("}")
+        }
+        val input = Files.createTempFile("many-vars-left-assoc", ".rs")
+        val output = Files.createTempFile("many-vars-left-assoc", ".s")
+        input.writeText(source)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(10)) {
+            main(arrayOf("-i", input.toString(), "-o", output.toString(), "--emit", "asm"))
+        }
+    }
 }
