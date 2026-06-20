@@ -58,7 +58,7 @@ data class ParsingContext(
         var whatToReturn: T? = null
         try {
             whatToReturn = block()
-        } catch (t: Throwable) {
+        } catch (e: Exception) {
             failedParseObjectSet.add(Pair(currentCursor, name))
             whatToReturn = null
         } finally {

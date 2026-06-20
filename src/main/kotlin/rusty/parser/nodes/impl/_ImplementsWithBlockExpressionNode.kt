@@ -45,6 +45,11 @@ fun ExpressionNode.WithBlockExpressionNode.BlockExpressionNode.Companion.parse(c
         val statements = mutableListOf<StatementNode>()
         var trailingExpression: ExpressionNode? = null
         while (ctx.peekToken() != Token.O_RCURL && ctx.peekToken() != null) {
+            if (ctx.peekToken() == Token.K_LET || ctx.peekToken() == Token.O_SEMICOLON) {
+                statements.add(StatementNode.parse(ctx))
+                continue
+            }
+
             var isBlockExpr = false
             val expr = ctx.tryParse("BlockExpression@Expression") {
                 isBlockExpr = ExpressionNode.WithBlockExpressionNode.peek(ctx)

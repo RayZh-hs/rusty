@@ -6,6 +6,7 @@ import space.norb.llvm.instructions.memory.AllocaInst
 import space.norb.llvm.core.Value
 import space.norb.llvm.structure.Function
 import space.norb.llvm.utils.computeLayout
+import java.util.IdentityHashMap
 
 enum class StackObjectKind {
     Spill,          // Spilled register
@@ -52,6 +53,9 @@ class StackFrame(
         private set
 
     private var usedBytes: Int = 0
+    private val objectsByName = linkedMapOf<String, PlacedStackObject>()
+    private val objectsByStackSlotId = linkedMapOf<Int, PlacedStackObject>()
+    private val objectsByAlloca = IdentityHashMap<AllocaInst, PlacedStackObject>()
 
     fun place(stackObject: StackObject): PlacedStackObject {
         val start = alignUp(usedBytes, stackObject.alignBytes)
@@ -59,14 +63,17 @@ class StackFrame(
         val placed = PlacedStackObject(
             stackObject = stackObject,
             ofStackFrame = this,
-            offsetFromSp = 0,
+            offsetFromSp = start,
             offsetFromFp = -end,
             index = frameObjects.size,
         )
 
         usedBytes = end
         frameObjects.add(placed)
-        refreshSize()
+        stackObject.name?.let { objectsByName.putIfAbsent(it, placed) }
+        stackObject.stackSlotId?.let { objectsByStackSlotId.putIfAbsent(it, placed) }
+        stackObject.alloca?.let { objectsByAlloca.putIfAbsent(it, placed) }
+        frameSizeBytes = alignUp(usedBytes, alignBytes)
         return placed
     }
 
@@ -117,23 +124,17 @@ class StackFrame(
     }
 
     fun objectWithName(name: String): PlacedStackObject? {
-        return frameObjects.firstOrNull { it.stackObject.name == name }
+        return objectsByName[name]
     }
 
     fun objectWithStackSlotId(id: Int): PlacedStackObject? {
-        return frameObjects.firstOrNull { it.stackObject.stackSlotId == id }
+        return objectsByStackSlotId[id]
     }
 
     fun objectForAlloca(alloca: AllocaInst): PlacedStackObject? {
-        return frameObjects.firstOrNull { it.stackObject.alloca === alloca }
+        return objectsByAlloca[alloca]
     }
 
-    private fun refreshSize() {
-        frameSizeBytes = alignUp(usedBytes, alignBytes)
-        for (placed in frameObjects) {
-            placed.offsetFromSp = -placed.offsetFromFp - placed.sizeBytes
-        }
-    }
 }
 
 class StackManager(
