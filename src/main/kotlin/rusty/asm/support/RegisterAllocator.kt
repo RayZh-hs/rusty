@@ -6,10 +6,6 @@ import rusty.asm.containsCall
 import rusty.asm.hasBody
 import rusty.asm.instructionsIncludingTerminator
 import space.norb.llvm.analysis.AnalysisManager
-import space.norb.llvm.analysis.presets.InstructionLivenessAnalysis
-import space.norb.llvm.analysis.presets.InstructionLivenessLookup
-import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
-import space.norb.llvm.analysis.presets.BlockLivenessLookup
 import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.analysis.presets.UseDefChain
 import space.norb.llvm.core.Value
@@ -80,10 +76,11 @@ object RegisterAllocator {
             instructionCount > config.instructionLivenessThreshold
 
         val colored = if (useLinearScan) {
-            val blockLiveness = analysisManager.get(BlockLivenessAnalysis::class)
+            val blockLiveness = computeBlockLiveness(function, useDef)
             linearScanAllocate(function, registerCandidates, useDef, blockLiveness, config, ::nextStackSlot)
         } else {
-            val instructionLiveness = analysisManager.get(InstructionLivenessAnalysis::class)
+            val blockLiveness = computeBlockLiveness(function, useDef)
+            val instructionLiveness = computeInstructionLiveness(function, useDef, blockLiveness)
             val graph = buildInterferenceGraph(function, registerCandidates, instructionLiveness)
             colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
         }
@@ -105,7 +102,7 @@ object RegisterAllocator {
     private fun buildInterferenceGraph(
         function: Function,
         candidates: Set<Value>,
-        instructionLiveness: InstructionLivenessLookup,
+        instructionLiveness: Map<Instruction, Set<Value>>,
     ): MutableMap<Value, MutableSet<Value>> {
         val graph = candidates.associateWithTo(linkedMapOf<Value, MutableSet<Value>>()) { linkedSetOf() }
 
@@ -134,7 +131,7 @@ object RegisterAllocator {
         for (block in function.basicBlocks) {
             for (instruction in block.instructions) {
                 if (instruction in candidates) {
-                    val (_, liveOut) = instructionLiveness.ofInstruction(instruction)
+                    val liveOut = instructionLiveness[instruction].orEmpty()
                     // A definition interferes with every candidate still live after it
                     liveOut.filter { it in candidates }.forEach { connect(instruction, it) }
                 }
@@ -143,6 +140,161 @@ object RegisterAllocator {
 
         return graph
     }
+
+    private data class BlockLiveness(
+        val liveIn: Map<BasicBlock, Set<Value>>,
+        val liveOut: Map<BasicBlock, Set<Value>>,
+    ) {
+        fun ofBlock(block: BasicBlock): Pair<Set<Value>, Set<Value>> =
+            liveIn[block].orEmpty() to liveOut[block].orEmpty()
+    }
+
+    private fun computeBlockLiveness(function: Function, useDef: UseDefChain): BlockLiveness {
+        val liveIn = linkedMapOf<BasicBlock, Set<Value>>()
+        val liveOut = linkedMapOf<BasicBlock, Set<Value>>()
+        val blockUses = linkedMapOf<BasicBlock, Set<Value>>()
+        val blockDefs = linkedMapOf<BasicBlock, Set<Value>>()
+        val phiDefs = linkedMapOf<BasicBlock, Set<Value>>()
+        val phiUses = linkedMapOf<BasicBlock, MutableMap<BasicBlock, MutableSet<Value>>>()
+        val trackedValues = trackedValues(function)
+
+        fun isTrackedValue(value: Value): Boolean = value in trackedValues
+
+        for (block in function.basicBlocks) {
+            liveIn[block] = emptySet()
+            liveOut[block] = emptySet()
+
+            val uses = LinkedHashSet<Value>()
+            val defs = LinkedHashSet<Value>()
+            val blockPhiDefs = LinkedHashSet<Value>()
+
+            for (instruction in block.instructions) {
+                if (instruction is PhiNode) {
+                    if (isTrackedValue(instruction) && useDef.hasUses(instruction)) {
+                        defs.add(instruction)
+                        blockPhiDefs.add(instruction)
+                    }
+                    for ((incomingValue, incomingBlock) in instruction.incomingValues) {
+                        if (!isTrackedValue(incomingValue)) continue
+                        phiUses
+                            .getOrPut(incomingBlock) { linkedMapOf() }
+                            .getOrPut(block) { LinkedHashSet() }
+                            .add(incomingValue)
+                    }
+                    continue
+                }
+
+                for (operand in useDef.getDefs(instruction)) {
+                    if (isTrackedValue(operand) && operand !in defs) {
+                        uses.add(operand)
+                    }
+                }
+
+                if (isTrackedValue(instruction) && useDef.hasUses(instruction)) {
+                    defs.add(instruction)
+                }
+            }
+
+            blockUses[block] = uses
+            blockDefs[block] = defs
+            phiDefs[block] = blockPhiDefs
+        }
+
+        var changed: Boolean
+        do {
+            changed = false
+            for (block in function.basicBlocks.asReversed()) {
+                val oldLiveIn = liveIn[block].orEmpty()
+                val oldLiveOut = liveOut[block].orEmpty()
+
+                val newLiveOut = LinkedHashSet<Value>()
+                for (successor in block.getSuccessors()) {
+                    val successorLiveIn = liveIn[successor].orEmpty()
+                    val successorPhiDefs = phiDefs[successor].orEmpty()
+                    val edgePhiUses = phiUses[block]?.get(successor).orEmpty()
+
+                    if (successorPhiDefs.isEmpty()) {
+                        newLiveOut.addAll(successorLiveIn)
+                    } else {
+                        for (value in successorLiveIn) {
+                            if (value !in successorPhiDefs) {
+                                newLiveOut.add(value)
+                            }
+                        }
+                    }
+
+                    newLiveOut.addAll(edgePhiUses)
+                }
+
+                val newLiveIn = LinkedHashSet<Value>()
+                newLiveIn.addAll(blockUses[block].orEmpty())
+                for (value in newLiveOut) {
+                    if (value !in blockDefs[block].orEmpty()) {
+                        newLiveIn.add(value)
+                    }
+                }
+
+                if (oldLiveIn != newLiveIn || oldLiveOut != newLiveOut) {
+                    liveIn[block] = if (newLiveIn.isEmpty()) emptySet() else newLiveIn
+                    liveOut[block] = if (newLiveOut.isEmpty()) emptySet() else newLiveOut
+                    changed = true
+                }
+            }
+        } while (changed)
+
+        return BlockLiveness(liveIn, liveOut)
+    }
+
+    private fun computeInstructionLiveness(
+        function: Function,
+        useDef: UseDefChain,
+        blockLiveness: BlockLiveness,
+    ): Map<Instruction, Set<Value>> {
+        val liveOutByInstruction = linkedMapOf<Instruction, Set<Value>>()
+        val trackedValues = trackedValues(function)
+
+        fun isTrackedValue(value: Value): Boolean = value in trackedValues
+
+        for (block in function.basicBlocks) {
+            var currentLive = LinkedHashSet<Value>(blockLiveness.liveOut[block].orEmpty())
+
+            for (instruction in block.instructions.asReversed()) {
+                val liveOut = if (currentLive.isEmpty()) emptySet() else LinkedHashSet(currentLive)
+                val liveIn = LinkedHashSet<Value>()
+
+                if (instruction !is PhiNode) {
+                    for (operand in useDef.getDefs(instruction)) {
+                        if (isTrackedValue(operand)) {
+                            liveIn.add(operand)
+                        }
+                    }
+                }
+
+                if (isTrackedValue(instruction)) {
+                    for (value in liveOut) {
+                        if (value != instruction) {
+                            liveIn.add(value)
+                        }
+                    }
+                } else {
+                    liveIn.addAll(liveOut)
+                }
+
+                liveOutByInstruction[instruction] = liveOut
+                currentLive = liveIn
+            }
+        }
+
+        return liveOutByInstruction
+    }
+
+    private fun trackedValues(function: Function): Set<Value> =
+        LinkedHashSet<Value>().apply {
+            addAll(function.parameters)
+            for (block in function.basicBlocks) {
+                addAll(block.instructions)
+            }
+        }
 
     private data class LiveInterval(
         val value: Value,
@@ -156,7 +308,7 @@ object RegisterAllocator {
         function: Function,
         candidates: LinkedHashSet<Value>,
         useDef: UseDefChain,
-        blockLiveness: BlockLivenessLookup,
+        blockLiveness: BlockLiveness,
         config: Config,
         nextStackSlot: () -> SavableSlot.Stack,
     ): Map<Value, SavableSlot> {

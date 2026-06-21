@@ -233,6 +233,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         val hasStore = linkedMapOf<FieldAddressKey, Boolean>()
         val hasLoad = linkedMapOf<FieldAddressKey, Boolean>()
         val geps = fn.instructions().filterIsInstance<GetElementPtrInst>().toList()
+        if (geps.size > 1_000) return emptyMap()
         val dominanceInfo = context.analysisManager.get(DominatorTreeAnalysis::class).getFunctionInfo(fn)
 
         for (gep in geps) {
@@ -293,7 +294,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         if (keys.isEmpty()) return emptyMap()
 
         val entryAvailable = keys.filterTo(linkedSetOf()) { it.base is AllocaInst }
-        val predecessors = fn.basicBlocks.associateWith { block -> mutableListOf<BasicBlock>() }
+        val predecessors = fn.basicBlocks.associateWith { mutableListOf<BasicBlock>() }
         for (block in fn.basicBlocks) {
             for (successor in block.getSuccessors()) {
                 predecessors.getValue(successor).add(block)
