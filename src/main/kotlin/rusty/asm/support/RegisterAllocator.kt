@@ -26,6 +26,7 @@ object RegisterAllocator {
         val allocatableRegisters: List<Register> = defaultAllocatableRegisters,
         val registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
         val linearScanThreshold: Int = 512,
+        val instructionLivenessThreshold: Int = 2_000,
     )
 
     val defaultAllocatableRegisters: List<Register> =
@@ -74,7 +75,11 @@ object RegisterAllocator {
         }
 
         val useDef = analysisManager.get(UseDefAnalysis::class)
-        val colored = if (registerCandidates.size > config.linearScanThreshold) {
+        val instructionCount = function.basicBlocks.sumOf { it.instructionsIncludingTerminator().count() }
+        val useLinearScan = registerCandidates.size > config.linearScanThreshold ||
+            instructionCount > config.instructionLivenessThreshold
+
+        val colored = if (useLinearScan) {
             val blockLiveness = analysisManager.get(BlockLivenessAnalysis::class)
             linearScanAllocate(function, registerCandidates, useDef, blockLiveness, config, ::nextStackSlot)
         } else {

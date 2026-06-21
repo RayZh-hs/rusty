@@ -100,7 +100,7 @@ class LongElseIfChainTest {
 
     @Test
     fun `asm compilation handles many stack variables`() {
-        val variableCount = 2_000
+        val variableCount = 3_000
         val source = buildString {
             appendLine("fn main() {")
             repeat(variableCount) { index ->
