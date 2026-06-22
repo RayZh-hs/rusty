@@ -8,6 +8,7 @@ import rusty.asm.utils.SavableSlot
 import rusty.asm.utils.calleeSavedRegisters
 import rusty.asm.utils.callerSavedRegisters
 import rusty.asm.utils.Register
+import space.norb.llvm.analysis.presets.BlockLivenessAnalysis
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
 import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import space.norb.llvm.core.Type
@@ -77,6 +78,8 @@ internal class AsmTranslator(private val context: AsmContext) {
     private lateinit var cachedFields: Map<GetElementPtrInst, CachedField>
     private lateinit var cachedFieldAvailability: Map<Instruction, Set<FieldAddressKey>>
     private lateinit var noAliasArgumentPairs: Set<Pair<Argument, Argument>>
+    private lateinit var callLiveOut: Map<CallInst, Set<Value>>
+    private val callerSavedRegisterSet = callerSavedRegisters.toSet()
 
     private data class CachedField(
         val gep: GetElementPtrInst,
@@ -178,6 +181,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         noAliasArgumentPairs = proveNoAliasArgumentPairs(fn)
         cachedFields = planCachedFields(fn)
         cachedFieldAvailability = analyzeCachedFieldAvailability(fn)
+        callLiveOut = computeCallLiveOut(fn)
 
         asm.global(fn.asmName())
         asm.type(fn.asmName(), "@function")
@@ -642,7 +646,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun moveParametersToAllocatedLocations() {
-        if (!function.containsCall() && canDirectMoveParameters()) {
+        if (canDirectMoveParameters()) {
             moveParametersDirectly()
             return
         }
@@ -719,6 +723,19 @@ internal class AsmTranslator(private val context: AsmContext) {
         val parameter: Argument,
         var source: RvRegister,
     )
+
+    private data class CallArgumentMove(
+        val index: Int,
+        val destination: RvRegister,
+        var source: CallArgumentMoveSource,
+    )
+
+    private sealed class CallArgumentMoveSource {
+        data class RegisterSource(val register: RvRegister) : CallArgumentMoveSource()
+        data class TempSource(val temp: PlacedStackObject) : CallArgumentMoveSource()
+
+        fun registerOrNull(): RvRegister? = (this as? RegisterSource)?.register
+    }
 
     private fun resolveCallArgTemp(frame: StackFrame, index: Int): PlacedStackObject {
         val name = callArgumentTempName(index)
@@ -1111,12 +1128,28 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun lowerCall(instruction: CallInst) {
-        val callerSavedTemps = callerSavedTemps()
+        val callerSavedTemps = callerSavedTemps(instruction)
         for ((register, temp) in callerSavedTemps) {
             storeRegister(register.toRv(), addressOfStack(temp, t6))
         }
 
+        val directArgumentMoves = mutableListOf<CallArgumentMove>()
         for ((index, argument) in instruction.arguments.withIndex()) {
+            val argumentSlot = allocation[argument]
+            if (index < argumentRegisters.size &&
+                argument.type.sizeBytes(module) <= registerBytes &&
+                argumentSlot is SavableSlot.Register
+            ) {
+                directArgumentMoves.add(
+                    CallArgumentMove(
+                        index,
+                        argumentRegisters[index],
+                        CallArgumentMoveSource.RegisterSource(argumentSlot.physical.toRv()),
+                    )
+                )
+                continue
+            }
+
             val temp = frame.objectWithName(callArgumentTempName(index))
                 ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
             val value = if (argument.type.sizeBytes(module) <= registerBytes) {
@@ -1128,7 +1161,11 @@ internal class AsmTranslator(private val context: AsmContext) {
             storeRegister(t3, addressOfStack(temp, t6))
         }
 
+        val directArgumentIndexes = directArgumentMoves.mapTo(mutableSetOf()) { it.index }
+        emitCallArgumentMoves(directArgumentMoves)
+
         for (index in instruction.arguments.indices.take(argumentRegisters.size)) {
+            if (index in directArgumentIndexes) continue
             val temp = frame.objectWithName(callArgumentTempName(index))
                 ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
             loadRegister(argumentRegisters[index], addressOfStack(temp, t6))
@@ -1169,17 +1206,93 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
     }
 
-    private fun callerSavedTemps(): List<Pair<rusty.asm.utils.Register, PlacedStackObject>> {
-        return allocation.values
+    private fun emitCallArgumentMoves(pending: MutableList<CallArgumentMove>) {
+        while (pending.isNotEmpty()) {
+            pending.removeAll { move -> move.destination == move.source.registerOrNull() }
+            if (pending.isEmpty()) return
+
+            val nextIndex = pending.indexOfFirst { candidate ->
+                pending.none { other -> other !== candidate && other.source.registerOrNull() == candidate.destination }
+            }
+
+            if (nextIndex >= 0) {
+                val move = pending.removeAt(nextIndex)
+                val source = when (val moveSource = move.source) {
+                    is CallArgumentMoveSource.RegisterSource -> moveSource.register
+                    is CallArgumentMoveSource.TempSource -> loadRegisterScratch(moveSource.temp)
+                }
+                if (move.destination != source) {
+                    asm.mv(move.destination, source)
+                }
+                continue
+            }
+
+            val cycleSource = pending.firstNotNullOf { it.source.registerOrNull() }
+            val temp = resolveCallArgTemp(frame, pending.first().index)
+            storeRegister(cycleSource, addressOfStack(temp, t6))
+            for (move in pending) {
+                if (move.source.registerOrNull() == cycleSource) {
+                    move.source = CallArgumentMoveSource.TempSource(temp)
+                }
+            }
+        }
+    }
+
+    private fun callerSavedTemps(call: CallInst): List<Pair<rusty.asm.utils.Register, PlacedStackObject>> {
+        val liveOut = callLiveOut[call].orEmpty()
+        return allocation
             .asSequence()
-            .filterIsInstance<SavableSlot.Register>()
-            .map { it.physical }
-            .filter { it in callerSavedRegisters }
+            .filter { (value, slot) ->
+                value in liveOut && slot is SavableSlot.Register && slot.physical in callerSavedRegisterSet
+            }
+            .map { (_, slot) -> (slot as SavableSlot.Register).physical }
             .distinct()
+            .sortedBy { it.id }
             .mapNotNull { register ->
                 frame.objectWithName(register.callSaveTempName())?.let { register to it }
             }
             .toList()
+    }
+
+    private fun computeCallLiveOut(fn: Function): Map<CallInst, Set<Value>> {
+        val blockLiveness = context.analysisManager.get(BlockLivenessAnalysis::class)
+        val trackedValues = linkedSetOf<Value>().apply {
+            addAll(fn.parameters)
+            for (block in fn.basicBlocks) {
+                addAll(block.instructionsIncludingTerminator())
+            }
+        }
+        val result = linkedMapOf<CallInst, Set<Value>>()
+
+        fun addTrackedOperands(instruction: Instruction, destination: MutableSet<Value>) {
+            if (instruction is PhiNode) return
+            for (operand in instruction.getOperandsList()) {
+                if (operand in trackedValues) {
+                    destination.add(operand)
+                }
+            }
+        }
+
+        for (block in fn.basicBlocks) {
+            val currentLive = LinkedHashSet<Value>(blockLiveness.ofBlock(block).second)
+            for (instruction in block.instructionsIncludingTerminator().toList().asReversed()) {
+                if (instruction is CallInst) {
+                    val liveAcross = if (instruction in currentLive) {
+                        LinkedHashSet(currentLive).also { it.remove(instruction) }
+                    } else {
+                        currentLive
+                    }
+                    result[instruction] = if (liveAcross.isEmpty()) emptySet() else LinkedHashSet(liveAcross)
+                }
+
+                if (instruction in trackedValues) {
+                    currentLive.remove(instruction)
+                }
+                addTrackedOperands(instruction, currentLive)
+            }
+        }
+
+        return result
     }
 
     private fun lowerCast(instruction: CastInst) {
