@@ -1350,7 +1350,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun loadValue(value: Value, scratch: RvRegister): RvRegister {
         when (value) {
             is IntConstant -> {
-                loadImmediate(scratch, value.value)
+                loadImmediate(scratch, value.signExtendedI32Value())
                 return scratch
             }
             is NullPointerConstant -> {
@@ -1483,6 +1483,11 @@ internal class AsmTranslator(private val context: AsmContext) {
         } else {
             asm.emit("li", destination, expr(value.toString()))
         }
+    }
+
+    private fun IntConstant.signExtendedI32Value(): Long {
+        if (type.bitWidth != 32 || registerBytes <= 4) return value
+        return value.toInt().toLong()
     }
 
     private fun copyMemory(destination: RvRegister, source: RvRegister, sizeBytes: Int) {
