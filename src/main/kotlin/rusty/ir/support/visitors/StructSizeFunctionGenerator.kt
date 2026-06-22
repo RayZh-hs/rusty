@@ -12,9 +12,9 @@ class StructSizeFunctionGenerator {
     fun run() {
         if (IRContext.structTypeLookup.isEmpty()) return
         val builder = IRBuilder(IRContext.module)
-        val size32Type = TypeUtils.I32 as IntegerType
-        val size64Type = TypeUtils.I64 as IntegerType
-        val indexType = TypeUtils.I32 as IntegerType
+        val size32Type: IntegerType = TypeUtils.I32 as IntegerType
+        val size64Type: IntegerType = TypeUtils.I64 as IntegerType
+        val indexType = size32Type
 
         for ((identifier, structType) in IRContext.structTypeLookup) {
             if (IRContext.structSizeFunctionLookup.containsKey(identifier)) continue

@@ -156,7 +156,7 @@ class ExpressionEmitter(
         val global = cache.getOrPut(text) {
             val ty = ArrayType(text.length, TypeUtils.I8 as IntegerType)
             val arr = ArrayConstant(
-                text.map { BuilderUtils.getIntConstant(it.code.toLong(), TypeUtils.I8 as IntegerType) },
+                text.map { BuilderUtils.getIntConstant(it.code.toLong(), TypeUtils.I8) },
                 ty
             )
             module.registerGlobalVariable(
@@ -174,7 +174,7 @@ class ExpressionEmitter(
             global,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType)
+                BuilderUtils.getIntConstant(0, TypeUtils.I32)
             ),
             temp("str.ptr")
         )
@@ -261,7 +261,7 @@ class ExpressionEmitter(
                 storage,
                 listOf(
                     BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                    BuilderUtils.getIntConstant(index.toLong(), TypeUtils.I32 as IntegerType)
+                    BuilderUtils.getIntConstant(index.toLong(), TypeUtils.I32)
                 ),
                 temp("$structName.${field.identifier}")
             )
@@ -701,7 +701,7 @@ class ExpressionEmitter(
             storage,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                BuilderUtils.getIntConstant(index, TypeUtils.I32 as IntegerType),
+                BuilderUtils.getIntConstant(index, TypeUtils.I32),
             ),
             temp("array.elem")
         )
@@ -712,7 +712,7 @@ class ExpressionEmitter(
                 val destPtr = builder.insertBitcast(gep, TypeUtils.PTR, temp("array.elem.dest"))
                 val srcPtr = builder.insertBitcast(value.value, TypeUtils.PTR, temp("array.elem.src"))
                 val size = emitTypeSizeBytes(elementSemanticType)
-                val one = BuilderUtils.getIntConstant(1, TypeUtils.I32 as IntegerType)
+                val one = BuilderUtils.getIntConstant(1, TypeUtils.I32)
                 callMemfill(destPtr, srcPtr, size, one)
             }
             else -> builder.insertStore(value.value, gep)
@@ -1182,7 +1182,7 @@ class ExpressionEmitter(
             resolvedBase.value,
             listOf(
                 BuilderUtils.getIntConstant(0, TypeUtils.I32 as IntegerType),
-                BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32 as IntegerType)
+                BuilderUtils.getIntConstant(fieldIndex.toLong(), TypeUtils.I32)
             ),
             temp("${node.field}.addr")
         )

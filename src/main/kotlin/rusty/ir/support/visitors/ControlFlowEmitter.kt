@@ -73,7 +73,7 @@ class ControlFlowEmitter(
         if (elseBlock != null) {
             env.bodyBuilder.positionAtEnd(elseBlock)
             env.terminated = false
-            node.elseBranch?.let {
+            node.elseBranch.let {
                 addBlockComment(it.pointer, "else-block")
                 val elseVal = emitExpr(it)
                 if (auxSlot != null && elseVal != null) env.bodyBuilder.insertStore(elseVal.value, auxSlot)

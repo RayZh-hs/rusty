@@ -250,9 +250,9 @@ private class DumpVisitor(private val cfg: RenderConfig) : Visitor<Unit> {
             val hasTail = node.trailingExpression != null
             if (!hasStmts && !hasTail) line(info("(empty)")) else {
                 node.statements.forEach { it.accept(this) }
-                if (hasTail) {
+                node.trailingExpression?.let {
                     line(field("trailing") + ":")
-                    indented { node.trailingExpression!!.accept(this) }
+                    indented { it.accept(this) }
                 }
             }
         }

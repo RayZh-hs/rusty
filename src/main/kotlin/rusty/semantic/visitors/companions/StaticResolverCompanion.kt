@@ -13,8 +13,8 @@ import rusty.semantic.support.SemanticSymbol
 import rusty.semantic.support.SemanticType
 import rusty.semantic.support.SemanticValue
 import rusty.semantic.support.commonKClass
-import rusty.semantic.support.commonSemanticType
 import rusty.semantic.visitors.utils.ExpressionAnalyzer
+import rusty.semantic.visitors.utils.ProgressiveTypeInferrer.Companion.inferCommonType
 import rusty.semantic.visitors.utils.sequentialLookup
 
 class StaticResolverCompanion(val ctx: SemanticContext, val selfResolverRef: SelfResolverCompanion) {
@@ -188,8 +188,13 @@ class StaticResolverCompanion(val ctx: SemanticContext, val selfResolverRef: Sel
                     }
                     val repeat = resolveConstExpression(node.repeat, scope)
                     val castRepeat = ExpressionAnalyzer.tryImplicitCast(repeat, SemanticType.USizeType) as SemanticValue.USizeValue
-                    val elementType = elements.commonSemanticType()
-                        ?: throw CompileError("Array elements must have the same type").with(node)
+                    val elementType = if (elements.isEmpty()) {
+                        throw CompileError("Array elements must have the same type").with(node)
+                    } else try {
+                        elements.map { it.type }.inferCommonType(SemanticType.NeverType)
+                    } catch (e: CompileError) {
+                        throw e.with(node)
+                    }
                     val arrayType = SemanticType.ArrayType(Slot(elementType), Slot(castRepeat))
                     SemanticValue.ArrayValue(arrayType, elementType, elements, castRepeat)
                 }

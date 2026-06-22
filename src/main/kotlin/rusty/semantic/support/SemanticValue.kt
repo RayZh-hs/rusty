@@ -1,6 +1,8 @@
 package rusty.semantic.support
 
+import rusty.core.CompileError
 import rusty.core.utils.Slot
+import rusty.semantic.visitors.utils.ProgressiveTypeInferrer.Companion.inferCommonType
 import kotlin.reflect.KClass
 
 sealed class SemanticValue {
@@ -96,7 +98,12 @@ fun List<SemanticValue>.commonSemanticType(): SemanticType? {
 
         SemanticValue.ReferenceValue::class -> {
             // Unify referenced values, then produce a reference to the unified type (assume immutable by default).
-            val inner = this.map { (it as SemanticValue.ReferenceValue).referenced }.commonSemanticType() ?: return null
+            val inner = try {
+                this.map { (it as SemanticValue.ReferenceValue).referenced.type }
+                    .inferCommonType(SemanticType.NeverType)
+            } catch (e: CompileError) {
+                return null
+            }
             return SemanticType.ReferenceType(Slot(inner), Slot(false))
         }
 

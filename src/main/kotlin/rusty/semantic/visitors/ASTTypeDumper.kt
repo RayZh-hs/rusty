@@ -60,7 +60,7 @@ class ASTTypeDumper(private val context: SemanticContext, private val cfgColor: 
             is SemanticType.BoolType -> "bool"
             is SemanticType.UnitType -> "unit"
             is SemanticType.WildcardType -> "_"
-            is SemanticType.NeverType -> "!"
+            SemanticType.NeverType -> "!"
             is SemanticType.ArrayType -> {
                 val elem = semanticTypeToStr(t.elementType.getOrNull())
                 val len = if (t.length.isReady()) t.length.get().value.toString() else "_"
@@ -78,7 +78,6 @@ class ASTTypeDumper(private val context: SemanticContext, private val cfgColor: 
             is SemanticType.TraitType -> "trait ${t.identifier}"
             is SemanticType.FunctionHeader -> "func-header ${t.identifier}(${t.paramTypes.joinToString(", ") { semanticTypeToStr(it) }}) -> ${semanticTypeToStr(t.returnType)}"
             is SemanticType.ExitType -> "exit"
-            else -> "~"
         }
     }
 
@@ -125,9 +124,9 @@ class ASTTypeDumper(private val context: SemanticContext, private val cfgColor: 
             val hasTail = node.trailingExpression != null
             if (!hasStmts && !hasTail) line(info("(empty)")) else {
                 node.statements.forEach { it.accept(this) }
-                if (hasTail) {
+                node.trailingExpression?.let {
                     line(field("trailing") + ":")
-                    indented { node.trailingExpression!!.accept(this) }
+                    indented { it.accept(this) }
                 }
             }
         }

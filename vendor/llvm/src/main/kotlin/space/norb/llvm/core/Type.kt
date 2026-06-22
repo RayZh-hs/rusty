@@ -201,6 +201,6 @@ abstract class Type {
          * @param elementTypes The types of struct elements
          * @return A struct type
          */
-        fun getStructType(elementTypes: List<Type>): Type = StructType(elementTypes)
+        fun getStructType(elementTypes: List<Type>): Type = StructType.AnonymousStructType(elementTypes)
     }
 }
