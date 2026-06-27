@@ -99,6 +99,26 @@ class LongElseIfChainTest {
     }
 
     @Test
+    fun `asm compilation handles many stack variables`() {
+        val variableCount = 3_000
+        val source = buildString {
+            appendLine("fn main() {")
+            repeat(variableCount) { index ->
+                appendLine("    let mut v$index: [i32; 1] = [0];")
+            }
+            appendLine("    exit(0);")
+            appendLine("}")
+        }
+        val input = Files.createTempFile("many-stack-vars", ".rs")
+        val output = Files.createTempFile("many-stack-vars", ".s")
+        input.writeText(source)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(10)) {
+            main(arrayOf("-i", input.toString(), "-o", output.toString(), "--emit", "asm"))
+        }
+    }
+
+    @Test
     fun `asm compilation handles long left associative variable expression`() {
         val variableCount = 5_000
         val source = buildString {

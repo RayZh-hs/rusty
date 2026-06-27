@@ -24,9 +24,22 @@ object RegisterAllocator {
     private const val LOOP_WEIGHT_BASE = 10L
     private const val MAX_WEIGHTED_DEPTH = 6
 
+    // Upper bound on how many register candidates may be simultaneously live before the allocator
+    // starts force-spilling some of them. Graph coloring needs an interference edge between every
+    // pair of values live at the same program point, so an unbounded live set yields an O(N^2)
+    // interference graph (pathologically, thousands of entry-block allocas that are all live from
+    // entry to their single use). Capping the live set caps the graph's degree and therefore its
+    // memory, keeping consumption comparable to linear scan. The cap only needs to exceed the
+    // register count — at most that many values can be colored at any point anyway — and the values
+    // it spills are chosen by furthest next use (see computeForcedSpills), so colorable values stay
+    // in registers. Real functions never approach this many simultaneously-live values, so normal
+    // allocation is unaffected; only pathological inputs trip the cap.
+    private const val DEFAULT_MAX_LIVE_CANDIDATES = 64
+
     data class Config(
         val allocatableRegisters: List<Register> = defaultAllocatableRegisters,
         val registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
+        val maxLiveCandidates: Int = DEFAULT_MAX_LIVE_CANDIDATES,
     )
 
     val defaultAllocatableRegisters: List<Register> =
@@ -74,7 +87,19 @@ object RegisterAllocator {
         val blockLiveness = computeBlockLiveness(function, useDef)
         val loopDepth = computeLoopDepth(function, analysisManager)
         val spillWeight = computeSpillWeights(function, useDef, loopDepth)
-        val interference = buildInterferenceGraph(function, registerCandidates, useDef, blockLiveness, loopDepth)
+
+        // Cap peak register pressure before building the graph. Values evicted here are spilled
+        // directly to the stack and excluded from the interference graph, keeping its size bounded.
+        val forcedSpills = computeForcedSpills(function, registerCandidates, useDef, blockLiveness, config)
+        for (value in forcedSpills) {
+            forcedStackSlots[value] = nextStackSlot()
+        }
+        val graphCandidates =
+            if (forcedSpills.isEmpty()) registerCandidates
+            else registerCandidates.filterTo(LinkedHashSet()) { it !in forcedSpills }
+
+        val interference =
+            buildInterferenceGraph(function, graphCandidates, useDef, blockLiveness, loopDepth, forcedSpills)
         val colored = colorGraph(
             interference.graph,
             spillWeight,
@@ -197,12 +222,15 @@ object RegisterAllocator {
         useDef: UseDefChain,
         blockLiveness: BlockLiveness,
         loopDepth: Map<BasicBlock, Int>,
+        forcedSpills: Set<Value>,
     ): InterferenceResult {
         val graph = candidates.associateWithTo(linkedMapOf<Value, MutableSet<Value>>()) { linkedSetOf() }
         val callCrossing = LinkedHashSet<Value>()
         val trackedValues = trackedValues(function)
 
-        fun isTrackedValue(value: Value): Boolean = value in trackedValues
+        // Force-spilled values occupy a stack slot, never a register, so they create no interference
+        // and need not be tracked. Dropping them keeps the live set (and thus the graph) bounded.
+        fun isTrackedValue(value: Value): Boolean = value in trackedValues && value !in forcedSpills
 
         fun connect(lhs: Value, rhs: Value) {
             if (lhs != rhs) {
@@ -234,7 +262,8 @@ object RegisterAllocator {
             // add a prologue/epilogue save to every invocation — a net loss for leaf-heavy
             // recursion. So we only bias values that cross a call within a loop.
             val callInLoop = (loopDepth[block] ?: 0) > 0
-            var currentLive = LinkedHashSet<Value>(blockLiveness.liveOut[block].orEmpty())
+            var currentLive = blockLiveness.liveOut[block].orEmpty()
+                .filterTo(LinkedHashSet()) { it !in forcedSpills }
 
             for (instruction in block.instructions.asReversed()) {
                 if (instruction in candidates) {
@@ -276,6 +305,95 @@ object RegisterAllocator {
         }
 
         return InterferenceResult(graph, callCrossing)
+    }
+
+    /**
+     * Decides which register candidates to pre-spill so that no program point keeps more than
+     * [Config.maxLiveCandidates] register candidates simultaneously live. This bounds the degree of
+     * the interference graph the colorer builds and therefore its memory: without it a function
+     * with a very large simultaneously-live set (e.g. thousands of entry-block allocas all live
+     * from entry to their single use) produces an O(N^2) graph that exhausts the heap.
+     *
+     * Liveness here is computed gradually — a single backward walk that only ever holds one live
+     * set in memory, never a per-instruction map. Whenever the live set exceeds the cap the value
+     * whose next use is furthest in the future is evicted (Bélády's rule, the same furthest-use
+     * heuristic that lets linear scan spill well). Spilling the value needed last frees a register
+     * for the longest stretch, so the survivors are exactly the ones worth keeping — short-lived
+     * temporaries stay in registers instead of being needlessly spilled, keeping both the spill
+     * count and the emitted code comparable to linear scan.
+     */
+    private fun computeForcedSpills(
+        function: Function,
+        candidates: Set<Value>,
+        useDef: UseDefChain,
+        blockLiveness: BlockLiveness,
+        config: Config,
+    ): Set<Value> {
+        val cap = maxOf(config.maxLiveCandidates, config.allocatableRegisters.size)
+        val forced = LinkedHashSet<Value>()
+        if (candidates.size <= cap) return forced
+
+        // Forward instruction numbering. A larger position means "used later", i.e. further away
+        // from any earlier program point — exactly the ordering Bélády eviction needs.
+        val position = HashMap<Value, Int>()
+        var nextPosition = 0
+        for (block in function.basicBlocks) {
+            for (instruction in block.instructions) position[instruction] = nextPosition++
+        }
+        val beyondFunction = nextPosition
+
+        // nextUse[v] = position of the nearest use of v at or after the current backward frontier.
+        // A value that is live-out of the current block is used only in a successor, so its next use
+        // is treated as beyond this block (maximally far, hence preferred for eviction here).
+        val nextUse = HashMap<Value, Int>()
+
+        fun evictDownTo(live: LinkedHashSet<Value>) {
+            while (live.size > cap) {
+                var victim: Value? = null
+                var victimUse = Int.MIN_VALUE
+                for (value in live) {
+                    val use = nextUse[value] ?: beyondFunction
+                    if (use > victimUse) {
+                        victim = value
+                        victimUse = use
+                    }
+                }
+                val chosen = victim ?: break
+                live.remove(chosen)
+                nextUse.remove(chosen)
+                forced.add(chosen)
+            }
+        }
+
+        for (block in function.basicBlocks) {
+            val live = LinkedHashSet<Value>()
+            for (value in blockLiveness.liveOut[block].orEmpty()) {
+                if (value in candidates && value !in forced) {
+                    live.add(value)
+                    nextUse[value] = beyondFunction
+                }
+            }
+            evictDownTo(live)
+
+            for (instruction in block.instructions.asReversed()) {
+                if (instruction in candidates) {
+                    live.remove(instruction)
+                    nextUse.remove(instruction)
+                }
+                if (instruction !is PhiNode) {
+                    val usePosition = position[instruction] ?: 0
+                    for (operand in useDef.getDefs(instruction)) {
+                        if (operand in candidates && operand !in forced) {
+                            live.add(operand)
+                            nextUse[operand] = usePosition
+                        }
+                    }
+                }
+                evictDownTo(live)
+            }
+        }
+
+        return forced
     }
 
     private data class BlockLiveness(
