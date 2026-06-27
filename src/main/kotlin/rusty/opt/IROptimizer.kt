@@ -19,14 +19,26 @@ import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.structure.Module
 import space.norb.llvm.transformation.IRPass
 import space.norb.llvm.transformation.presets.CFGSimplifyPass
+import space.norb.llvm.transformation.presets.FunctionInliningPass
 import space.norb.llvm.transformation.presets.Mem2RegPass
 import java.io.OutputStream
 import java.io.PrintStream
 
 object IROptimizer {
     
+    // Inline small, non-recursive callees up to this many raw IR instructions. Kept moderate: the
+    // post-inline memory traffic (parameter/local allocas, return forwarding) is cleaned up by the
+    // SROA / Mem2Reg / GVN / InstCombine passes that run afterwards, so the inlined bodies collapse
+    // into the caller's register-resident values rather than spilling.
+    private const val INLINE_INSTRUCTION_THRESHOLD = 40
+
+    private val functionInliningPass = FunctionInliningPass { callee ->
+        callee.basicBlocks.sumOf { it.instructions.size } < INLINE_INSTRUCTION_THRESHOLD
+    }
+
     private val passes: List<IRPass> = listOf(
         SizeInliningPass,
+        functionInliningPass,
         SmallMemcopyLoweringPass,
         InstCombineCleanupPass,
         PointerSlotForwardingPass,
