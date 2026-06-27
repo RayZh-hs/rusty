@@ -44,7 +44,7 @@ object PointerSlotForwardingPass : IRPass() {
             val loads: List<LoadInst> = uses.filterIsInstance<LoadInst>().filter { load -> load.pointer == alloca }
             if (loads.isEmpty()) continue
             if (uses.any { user -> user !in stores && user !in loads }) continue
-            if (loads.any { load -> !dominates(stores.single(), load, dominanceInfo) }) continue
+            if (loads.any { load -> !dominates(stores.single(), load, dominanceInfo, function) }) continue
 
             for (load in loads) {
                 replaceAllUses(function, load, storedValue)
@@ -64,9 +64,10 @@ object PointerSlotForwardingPass : IRPass() {
         dominator: Instruction,
         dominated: Instruction,
         dominanceInfo: FunctionDominanceInfo,
+        function: Function,
     ): Boolean {
-        val dominatorBlock = dominator.getParent() as? BasicBlock ?: return false
-        val dominatedBlock = dominated.getParent() as? BasicBlock ?: return false
+        val dominatorBlock = function.basicBlocks.firstOrNull { it.instructions.contains(dominator) } ?: return false
+        val dominatedBlock = function.basicBlocks.firstOrNull { it.instructions.contains(dominated) } ?: return false
         if (dominatorBlock === dominatedBlock) {
             val instructions = dominatorBlock.instructions
             return instructions.indexOf(dominator) <= instructions.indexOf(dominated)
