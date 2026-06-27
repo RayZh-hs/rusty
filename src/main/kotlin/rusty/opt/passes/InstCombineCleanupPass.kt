@@ -161,23 +161,34 @@ object InstCombineCleanupPass : IRPass() {
             if (rhs.value == 0L) return null
         }
 
+        // IntConstant.value holds the *unsigned* bit-pattern truncated to the type width (e.g. i32 -33
+        // is stored as 4294967263). Signed operations must therefore sign-extend their operands to a
+        // full 64-bit Long before computing, otherwise sdiv/srem/ashr produce the unsigned result.
+        val sLhs = signedValue(lhs)
+        val sRhs = signedValue(rhs)
+
         val value = when (inst) {
             is AddInst -> lhs.value + rhs.value
             is SubInst -> lhs.value - rhs.value
             is MulInst -> lhs.value * rhs.value
-            is SDivInst -> lhs.value / rhs.value
+            is SDivInst -> sLhs / sRhs
             is UDivInst -> divideUnsigned(lhs.value, rhs.value)
-            is SRemInst -> lhs.value % rhs.value
+            is SRemInst -> sLhs % sRhs
             is URemInst -> remainderUnsigned(lhs.value, rhs.value)
             is AndInst -> lhs.value and rhs.value
             is OrInst -> lhs.value or rhs.value
             is XorInst -> lhs.value xor rhs.value
             is ShlInst -> lhs.value shl shiftAmount(rhs, inst)
             is LShrInst -> lhs.value ushr shiftAmount(rhs, inst)
-            is AShrInst -> lhs.value shr shiftAmount(rhs, inst)
+            is AShrInst -> sLhs shr shiftAmount(rhs, inst)
             else -> return null
         }
         return intConstant(value, inst.type as? IntegerType ?: return null)
+    }
+
+    private fun signedValue(constant: IntConstant): Long {
+        val bitWidth = (constant.type as? IntegerType)?.bitWidth ?: Long.SIZE_BITS
+        return signExtend(constant.value, bitWidth)
     }
 
     private fun shiftAmount(value: IntConstant, inst: BinaryInst): Int {
@@ -212,6 +223,10 @@ object InstCombineCleanupPass : IRPass() {
 
         val lhs = inst.lhs as? IntConstant ?: return null
         val rhs = inst.rhs as? IntConstant ?: return null
+        // Signed predicates must compare the sign-extended values (see foldBinaryConstants); the raw
+        // .value is the unsigned bit-pattern. Unsigned predicates compare the masked patterns directly.
+        val sLhs = signedValue(lhs)
+        val sRhs = signedValue(rhs)
         return boolConstant(
             when (inst.predicate) {
                 IcmpPredicate.EQ -> lhs.value == rhs.value
@@ -220,10 +235,10 @@ object InstCombineCleanupPass : IRPass() {
                 IcmpPredicate.UGE -> java.lang.Long.compareUnsigned(lhs.value, rhs.value) >= 0
                 IcmpPredicate.ULT -> java.lang.Long.compareUnsigned(lhs.value, rhs.value) < 0
                 IcmpPredicate.ULE -> java.lang.Long.compareUnsigned(lhs.value, rhs.value) <= 0
-                IcmpPredicate.SGT -> lhs.value > rhs.value
-                IcmpPredicate.SGE -> lhs.value >= rhs.value
-                IcmpPredicate.SLT -> lhs.value < rhs.value
-                IcmpPredicate.SLE -> lhs.value <= rhs.value
+                IcmpPredicate.SGT -> sLhs > sRhs
+                IcmpPredicate.SGE -> sLhs >= sRhs
+                IcmpPredicate.SLT -> sLhs < sRhs
+                IcmpPredicate.SLE -> sLhs <= sRhs
             }
         )
     }
