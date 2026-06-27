@@ -1,7 +1,10 @@
 package rusty.opt
 
 import rusty.opt.passes.SizeInliningPass
+import rusty.opt.passes.IdenticalGepReductionPass
 import rusty.opt.passes.InstCombineCleanupPass
+import rusty.opt.passes.LoopAddressReductionPass
+import rusty.opt.passes.LoopCounterPromotionPass
 import rusty.opt.passes.LoopInvariantCodeMotionPass
 import rusty.opt.passes.PointerSlotForwardingPass
 import rusty.opt.passes.ScalarReplacementOfAggregatesPass
@@ -29,7 +32,11 @@ object IROptimizer {
         ScalarReplacementOfAggregatesPass,
         Mem2RegPass,
         InstCombineCleanupPass,
+        IdenticalGepReductionPass,
         LoopInvariantCodeMotionPass,
+        LoopAddressReductionPass,
+        InstCombineCleanupPass,
+        LoopCounterPromotionPass,
         InstCombineCleanupPass,
         CFGSimplifyPass,
         InstCombineCleanupPass,

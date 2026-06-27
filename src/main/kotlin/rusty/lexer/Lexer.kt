@@ -138,6 +138,7 @@ object Lexer {
                             TokenPeekClass.BYTE -> Token.L_BYTE
                             TokenPeekClass.BYTE_STRING -> Token.L_BYTE_STRING
                             TokenPeekClass.C_STRING -> Token.L_C_STRING
+                            else -> error("Unexpected escaped literal class $cls")
                         }
                         return Pair(TokenBearer(tokenType, substr, ptr), endpoint)
                     }
@@ -165,6 +166,7 @@ object Lexer {
                     TokenPeekClass.RAW_STRING -> Token.L_RAW_STRING
                     TokenPeekClass.RAW_BYTE_STRING -> Token.L_RAW_BYTE_STRING
                     TokenPeekClass.RAW_C_STRING -> Token.L_RAW_C_STRING
+                    else -> error("Unexpected raw literal class $cls")
                 }, substr, ptr), endpoint - 1)
             }
             // Operator lookup
