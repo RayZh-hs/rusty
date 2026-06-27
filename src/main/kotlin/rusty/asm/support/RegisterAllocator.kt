@@ -4,17 +4,26 @@ import rusty.core.RiscvTargetConfig
 import rusty.asm.utils.*
 import rusty.asm.hasBody
 import space.norb.llvm.analysis.AnalysisManager
+import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.analysis.presets.PredecessorAnalysis
 import space.norb.llvm.analysis.presets.UseDefAnalysis
 import space.norb.llvm.analysis.presets.UseDefChain
 import space.norb.llvm.core.Value
+import space.norb.llvm.instructions.other.CallInst
 import space.norb.llvm.instructions.other.PhiNode
 import space.norb.llvm.structure.BasicBlock
+import space.norb.llvm.structure.BasicBlockId
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
 import space.norb.llvm.types.VoidType
 import space.norb.llvm.utils.computeLayout
 
 object RegisterAllocator {
+    // Each loop nesting level multiplies a use's spill weight by this factor, capped at
+    // MAX_WEIGHTED_DEPTH levels so deeply nested code cannot overflow the Long accumulator.
+    private const val LOOP_WEIGHT_BASE = 10L
+    private const val MAX_WEIGHTED_DEPTH = 6
+
     data class Config(
         val allocatableRegisters: List<Register> = defaultAllocatableRegisters,
         val registerBytes: Int = RiscvTargetConfig.REGISTER_BYTES,
@@ -63,12 +72,109 @@ object RegisterAllocator {
 
         val useDef = analysisManager.get(UseDefAnalysis::class)
         val blockLiveness = computeBlockLiveness(function, useDef)
-        val graph = buildInterferenceGraph(function, registerCandidates, useDef, blockLiveness)
-        val colored = colorGraph(graph, useDef, config.allocatableRegisters, ::nextStackSlot)
+        val loopDepth = computeLoopDepth(function, analysisManager)
+        val spillWeight = computeSpillWeights(function, useDef, loopDepth)
+        val interference = buildInterferenceGraph(function, registerCandidates, useDef, blockLiveness, loopDepth)
+        val colored = colorGraph(
+            interference.graph,
+            spillWeight,
+            interference.callCrossing,
+            config.allocatableRegisters,
+            ::nextStackSlot,
+        )
 
         return candidates.associateWithTo(linkedMapOf()) { value ->
             forcedStackSlots[value] ?: colored.getValue(value)
         }
+    }
+
+    /**
+     * Frequency-weighted spill cost. Each definition and use of a value contributes
+     * `LOOP_WEIGHT_BASE^loopDepth(block)` so that a value touched inside a hot loop is far
+     * more expensive to spill than one touched only in straight-line code. Without this the
+     * allocator spilled loop-resident values whenever a colder value happened to have a higher
+     * static use count, paying a load+store every iteration.
+     */
+    private fun computeSpillWeights(
+        function: Function,
+        useDef: UseDefChain,
+        loopDepth: Map<BasicBlock, Int>,
+    ): Map<Value, Long> {
+        val weights = linkedMapOf<Value, Long>()
+
+        fun add(value: Value, amount: Long) {
+            weights[value] = (weights[value] ?: 0L) + amount
+        }
+
+        for (block in function.basicBlocks) {
+            val blockWeight = loopWeight(loopDepth[block] ?: 0)
+            for (instruction in block.instructions) {
+                // The definition site itself costs a store if the value is spilled.
+                add(instruction, blockWeight)
+                // Every operand is a use of the value that defines it at this program point.
+                for (operand in useDef.getDefs(instruction)) {
+                    add(operand, blockWeight)
+                }
+            }
+        }
+
+        return weights
+    }
+
+    private fun loopWeight(depth: Int): Long {
+        var weight = 1L
+        repeat(depth.coerceIn(0, MAX_WEIGHTED_DEPTH)) { weight *= LOOP_WEIGHT_BASE }
+        return weight
+    }
+
+    /**
+     * Loop nesting depth per basic block, derived from natural loops (back edges whose target
+     * dominates their source). Nested loops accumulate, so an inner-loop block ends up with a
+     * higher depth than the enclosing loop.
+     */
+    private fun computeLoopDepth(
+        function: Function,
+        analysisManager: AnalysisManager,
+    ): Map<BasicBlock, Int> {
+        val depth = function.basicBlocks.associateWithTo(linkedMapOf()) { 0 }
+        if (function.basicBlocks.isEmpty()) return depth
+
+        val dominance = analysisManager.get(DominatorTreeAnalysis::class).getFunctionInfo(function) ?: return depth
+        val immediateDominators = dominance.immediateDominators
+        val predecessors = analysisManager.get(PredecessorAnalysis::class)
+        val blockById = function.basicBlocks.associateBy { it.id }
+
+        fun dominates(dominator: BasicBlockId, dominated: BasicBlockId): Boolean {
+            if (dominator == dominated) return true
+            var cursor: BasicBlockId? = dominated
+            while (cursor != null) {
+                cursor = immediateDominators[cursor]
+                if (cursor == dominator) return true
+            }
+            return false
+        }
+
+        for (latch in function.basicBlocks) {
+            for (header in latch.getSuccessors()) {
+                // A back edge: control flows from latch to a header that dominates it.
+                if (!dominates(header.id, latch.id)) continue
+
+                val loopBlocks = linkedSetOf(header, latch)
+                val worklist = ArrayDeque<BasicBlock>()
+                worklist.add(latch)
+                while (worklist.isNotEmpty()) {
+                    val block = worklist.removeFirst()
+                    for (predId in predecessors[block.id].orEmpty()) {
+                        val pred = blockById[predId] ?: continue
+                        if (loopBlocks.add(pred)) worklist.add(pred)
+                    }
+                }
+
+                for (block in loopBlocks) depth[block] = (depth[block] ?: 0) + 1
+            }
+        }
+
+        return depth
     }
 
     private fun collectCandidates(function: Function): LinkedHashSet<Value> {
@@ -80,13 +186,20 @@ object RegisterAllocator {
         return values
     }
 
+    private data class InterferenceResult(
+        val graph: MutableMap<Value, MutableSet<Value>>,
+        val callCrossing: Set<Value>,
+    )
+
     private fun buildInterferenceGraph(
         function: Function,
         candidates: Set<Value>,
         useDef: UseDefChain,
         blockLiveness: BlockLiveness,
-    ): MutableMap<Value, MutableSet<Value>> {
+        loopDepth: Map<BasicBlock, Int>,
+    ): InterferenceResult {
         val graph = candidates.associateWithTo(linkedMapOf<Value, MutableSet<Value>>()) { linkedSetOf() }
+        val callCrossing = LinkedHashSet<Value>()
         val trackedValues = trackedValues(function)
 
         fun isTrackedValue(value: Value): Boolean = value in trackedValues
@@ -114,12 +227,29 @@ object RegisterAllocator {
         connectAll(function.parameters.toSet())
 
         for (block in function.basicBlocks) {
+            // Only calls inside loops make the caller-saved spill catastrophic: a value live
+            // across such a call is stored and reloaded on every iteration. A call in
+            // straight-line code (including a recursive self-call, which is not a CFG loop)
+            // spills at most once, and forcing those values into callee-saved registers would
+            // add a prologue/epilogue save to every invocation — a net loss for leaf-heavy
+            // recursion. So we only bias values that cross a call within a loop.
+            val callInLoop = (loopDepth[block] ?: 0) > 0
             var currentLive = LinkedHashSet<Value>(blockLiveness.liveOut[block].orEmpty())
 
             for (instruction in block.instructions.asReversed()) {
                 if (instruction in candidates) {
                     // A definition interferes with every candidate still live after it
                     currentLive.filter { it in candidates }.forEach { connect(instruction, it) }
+                }
+
+                if (instruction is CallInst && callInLoop) {
+                    // Anything live across the call (its live-out, minus the call result) must
+                    // survive a clobber of every caller-saved register. Bias such values toward
+                    // callee-saved registers so they are preserved by one prologue save instead
+                    // of a store/reload around every loop iteration.
+                    for (value in currentLive) {
+                        if (value != instruction && value in candidates) callCrossing.add(value)
+                    }
                 }
 
                 val liveIn = LinkedHashSet<Value>()
@@ -145,7 +275,7 @@ object RegisterAllocator {
             }
         }
 
-        return graph
+        return InterferenceResult(graph, callCrossing)
     }
 
     private data class BlockLiveness(
@@ -259,11 +389,19 @@ object RegisterAllocator {
 
     private fun colorGraph(
         graph: Map<Value, Set<Value>>,
-        useDef: UseDefChain,
+        spillWeight: Map<Value, Long>,
+        callCrossing: Set<Value>,
         registers: List<Register>,
         nextStackSlot: () -> SavableSlot.Stack,
     ): Map<Value, SavableSlot> {
         if (graph.isEmpty()) return emptyMap()
+
+        // Registers a value would rather avoid given how it is used. A value live across a call
+        // prefers callee-saved registers (preserved for free across the call); everything else
+        // prefers caller-saved registers so we do not needlessly grow the prologue save set.
+        val allocatable = registers.toSet()
+        val callerFirst = (callerSavedRegisters + calleeSavedRegisters).filter { it in allocatable }
+        val calleeFirst = (calleeSavedRegisters + callerSavedRegisters).filter { it in allocatable }
 
         // Record stable order so equal-cost choices do not depend on hash iteration.
         // Just to make output deterministic to simplify debugging. Does not affect correctness.
@@ -276,14 +414,13 @@ object RegisterAllocator {
             nextOrder += 1
         }
 
-        // Initialize work set and a basic spill cost from use counts.
+        // Initialize work set and a loop-frequency-weighted spill cost.
         val remaining = linkedSetOf<Value>()
-        val spillCost = mutableMapOf<Value, Int>()
+        val spillCost = mutableMapOf<Value, Long>()
         val currentDegree = mutableMapOf<Value, Int>()
         for (value in values) {
             remaining.add(value)
-            val uses = useDef.getUses(value).size
-            spillCost[value] = if (uses > 0) uses else 1
+            spillCost[value] = (spillWeight[value] ?: 0L).coerceAtLeast(1L)
             currentDegree[value] = graph[value].orEmpty().size
         }
 
@@ -302,14 +439,14 @@ object RegisterAllocator {
         while (remaining.isNotEmpty()) {
             var selected: Value? = null
             var selectedDegree = Int.MAX_VALUE
-            var selectedCost = 0
+            var selectedCost = 0L
             var selectedOrder = Int.MAX_VALUE
 
             for (value in remaining) {
                 val degree = currentDegree[value] ?: 0
                 if (degree >= registers.size) continue
 
-                val cost = spillCost[value] ?: 1
+                val cost = spillCost[value] ?: 1L
                 val order = stableOrder[value] ?: Int.MAX_VALUE
                 val betterDegree = degree < selectedDegree
                 val betterCost = degree == selectedDegree && cost > selectedCost
@@ -326,16 +463,16 @@ object RegisterAllocator {
             if (selected == null) {
                 var spillCandidate: Value? = null
                 var spillCandidateDegree = 1
-                var spillCandidateCost = 1
+                var spillCandidateCost = 1L
                 var spillCandidateOrder = Int.MAX_VALUE
 
                 for (value in remaining) {
                     val degree = (currentDegree[value] ?: 0).coerceAtLeast(1)
-                    val cost = spillCost[value] ?: 1
+                    val cost = spillCost[value] ?: 1L
                     val order = stableOrder[value] ?: Int.MAX_VALUE
 
-                    val betterRatio = cost.toLong() * spillCandidateDegree < spillCandidateCost.toLong() * degree
-                    val sameRatio = cost.toLong() * spillCandidateDegree == spillCandidateCost.toLong() * degree
+                    val betterRatio = cost * spillCandidateDegree < spillCandidateCost * degree
+                    val sameRatio = cost * spillCandidateDegree == spillCandidateCost * degree
                     val betterDegree = sameRatio && degree > spillCandidateDegree
                     val betterOrder = sameRatio && degree == spillCandidateDegree && order < spillCandidateOrder
 
@@ -368,8 +505,9 @@ object RegisterAllocator {
                 }
             }
 
+            val preferenceOrder = if (value in callCrossing) calleeFirst else callerFirst
             var availableRegister: Register? = null
-            for (register in registers) {
+            for (register in preferenceOrder) {
                 if (register !in unavailable) {
                     availableRegister = register
                     break
