@@ -1,0 +1,202 @@
+package rusty.opt.passes
+
+// Dominator-tree scoped global value numbering.
+//
+// Two complementary jobs, both kept deliberately conservative so they are always sound without an
+// alias analysis:
+//
+//   1. Pure-expression CSE across the dominator tree. A pure instruction (arithmetic, cast, icmp,
+//      gep) whose value-numbering key already has a leader in a *dominating* scope is replaced by
+//      that leader. Because the leader dominates the use and both compute from identical operands,
+//      the result is provably the same. This collapses recomputed subexpressions such as `i % 512`
+//      evaluated three times, or `i ^ (acc & 255)` evaluated twice, in a hot loop body.
+//
+//   2. Block-local redundant-load elimination and store-to-load forwarding. Within a single basic
+//      block, a load from a pointer with no intervening clobber reuses the previously loaded or
+//      stored value. Resetting the cache per block (and clobbering it on any store/call) keeps this
+//      sound without alias information, while still removing the repeated reloads of struct scalar
+//      fields that dominate the hot loops in redundant_memory / bytecode_vm.
+
+import space.norb.llvm.analysis.AnalysisManager
+import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.core.User
+import space.norb.llvm.core.Value
+import space.norb.llvm.core.ValueUseRegistry
+import space.norb.llvm.instructions.base.BinaryInst
+import space.norb.llvm.instructions.base.CastInst
+import space.norb.llvm.instructions.base.Instruction
+import space.norb.llvm.instructions.memory.GetElementPtrInst
+import space.norb.llvm.instructions.memory.LoadInst
+import space.norb.llvm.instructions.memory.StoreInst
+import space.norb.llvm.instructions.other.CallInst
+import space.norb.llvm.instructions.other.ICmpInst
+import space.norb.llvm.structure.BasicBlock
+import space.norb.llvm.structure.Function
+import space.norb.llvm.structure.Module
+import space.norb.llvm.transformation.IRPass
+import space.norb.llvm.values.constants.IntConstant
+
+object GlobalValueNumberingPass : IRPass() {
+
+    override fun run(module: Module, am: AnalysisManager): Module {
+        val domResult = am.get(DominatorTreeAnalysis::class)
+        var changed = false
+
+        for (function in module.functions) {
+            if (function.isDeclaration || function.entryBlock == null) continue
+            val info = domResult.getFunctionInfo(function) ?: continue
+            changed = runOnFunction(function, info.treeChildren) || changed
+        }
+
+        if (changed) am.invalidateAll() else am.invalidateNone()
+        return module
+    }
+
+    private fun runOnFunction(
+        function: Function,
+        treeChildren: Map<space.norb.llvm.structure.BasicBlockId, Set<space.norb.llvm.structure.BasicBlockId>>,
+    ): Boolean {
+        val entry = function.entryBlock ?: return false
+        // Pure-expression leaders visible on the current dominator path. We only ever insert a key
+        // that is absent, so an entry always corresponds to a dominating definition and is removed
+        // again when its defining block's subtree is finished.
+        val pureTable = HashMap<ValueKey, Value>()
+        var changed = false
+
+        // Pre-order DFS over the dominator tree using an explicit stack (avoids deep recursion).
+        // A frame is processed (block CSE'd) when first pushed; its inserted keys are dropped when
+        // the whole subtree has been visited.
+        val stack = ArrayDeque<Frame>()
+        val entryFrame = Frame(treeChildren[entry.id].orEmpty().toMutableList())
+        changed = processBlock(entry, pureTable, entryFrame) || changed
+        stack.addLast(entryFrame)
+
+        while (stack.isNotEmpty()) {
+            val frame = stack.last()
+            if (frame.pendingChildren.isEmpty()) {
+                // Leaving this block's scope: drop the keys it introduced.
+                for (key in frame.insertedKeys) pureTable.remove(key)
+                stack.removeLast()
+                continue
+            }
+            val childId = frame.pendingChildren.removeLast()
+            val childBlock = BasicBlock.fromId(childId) ?: continue
+            val childFrame = Frame(treeChildren[childId].orEmpty().toMutableList())
+            changed = processBlock(childBlock, pureTable, childFrame) || changed
+            stack.addLast(childFrame)
+        }
+
+        return changed
+    }
+
+    private class Frame(val pendingChildren: MutableList<space.norb.llvm.structure.BasicBlockId>) {
+        val insertedKeys = ArrayList<ValueKey>()
+    }
+
+    private fun processBlock(block: BasicBlock, pureTable: HashMap<ValueKey, Value>, frame: Frame): Boolean {
+        var changed = false
+        // Block-local memory state for redundant-load elimination / store-to-load forwarding.
+        val loadCache = HashMap<Value, Value>()
+        val insertedKeys = frame.insertedKeys
+
+        for (inst in block.instructions.toList()) {
+            when (inst) {
+                is StoreInst -> {
+                    // A store may alias any cached pointer; clear everything, then make the freshly
+                    // stored value available for an immediate reload of the exact same pointer.
+                    loadCache.clear()
+                    loadCache[inst.pointer] = inst.value
+                }
+                is LoadInst -> {
+                    val cached = loadCache[inst.pointer]
+                    if (cached != null && cached.type == inst.loadedType && cached !== inst) {
+                        replaceWith(block, inst, cached)
+                        changed = true
+                    } else {
+                        loadCache[inst.pointer] = inst
+                    }
+                }
+                is CallInst -> loadCache.clear() // conservative: a call may write to memory
+                else -> {
+                    if (inst.mayWriteToMemoryConservative()) loadCache.clear()
+                    val key = pureKeyOf(inst) ?: continue
+                    val leader = pureTable[key]
+                    if (leader != null && leader.type == inst.type && leader !== inst) {
+                        replaceWith(block, inst, leader)
+                        changed = true
+                    } else if (leader == null) {
+                        pureTable[key] = inst
+                        insertedKeys.add(key)
+                    }
+                }
+            }
+        }
+        return changed
+    }
+
+    private fun replaceWith(block: BasicBlock, inst: Instruction, replacement: Value) {
+        inst.replaceAllUsesWith(replacement)
+        inst.detachOperands()
+        block.instructions.remove(inst)
+    }
+
+    // --- value numbering keys ----------------------------------------------------------------
+
+    private fun pureKeyOf(inst: Instruction): ValueKey? = when (inst) {
+        is BinaryInst -> {
+            val operands = listOf(inst.lhs, inst.rhs).let { if (inst.isCommutative()) canonicalize(it) else it }
+            ValueKey(inst::class.java.name, inst.type, operandTokens(operands), null)
+        }
+        is CastInst -> ValueKey(inst::class.java.name, inst.type, operandTokens(listOf(inst.value)), null)
+        is ICmpInst -> {
+            ValueKey("icmp", inst.type, operandTokens(listOf(inst.lhs, inst.rhs)), inst.predicate)
+        }
+        is GetElementPtrInst -> {
+            val operands = buildList { add(inst.pointer); addAll(inst.indices) }
+            ValueKey("gep", inst.type, operandTokens(operands), Pair(inst.elementType, inst.isInBounds))
+        }
+        else -> null
+    }
+
+    /** Stable per-operand token: equal constants collapse to one token, SSA values key on identity. */
+    private fun operandTokens(operands: List<Value>): List<Any> =
+        operands.map { value ->
+            when (value) {
+                is IntConstant -> "c:${value.value}:${value.type}"
+                else -> IdentityToken(value)
+            }
+        }
+
+    private fun canonicalize(operands: List<Value>): List<Value> =
+        operands.sortedBy { sortToken(it) }
+
+    private fun sortToken(value: Value): String = when (value) {
+        is IntConstant -> "1c:${value.value}"
+        else -> "0v:${System.identityHashCode(value)}"
+    }
+
+    private data class ValueKey(
+        val opcode: String,
+        val type: Any,
+        val operands: List<Any>,
+        val extra: Any?,
+    )
+
+    /** Wraps a Value so map keys compare by reference identity rather than structural equality. */
+    private class IdentityToken(val value: Value) {
+        override fun equals(other: Any?): Boolean = other is IdentityToken && other.value === value
+        override fun hashCode(): Int = System.identityHashCode(value)
+    }
+
+    private fun Instruction.mayWriteToMemoryConservative(): Boolean = when (this) {
+        is space.norb.llvm.instructions.base.MemoryInst -> mayWriteToMemory()
+        is space.norb.llvm.instructions.base.OtherInst -> mayWriteToMemory()
+        else -> false
+    }
+
+    private fun User.detachOperands() {
+        for (index in 0 until getNumOperands()) {
+            ValueUseRegistry.unregisterUse(getOperand(index), this)
+        }
+    }
+}
