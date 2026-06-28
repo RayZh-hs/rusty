@@ -35,12 +35,50 @@ object Mem2RegPass : IRPass() {
             if (dominanceInfo.reachableBlocks.isEmpty()) continue
 
             val candidates = findPromotionCandidates(function, useDefChain, dominanceInfo)
+            // The block list is stable while promoting candidates (only instructions are added /
+            // removed, never blocks), so compute the block order once instead of per candidate.
+            val blockOrder = function.basicBlocks.withIndex().associate { it.value.id to it.index }
+            val instructionsToRemove = linkedSetOf<Instruction>()
             for (candidate in candidates) {
-                promoteAlloca(function, candidate, dominanceInfo)
+                promoteAlloca(function, candidate, dominanceInfo, blockOrder, instructionsToRemove)
+            }
+            // Remove all promoted loads/stores/allocas in a single sweep over the function rather
+            // than one sweep per candidate (which was O(candidates * functionSize)).
+            if (instructionsToRemove.isNotEmpty()) {
+                for (block in function.basicBlocks) {
+                    block.instructions.removeAll(instructionsToRemove)
+                }
             }
         }
 
         return module
+    }
+
+    // Per-alloca block sets gathered in a single pass over the function. Computing these per alloca
+    // (the previous gatherUseBlocks/gatherDefinitionBlocks) is O(allocas * instructions), which is
+    // quadratic for functions with many allocas (e.g. a heavily-inlined caller).
+    private class AllocaBlockIndex {
+        val useBlocks = HashMap<AllocaInst, LinkedHashSet<BasicBlockId>>()
+        val defBlocks = HashMap<AllocaInst, LinkedHashSet<BasicBlockId>>()
+    }
+
+    private fun buildAllocaBlockIndex(function: Function): AllocaBlockIndex {
+        val index = AllocaBlockIndex()
+        for (block in function.basicBlocks) {
+            for (instruction in block.instructions) {
+                when (instruction) {
+                    is LoadInst -> (instruction.pointer as? AllocaInst)?.let {
+                        index.useBlocks.getOrPut(it) { linkedSetOf() }.add(block.id)
+                    }
+                    is StoreInst -> (instruction.pointer as? AllocaInst)?.let {
+                        index.useBlocks.getOrPut(it) { linkedSetOf() }.add(block.id)
+                        index.defBlocks.getOrPut(it) { linkedSetOf() }.add(block.id)
+                    }
+                    else -> {}
+                }
+            }
+        }
+        return index
     }
 
     private fun findPromotionCandidates(
@@ -50,6 +88,7 @@ object Mem2RegPass : IRPass() {
     ): List<PromotionCandidate> {
         val reachable = dominanceInfo.reachableBlocks
         val candidates = mutableListOf<PromotionCandidate>()
+        val blockIndex = buildAllocaBlockIndex(function)
 
         for (block in function.basicBlocks) {
             if (block.id !in reachable) continue
@@ -59,10 +98,10 @@ object Mem2RegPass : IRPass() {
                 val uses = useDefChain.getUses(instruction)
                 if (uses.any { !isPromotableUse(it, instruction) }) continue
 
-                val useBlocks = gatherUseBlocks(function, instruction)
+                val useBlocks = blockIndex.useBlocks[instruction].orEmpty()
                 if (useBlocks.any { it !in reachable }) continue
 
-                candidates.add(PromotionCandidate(instruction, gatherDefinitionBlocks(function, instruction)))
+                candidates.add(PromotionCandidate(instruction, blockIndex.defBlocks[instruction].orEmpty()))
             }
         }
 
@@ -85,45 +124,18 @@ object Mem2RegPass : IRPass() {
         return count
     }
 
-    private fun gatherUseBlocks(function: Function, alloca: AllocaInst): Set<BasicBlockId> {
-        val blocks = linkedSetOf<BasicBlockId>()
-        for (block in function.basicBlocks) {
-            if (block.instructions.any { instruction ->
-                    when (instruction) {
-                        is LoadInst -> instruction.pointer == alloca
-                        is StoreInst -> instruction.pointer == alloca
-                        else -> false
-                    }
-                }
-            ) {
-                blocks.add(block.id)
-            }
-        }
-        return blocks
-    }
-
-    private fun gatherDefinitionBlocks(function: Function, alloca: AllocaInst): Set<BasicBlockId> {
-        val blocks = linkedSetOf<BasicBlockId>()
-        for (block in function.basicBlocks) {
-            if (block.instructions.any { instruction -> instruction is StoreInst && instruction.pointer == alloca }) {
-                blocks.add(block.id)
-            }
-        }
-        return blocks
-    }
-
     private fun promoteAlloca(
         function: Function,
         candidate: PromotionCandidate,
-        dominanceInfo: FunctionDominanceInfo
+        dominanceInfo: FunctionDominanceInfo,
+        blockOrder: Map<BasicBlockId, Int>,
+        instructionsToRemove: MutableSet<Instruction>
     ) {
         val alloca = candidate.alloca
         val phiBlocks = computePhiBlocks(candidate.definitionBlocks, dominanceInfo)
 
         val phiNodes = insertPhiPlaceholders(function, alloca, phiBlocks)
         val loadReplacements = linkedMapOf<LoadInst, Value>()
-        val instructionsToRemove = linkedSetOf<Instruction>()
-        val blockOrder = function.basicBlocks.withIndex().associate { it.value.id to it.index }
 
         renamePromotedValue(
             blockId = function.entryBlock!!.id,
@@ -136,23 +148,23 @@ object Mem2RegPass : IRPass() {
             blockOrder = blockOrder
         )
 
-        // Apply every promoted load's replacement in a single sweep over the function. Doing one
-        // full-function scan per load is O(loads * instructions), which is quadratic when a variable
-        // is read many times (e.g. the `x` of a huge else-if ladder has one load per comparison).
+        // Rewrite every operand that references a promoted load. The instructions carrying such
+        // operands are exactly the registered users of those loads, so iterate them via the use
+        // registry instead of scanning the whole function (which was O(loads * instructions),
+        // quadratic when a variable is read many times). The per-operand replacement is the same
+        // single-level rewrite as the previous full-function sweep.
         if (loadReplacements.isNotEmpty()) {
-            for (block in function.basicBlocks) {
-                for (instruction in block.instructions) {
-                    for (index in 0 until instruction.getNumOperands()) {
-                        val replacement = (instruction.getOperand(index) as? LoadInst)
-                            ?.let { loadReplacements[it] } ?: continue
-                        instruction.setOperand(index, replacement)
-                    }
+            val affectedUsers = linkedSetOf<User>()
+            for (load in loadReplacements.keys) {
+                affectedUsers.addAll(load.getUses())
+            }
+            for (user in affectedUsers) {
+                for (index in 0 until user.getNumOperands()) {
+                    val replacement = (user.getOperand(index) as? LoadInst)
+                        ?.let { loadReplacements[it] } ?: continue
+                    user.setOperand(index, replacement)
                 }
             }
-        }
-
-        for (block in function.basicBlocks) {
-            block.instructions.removeAll(instructionsToRemove)
         }
     }
 

@@ -71,6 +71,14 @@ class FunctionInliningPass(
         function: Function,
         dependencies: FunctionDependencyGraph
     ) {
+        // Maintain the caller's value/block name sets across all inlines into this function instead
+        // of rebuilding them per call site. Inlining only ever adds names (every generated name is
+        // registered through nextName), so the incrementally-maintained sets contain exactly the
+        // names a fresh scan would find at each inline point => identical generated names, while
+        // avoiding the O(calls * callerSize) cost of rescanning the growing caller per call.
+        val usedValueNames = collectValueNames(function)
+        val usedBlockNames = collectBlockNames(function)
+
         var blockIndex = 0
         while (blockIndex < function.basicBlocks.size) {
             val block = function.basicBlocks[blockIndex]
@@ -80,7 +88,7 @@ class FunctionInliningPass(
             while (instructionIndex < block.instructions.size) {
                 val call = block.instructions[instructionIndex] as? CallInst
                 if (call != null && canInline(call, dependencies)) {
-                    inlineCall(function, block, instructionIndex, call)
+                    inlineCall(function, block, instructionIndex, call, usedValueNames, usedBlockNames)
                     splitCurrentBlock = true
                     break
                 }
@@ -112,11 +120,11 @@ class FunctionInliningPass(
         caller: Function,
         callerBlock: BasicBlock,
         callIndex: Int,
-        call: CallInst
+        call: CallInst,
+        usedValueNames: MutableSet<String>,
+        usedBlockNames: MutableSet<String>
     ) {
         val callee = call.callee as Function
-        val usedValueNames = collectValueNames(caller)
-        val usedBlockNames = collectBlockNames(caller)
         val context = nextName("${call.name ?: callee.name ?: "call"}.inline", usedValueNames)
 
         val valueMap = linkedMapOf<Value, Value>()
@@ -170,7 +178,10 @@ class FunctionInliningPass(
 
         val replacement = createReturnReplacement(call, continuationBlock, returnSites, usedValueNames, context)
         if (replacement != null) {
-            replaceAllUses(caller, call, replacement)
+            // Use the incremental use registry instead of scanning the whole (growing) caller per
+            // inlined call, which is O(calls * callerSize). Result is identical: it rewrites exactly
+            // the operands that reference the call's value.
+            call.replaceAllUsesWith(replacement)
         }
     }
 
@@ -382,19 +393,6 @@ class FunctionInliningPass(
         return valueMap[value]
             ?: (value as? BasicBlock)?.let { blockMap[it] }
             ?: value
-    }
-
-    private fun replaceAllUses(function: Function, oldValue: Value, newValue: Value) {
-        for (block in function.basicBlocks) {
-            for (instruction in block.instructions) {
-                if (instruction == oldValue) continue
-                for (index in 0 until instruction.getNumOperands()) {
-                    if (instruction.getOperand(index) == oldValue) {
-                        instruction.setOperand(index, newValue)
-                    }
-                }
-            }
-        }
     }
 
     private fun cloneValueName(

@@ -31,13 +31,11 @@ object CFGSimplifyPass : IRPass() {
             phiReplacements[inst] = incomingValue
         }
 
-        // Replace all uses of phi nodes from 'other' with their incoming values
-        for (bb in function.basicBlocks) {
-            for (instruction in bb.instructions) {
-                for ((phi, replacement) in phiReplacements) {
-                    instruction.replaceUsesOfWith(phi, replacement)
-                }
-            }
+        // Replace all uses of phi nodes from 'other' with their incoming values. Rewrite exactly the
+        // registered users of each phi rather than scanning the whole (post-inline, possibly huge)
+        // function, which would make CFGSimplify O(devours * functionSize).
+        for ((phi, replacement) in phiReplacements) {
+            phi.replaceAllUsesWith(replacement)
         }
 
         // 2. Update phi nodes in successors of 'other' to reference 'this' instead of 'other'
@@ -47,15 +45,18 @@ object CFGSimplifyPass : IRPass() {
             }
         }
 
-        val mergedInstructions = this.instructions
-            .filterNot { it is TerminatorInst }
-            .toMutableList()
-        mergedInstructions.add(CommentAttachment(name = Renamer.another(), comment = "Collapsed block ${other.name}"))
-        mergedInstructions.addAll(other.instructions.filterNot { it is TerminatorInst || it is PhiNode })
-        mergedInstructions.add(nextTerminator)
-
-        this.instructions.clear()
-        this.instructions.addAll(mergedInstructions)
+        // Merge in place: drop this block's terminator, then append the collapse marker and 'other's
+        // body. Rebuilding the full instruction list per devour is O(thisSize), which makes
+        // collapsing a chain of blocks into one O(chainLength^2); appending is O(otherSize).
+        val oldTerminator = this.terminator
+        if (this.instructions.lastOrNull() === oldTerminator && oldTerminator is TerminatorInst) {
+            this.instructions.removeAt(this.instructions.size - 1)
+        } else {
+            this.instructions.removeAll { it is TerminatorInst }
+        }
+        this.instructions.add(CommentAttachment(name = Renamer.another(), comment = "Collapsed block ${other.name}"))
+        other.instructions.filterTo(this.instructions) { it !is TerminatorInst && it !is PhiNode }
+        this.instructions.add(nextTerminator)
         this.terminator = nextTerminator
     }
 
@@ -66,7 +67,9 @@ object CFGSimplifyPass : IRPass() {
         // 2. Now all blocks except the entry blocks have predecessors. Perform basic block merging.
         val predecessorMap = am.get(PredecessorAnalysis::class)
         for (function in module.functions) {
-            val removedBlocks = mutableListOf<BasicBlockId>()
+            // Use a set for membership tests: with a list, both the `contains` guard below and the
+            // final removeIf are O(removed) per block, i.e. O(blocks * removed) overall.
+            val removedBlocks = hashSetOf<BasicBlockId>()
             for (block in function.basicBlocks) {
                 if (removedBlocks.contains(block.id)) continue
                 var terminator = block.terminator!!
