@@ -50,4 +50,5 @@ todo-list
 test-space/
 .kilocode/
 opencode.json
+.claude/
 mise.local.toml
