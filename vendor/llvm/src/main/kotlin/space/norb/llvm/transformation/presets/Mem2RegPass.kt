@@ -35,15 +35,60 @@ object Mem2RegPass : IRPass() {
             if (dominanceInfo.reachableBlocks.isEmpty()) continue
 
             val candidates = findPromotionCandidates(function, useDefChain, dominanceInfo)
+            if (candidates.isEmpty()) continue
+
             // The block list is stable while promoting candidates (only instructions are added /
-            // removed, never blocks), so compute the block order once instead of per candidate.
+            // removed, never blocks), so compute the block order once.
             val blockOrder = function.basicBlocks.withIndex().associate { it.value.id to it.index }
-            val instructionsToRemove = linkedSetOf<Instruction>()
+            val candidateAllocas = candidates.mapTo(linkedSetOf()) { it.alloca }
+
+            // Insert all phi placeholders up front, in candidate order, sharing one incrementally
+            // maintained name set (so generated phi names match a per-alloca recompute exactly).
+            // phiByBlock[b] lists the (alloca, phi) pairs whose phi node lives in block b.
+            val phiByBlock = HashMap<BasicBlockId, MutableList<Pair<AllocaInst, PhiNode>>>()
+            val usedNames = collectLocalNames(function)
             for (candidate in candidates) {
-                promoteAlloca(function, candidate, dominanceInfo, blockOrder, instructionsToRemove)
+                val phiBlocks = computePhiBlocks(candidate.definitionBlocks, dominanceInfo)
+                if (phiBlocks.isEmpty()) continue
+                for (block in function.basicBlocks) {
+                    if (block.id !in phiBlocks) continue
+                    val insertionIndex = block.instructions.indexOfFirst { it !is PhiNode }
+                        .let { if (it >= 0) it else block.instructions.size }
+                    val phi = PhiNode.createPlaceholder(
+                        nextPhiName(candidate.alloca.name ?: "mem2reg", usedNames),
+                        candidate.alloca.allocatedType
+                    )
+                    block.instructions.add(insertionIndex, phi)
+                    phiByBlock.getOrPut(block.id) { mutableListOf() }.add(candidate.alloca to phi)
+                }
             }
-            // Remove all promoted loads/stores/allocas in a single sweep over the function rather
-            // than one sweep per candidate (which was O(candidates * functionSize)).
+
+            // Rename every promoted alloca in a SINGLE dominator-tree DFS, maintaining a value stack
+            // per alloca (textbook SSA construction). The previous code walked the whole dominator
+            // tree once per alloca — O(allocas * blocks) — which is quadratic for functions with many
+            // allocas, e.g. a function with local variables inlined many times. The single walk
+            // produces the identical phi operands and load replacements.
+            val loadReplacements = LinkedHashMap<LoadInst, Value>()
+            val instructionsToRemove = linkedSetOf<Instruction>()
+            renameAllAllocas(
+                function, candidateAllocas, phiByBlock,
+                loadReplacements, instructionsToRemove, dominanceInfo, blockOrder
+            )
+
+            // Rewrite operands referencing a promoted load. Recorded replacement values are already
+            // fully resolved (never themselves a promoted load), so a single pass suffices; iterate
+            // the loads' registered users instead of scanning the whole function.
+            if (loadReplacements.isNotEmpty()) {
+                val affectedUsers = linkedSetOf<User>()
+                for (load in loadReplacements.keys) affectedUsers.addAll(load.getUses())
+                for (user in affectedUsers) {
+                    for (index in 0 until user.getNumOperands()) {
+                        val replacement = (user.getOperand(index) as? LoadInst)
+                            ?.let { loadReplacements[it] } ?: continue
+                        user.setOperand(index, replacement)
+                    }
+                }
+            }
             if (instructionsToRemove.isNotEmpty()) {
                 for (block in function.basicBlocks) {
                     block.instructions.removeAll(instructionsToRemove)
@@ -52,6 +97,73 @@ object Mem2RegPass : IRPass() {
         }
 
         return module
+    }
+
+    private fun renameAllAllocas(
+        function: Function,
+        candidateAllocas: Set<AllocaInst>,
+        phiByBlock: Map<BasicBlockId, List<Pair<AllocaInst, PhiNode>>>,
+        loadReplacements: MutableMap<LoadInst, Value>,
+        instructionsToRemove: MutableSet<Instruction>,
+        dominanceInfo: FunctionDominanceInfo,
+        blockOrder: Map<BasicBlockId, Int>,
+    ) {
+        val valueStacks = HashMap<AllocaInst, ArrayDeque<Value>>()
+        fun current(alloca: AllocaInst): Value? = valueStacks[alloca]?.lastOrNull()
+
+        class Frame(val children: ArrayDeque<BasicBlockId>, val undo: List<AllocaInst>)
+
+        // Visit a block: define its phis as the current value of their allocas, rewrite the block's
+        // loads/stores of promoted allocas, feed successors' phis, and queue dominator-tree children.
+        // Returns the list of stack pushes to undo when the block's subtree is finished.
+        fun enter(blockId: BasicBlockId): Frame {
+            val block = BasicBlock.fromId(blockId) ?: return Frame(ArrayDeque(), emptyList())
+            val undo = mutableListOf<AllocaInst>()
+            phiByBlock[blockId]?.forEach { (alloca, phi) ->
+                valueStacks.getOrPut(alloca) { ArrayDeque() }.addLast(phi)
+                undo.add(alloca)
+            }
+            for (instruction in block.instructions.toList()) {
+                when (instruction) {
+                    is AllocaInst -> if (instruction in candidateAllocas) instructionsToRemove.add(instruction)
+                    is LoadInst -> {
+                        val alloca = instruction.pointer as? AllocaInst
+                        if (alloca != null && alloca in candidateAllocas) {
+                            loadReplacements[instruction] = current(alloca) ?: BuilderUtils.createZeroValue(alloca.allocatedType)
+                            instructionsToRemove.add(instruction)
+                        }
+                    }
+                    is StoreInst -> {
+                        val alloca = instruction.pointer as? AllocaInst
+                        if (alloca != null && alloca in candidateAllocas) {
+                            val newValue = (instruction.value as? LoadInst)?.let { loadReplacements[it] } ?: instruction.value
+                            valueStacks.getOrPut(alloca) { ArrayDeque() }.addLast(newValue)
+                            undo.add(alloca)
+                            instructionsToRemove.add(instruction)
+                        }
+                    }
+                }
+            }
+            for (successor in block.getSuccessors()) {
+                phiByBlock[successor.id]?.forEach { (alloca, phi) ->
+                    phi.addIncomingMutable(current(alloca) ?: BuilderUtils.createZeroValue(alloca.allocatedType), block)
+                }
+            }
+            val children = dominanceInfo.treeChildren[blockId].orEmpty().sortedBy { blockOrder[it] ?: Int.MAX_VALUE }
+            return Frame(ArrayDeque(children), undo)
+        }
+
+        val stack = ArrayDeque<Frame>()
+        stack.addLast(enter(function.entryBlock!!.id))
+        while (stack.isNotEmpty()) {
+            val frame = stack.last()
+            if (frame.children.isNotEmpty()) {
+                stack.addLast(enter(frame.children.removeFirst()))
+            } else {
+                for (alloca in frame.undo) valueStacks[alloca]?.removeLast()
+                stack.removeLast()
+            }
+        }
     }
 
     // Per-alloca block sets gathered in a single pass over the function. Computing these per alloca
@@ -124,50 +236,6 @@ object Mem2RegPass : IRPass() {
         return count
     }
 
-    private fun promoteAlloca(
-        function: Function,
-        candidate: PromotionCandidate,
-        dominanceInfo: FunctionDominanceInfo,
-        blockOrder: Map<BasicBlockId, Int>,
-        instructionsToRemove: MutableSet<Instruction>
-    ) {
-        val alloca = candidate.alloca
-        val phiBlocks = computePhiBlocks(candidate.definitionBlocks, dominanceInfo)
-
-        val phiNodes = insertPhiPlaceholders(function, alloca, phiBlocks)
-        val loadReplacements = linkedMapOf<LoadInst, Value>()
-
-        renamePromotedValue(
-            blockId = function.entryBlock!!.id,
-            currentValue = null,
-            alloca = alloca,
-            phiNodes = phiNodes,
-            loadReplacements = loadReplacements,
-            instructionsToRemove = instructionsToRemove,
-            dominanceInfo = dominanceInfo,
-            blockOrder = blockOrder
-        )
-
-        // Rewrite every operand that references a promoted load. The instructions carrying such
-        // operands are exactly the registered users of those loads, so iterate them via the use
-        // registry instead of scanning the whole function (which was O(loads * instructions),
-        // quadratic when a variable is read many times). The per-operand replacement is the same
-        // single-level rewrite as the previous full-function sweep.
-        if (loadReplacements.isNotEmpty()) {
-            val affectedUsers = linkedSetOf<User>()
-            for (load in loadReplacements.keys) {
-                affectedUsers.addAll(load.getUses())
-            }
-            for (user in affectedUsers) {
-                for (index in 0 until user.getNumOperands()) {
-                    val replacement = (user.getOperand(index) as? LoadInst)
-                        ?.let { loadReplacements[it] } ?: continue
-                    user.setOperand(index, replacement)
-                }
-            }
-        }
-    }
-
     private fun computePhiBlocks(
         definitionBlocks: Set<BasicBlockId>,
         dominanceInfo: FunctionDominanceInfo
@@ -186,28 +254,6 @@ object Mem2RegPass : IRPass() {
         }
 
         return phiBlocks
-    }
-
-    private fun insertPhiPlaceholders(
-        function: Function,
-        alloca: AllocaInst,
-        phiBlocks: Set<BasicBlockId>
-    ): Map<BasicBlockId, PhiNode> {
-        if (phiBlocks.isEmpty()) return emptyMap()
-
-        val placeholders = linkedMapOf<BasicBlockId, PhiNode>()
-        val usedNames = collectLocalNames(function)
-        for (block in function.basicBlocks) {
-            if (block.id !in phiBlocks) continue
-
-            val insertionIndex = block.instructions.indexOfFirst { it !is PhiNode }
-                .let { if (it >= 0) it else block.instructions.size }
-            val phi = PhiNode.createPlaceholder(nextPhiName(alloca.name ?: "mem2reg", usedNames), alloca.allocatedType)
-            block.instructions.add(insertionIndex, phi)
-            placeholders[block.id] = phi
-        }
-
-        return placeholders
     }
 
     private fun collectLocalNames(function: Function): MutableSet<String> {
@@ -230,53 +276,4 @@ object Mem2RegPass : IRPass() {
         }
     }
 
-    private fun renamePromotedValue(
-        blockId: BasicBlockId,
-        currentValue: Value?,
-        alloca: AllocaInst,
-        phiNodes: Map<BasicBlockId, PhiNode>,
-        loadReplacements: MutableMap<LoadInst, Value>,
-        instructionsToRemove: MutableSet<Instruction>,
-        dominanceInfo: FunctionDominanceInfo,
-        blockOrder: Map<BasicBlockId, Int>
-    ) {
-        data class RenameFrame(val blockId: BasicBlockId, val incomingValue: Value?)
-
-        val stack = ArrayDeque<RenameFrame>()
-        stack.addLast(RenameFrame(blockId, currentValue))
-
-        while (stack.isNotEmpty()) {
-            val frame = stack.removeLast()
-            val block = BasicBlock.fromId(frame.blockId) ?: continue
-            var value = phiNodes[frame.blockId] ?: frame.incomingValue
-
-            for (instruction in block.instructions.toList()) {
-                when (instruction) {
-                    alloca -> instructionsToRemove.add(instruction)
-                    is LoadInst -> if (instruction.pointer == alloca) {
-                        val replacement = value ?: BuilderUtils.createZeroValue(alloca.allocatedType)
-                        loadReplacements[instruction] = replacement
-                        instructionsToRemove.add(instruction)
-                    }
-                    is StoreInst -> if (instruction.pointer == alloca) {
-                        value = loadReplacements[instruction.value as? LoadInst] ?: instruction.value
-                        instructionsToRemove.add(instruction)
-                    }
-                }
-            }
-
-            for (successor in block.getSuccessors()) {
-                val phi = phiNodes[successor.id] ?: continue
-                val incoming = value ?: BuilderUtils.createZeroValue(alloca.allocatedType)
-                phi.addIncomingMutable(incoming, block)
-            }
-
-            val children = dominanceInfo.treeChildren[frame.blockId]
-                .orEmpty()
-                .sortedByDescending { blockOrder[it] ?: Int.MAX_VALUE }
-            for (child in children) {
-                stack.addLast(RenameFrame(child, value))
-            }
-        }
-    }
 }
