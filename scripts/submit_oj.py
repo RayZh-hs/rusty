@@ -186,7 +186,32 @@ def normalize_space(text: str) -> str:
 
 def is_pending_status(status: str) -> bool:
     normalized = status.strip()
-    return normalized in PENDING_STATUSES or normalized.startswith("In ")
+    words = set(re.findall(r"[A-Za-z]+", normalized))
+    return normalized in PENDING_STATUSES or normalized.startswith("In ") or bool(words & PENDING_STATUSES)
+
+
+def phase_for_status(status: str) -> str | None:
+    normalized = status.lower()
+    if "semantic" in normalized:
+        if re.search(r"(?:\b|[^\d])1(?:\b|[^\d])", normalized):
+            return "Semantic 1"
+        if re.search(r"(?:\b|[^\d])2(?:\b|[^\d])", normalized):
+            return "Semantic 2"
+    if "codegen" in normalized:
+        return "Codegen"
+    if "opti" in normalized:
+        return "Opti"
+    return None
+
+
+def format_attempt_progress(page: str, status: str) -> str:
+    phase = phase_for_status(status)
+    if phase is None:
+        return ""
+    for row in parse_phase_summary(page):
+        if row["phase"] == phase:
+            return f"\t{row['pass']}+{row['fail']}/{row['total']}"
+    return ""
 
 
 def parse_phase_summary(page: str) -> list[dict[str, str]]:
@@ -334,13 +359,20 @@ def wait_for_created_attempt(client: OjClient, branch: str, previous_max_id: int
 
 def wait_for_terminal_attempt(client: OjClient, attempt_id: int, poll_seconds: float) -> Attempt:
     last_status: str | None = None
+    last_progress: str | None = None
     while True:
         attempts = [attempt for attempt in client.latest_attempts() if attempt.attempt_id == attempt_id]
         if attempts:
             attempt = attempts[0]
-            if attempt.status != last_status:
-                print(f"Attempt #{attempt_id}: {attempt.status}", flush=True)
+            progress = ""
+            try:
+                progress = format_attempt_progress(client.detail(attempt_id).html, attempt.status)
+            except RuntimeError:
+                progress = ""
+            if attempt.status != last_status or progress != last_progress:
+                print(f"Attempt #{attempt_id}: {attempt.status}{progress}", flush=True)
                 last_status = attempt.status
+                last_progress = progress
             if not is_pending_status(attempt.status):
                 return attempt
         else:
