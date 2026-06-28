@@ -1,5 +1,6 @@
 package rusty.opt
 
+import rusty.opt.passes.AggressiveDeadCodeEliminationPass
 import rusty.opt.passes.SizeInliningPass
 import rusty.opt.passes.GlobalValueNumberingPass
 import rusty.opt.passes.IdenticalGepReductionPass
@@ -44,6 +45,7 @@ object IROptimizer {
         PointerSlotForwardingPass,
         ScalarReplacementOfAggregatesPass,
         Mem2RegPass,
+        AggressiveDeadCodeEliminationPass,
         InstCombineCleanupPass,
         IdenticalGepReductionPass,
         GlobalValueNumberingPass,
@@ -54,6 +56,7 @@ object IROptimizer {
         LoopCounterPromotionPass,
         InstCombineCleanupPass,
         CFGSimplifyPass,
+        AggressiveDeadCodeEliminationPass,
         InstCombineCleanupPass,
     )
     
