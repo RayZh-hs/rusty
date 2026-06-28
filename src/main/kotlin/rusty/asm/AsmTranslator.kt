@@ -1256,11 +1256,18 @@ internal class AsmTranslator(private val context: AsmContext) {
 
     private fun computeCallLiveOut(fn: Function): Map<CallInst, Set<Value>> {
         val blockLiveness = context.analysisManager.get(BlockLivenessAnalysis::class)
+        // Only values allocated to caller-saved registers can need a save/restore around a call (the
+        // sole consumer, callerSavedTemps, discards everything else), so track exactly those. Tracking
+        // every live value made this O(calls * liveValues) — quadratic when many values are live across
+        // many calls — even though at most a handful of caller-saved registers matter at any point.
         val trackedValues = linkedSetOf<Value>().apply {
             addAll(fn.parameters)
             for (block in fn.basicBlocks) {
                 addAll(block.instructionsIncludingTerminator())
             }
+        }.filterTo(linkedSetOf()) { value ->
+            val slot = allocation[value]
+            slot is SavableSlot.Register && slot.physical in callerSavedRegisterSet
         }
         val result = linkedMapOf<CallInst, Set<Value>>()
 
