@@ -165,24 +165,15 @@ object RegisterAllocator {
         if (function.basicBlocks.isEmpty()) return depth
 
         val dominance = analysisManager.get(DominatorTreeAnalysis::class).getFunctionInfo(function) ?: return depth
-        val immediateDominators = dominance.immediateDominators
         val predecessors = analysisManager.get(PredecessorAnalysis::class)
         val blockById = function.basicBlocks.associateBy { it.id }
 
-        fun dominates(dominator: BasicBlockId, dominated: BasicBlockId): Boolean {
-            if (dominator == dominated) return true
-            var cursor: BasicBlockId? = dominated
-            while (cursor != null) {
-                cursor = immediateDominators[cursor]
-                if (cursor == dominator) return true
-            }
-            return false
-        }
-
         for (latch in function.basicBlocks) {
             for (header in latch.getSuccessors()) {
-                // A back edge: control flows from latch to a header that dominates it.
-                if (!dominates(header.id, latch.id)) continue
+                // A back edge: control flows from latch to a header that dominates it. The dominator
+                // tree provides this in O(1); walking the idom chain made back-edge detection O(n^2)
+                // on deep CFGs such as long else-if ladders.
+                if (!dominance.dominates(header.id, latch.id)) continue
 
                 val loopBlocks = linkedSetOf(header, latch)
                 val worklist = ArrayDeque<BasicBlock>()

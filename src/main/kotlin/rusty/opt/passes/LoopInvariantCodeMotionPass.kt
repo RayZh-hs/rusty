@@ -2,6 +2,7 @@ package rusty.opt.passes
 
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import space.norb.llvm.analysis.presets.PredecessorAnalysis
 import space.norb.llvm.core.Value
 import space.norb.llvm.instructions.base.BinaryInst
@@ -37,7 +38,7 @@ object LoopInvariantCodeMotionPass : IRPass() {
             val blockById = function.basicBlocks.associateBy { it.id }
             val loops = function.basicBlocks.flatMap { latch ->
                 latch.getSuccessors()
-                    .filter { header -> dominates(header, latch, domInfo.immediateDominators) }
+                    .filter { header -> dominates(header, latch, domInfo) }
                     .mapNotNull { header ->
                         discoverLoop(header, latch, predecessors, blockById)
                     }
@@ -45,7 +46,7 @@ object LoopInvariantCodeMotionPass : IRPass() {
 
             for (loop in loops.distinctBy { it.header.id to it.blocks.map(BasicBlock::id).sorted() }) {
                 val preheader = findSinglePreheader(loop, predecessors, blockById) ?: continue
-                changed = hoistLoop(loop, preheader, domInfo.immediateDominators) || changed
+                changed = hoistLoop(loop, preheader, domInfo) || changed
             }
         }
 
@@ -101,7 +102,7 @@ object LoopInvariantCodeMotionPass : IRPass() {
     private fun hoistLoop(
         loop: Loop,
         preheader: BasicBlock,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
     ): Boolean {
         val loopIds = loop.blocks.mapTo(linkedSetOf(), BasicBlock::id)
         val exits = loop.blocks
@@ -118,7 +119,7 @@ object LoopInvariantCodeMotionPass : IRPass() {
                 val iterator = block.instructions.listIterator()
                 while (iterator.hasNext()) {
                     val inst = iterator.next()
-                    if (!inst.isHoistable(loopIds, block, exits, immediateDominators, instructionOwners)) continue
+                    if (!inst.isHoistable(loopIds, block, exits, dominance, instructionOwners)) continue
 
                     iterator.remove()
                     preheader.instructions.add(preheader.insertionIndexBeforeTerminator(), inst)
@@ -144,11 +145,11 @@ object LoopInvariantCodeMotionPass : IRPass() {
         loopIds: Set<ULong>,
         block: BasicBlock,
         exits: List<BasicBlock>,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
         instructionOwners: Map<Instruction, BasicBlock>,
     ): Boolean {
         if (!isPureComputableInstruction()) return false
-        if (!exits.all { exit -> dominates(block, exit, immediateDominators) }) return false
+        if (!exits.all { exit -> dominates(block, exit, dominance) }) return false
 
         return getOperandsList().all { operand -> operand.isLoopInvariant(loopIds, instructionOwners) }
     }
@@ -177,16 +178,8 @@ object LoopInvariantCodeMotionPass : IRPass() {
     private fun dominates(
         dominator: BasicBlock,
         dominated: BasicBlock,
-        immediateDominators: Map<ULong, ULong?>,
-    ): Boolean {
-        if (dominator == dominated) return true
-        var cursor: ULong? = dominated.id
-        while (cursor != null) {
-            cursor = immediateDominators[cursor]
-            if (cursor == dominator.id) return true
-        }
-        return false
-    }
+        dominance: FunctionDominanceInfo,
+    ): Boolean = dominance.dominates(dominator.id, dominated.id)
 
     private data class Loop(
         val header: BasicBlock,

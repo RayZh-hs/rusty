@@ -5,6 +5,7 @@ package rusty.opt.passes
 import rusty.opt.passes.utils.NaturalLoop
 import rusty.opt.passes.utils.findSimpleNaturalLoops
 import rusty.opt.passes.utils.dominates
+import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
 import space.norb.llvm.analysis.presets.PredecessorAnalysis
@@ -31,9 +32,9 @@ object LoopAddressReductionPass : IRPass() {
         for (function in module.functions) {
             if (function.isDeclaration || function.entryBlock == null) continue
             val domInfo = dominators.getFunctionInfo(function) ?: continue
-            val loops = findSimpleNaturalLoops(function, predecessors, domInfo.immediateDominators)
+            val loops = findSimpleNaturalLoops(function, predecessors, domInfo)
             for (loop in loops) {
-                changed = runOnLoop(loop, domInfo.immediateDominators) || changed
+                changed = runOnLoop(loop, domInfo) || changed
             }
         }
 
@@ -43,13 +44,13 @@ object LoopAddressReductionPass : IRPass() {
 
     private fun runOnLoop(
         loop: NaturalLoop,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
     ): Boolean {
         val owners = instructionOwners(loop.blocks + loop.preheader)
         val plans = loop.header.instructions
             .filterIsInstance<PhiNode>()
             .mapNotNull { phi -> inductionPlan(phi, loop, owners) }
-            .flatMap { induction -> gepPlans(induction, loop, immediateDominators, owners) }
+            .flatMap { induction -> gepPlans(induction, loop, dominance, owners) }
 
         if (plans.isEmpty()) return false
 
@@ -83,7 +84,7 @@ object LoopAddressReductionPass : IRPass() {
     private fun gepPlans(
         induction: InductionPlan,
         loop: NaturalLoop,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
         owners: Map<Instruction, BasicBlock>,
     ): List<AddressPlan> {
         val result = mutableListOf<AddressPlan>()
@@ -92,7 +93,7 @@ object LoopAddressReductionPass : IRPass() {
                 val gep = inst as? GetElementPtrInst ?: continue
                 if (!isSimpleArrayIndex(gep, induction.phi)) continue
                 if (!isLoopInvariant(gep.pointer, loop, owners)) continue
-                if (!dominates(loop.header, block, immediateDominators)) continue
+                if (!dominates(loop.header, block, dominance)) continue
 
                 val elementType = (gep.elementType as ArrayType).elementType
                 result.add(AddressPlan(gep, induction, elementType))

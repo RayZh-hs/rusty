@@ -4,6 +4,7 @@ package rusty.opt.passes
 
 import rusty.opt.passes.utils.NaturalLoop
 import rusty.opt.passes.utils.dominates
+import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import rusty.opt.passes.utils.findSimpleNaturalLoops
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
@@ -35,9 +36,9 @@ object LoopCounterPromotionPass : IRPass() {
         for (function in module.functions) {
             if (function.isDeclaration || function.entryBlock == null) continue
             val domInfo = dominators.getFunctionInfo(function) ?: continue
-            val loops = findSimpleNaturalLoops(function, predecessors, domInfo.immediateDominators)
+            val loops = findSimpleNaturalLoops(function, predecessors, domInfo)
             for (loop in loops) {
-                changed = runOnLoop(loop, domInfo.immediateDominators) || changed
+                changed = runOnLoop(loop, domInfo) || changed
             }
         }
 
@@ -47,7 +48,7 @@ object LoopCounterPromotionPass : IRPass() {
 
     private fun runOnLoop(
         loop: NaturalLoop,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
     ): Boolean {
         if (loop.blocks.any { block -> block.instructions.any { it is CallInst } }) return false
         val exit = singleHeaderExit(loop) ?: return false
@@ -59,7 +60,7 @@ object LoopCounterPromotionPass : IRPass() {
         var changed = false
         for ((key, keyUpdates) in updates) {
             if (!isLoopInvariant(key.base, loop, owners)) continue
-            if (!isStraightLineEveryIteration(loop, keyUpdates, immediateDominators)) continue
+            if (!isStraightLineEveryIteration(loop, keyUpdates, dominance)) continue
             if (!isSafeField(loop, key, keyUpdates)) continue
             rewriteField(loop, exit, key, keyUpdates)
             changed = true
@@ -182,11 +183,11 @@ object LoopCounterPromotionPass : IRPass() {
     private fun isStraightLineEveryIteration(
         loop: NaturalLoop,
         updates: List<CounterUpdate>,
-        immediateDominators: Map<ULong, ULong?>,
+        dominance: FunctionDominanceInfo,
     ): Boolean {
         val updateBlock = updates.first().block
         if (updates.any { it.block != updateBlock }) return false
-        return dominates(updateBlock, loop.latch, immediateDominators)
+        return dominates(updateBlock, loop.latch, dominance)
     }
 
     private fun instructionOrder(block: BasicBlock, instruction: Instruction): Int =

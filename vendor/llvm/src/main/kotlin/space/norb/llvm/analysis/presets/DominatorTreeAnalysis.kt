@@ -13,8 +13,21 @@ data class FunctionDominanceInfo(
     val reachableBlocks: Set<BasicBlockId>,
     val immediateDominators: Map<BasicBlockId, BasicBlockId?>,
     val dominanceFrontier: Map<BasicBlockId, Set<BasicBlockId>>,
-    val treeChildren: Map<BasicBlockId, Set<BasicBlockId>>
-)
+    val treeChildren: Map<BasicBlockId, Set<BasicBlockId>>,
+    // Dominator-tree Euler tour intervals: [enterTime, exitTime] of each block in a DFS of the
+    // dominator tree. `a` dominates `b` iff a's interval encloses b's enter time. This makes
+    // dominance an O(1) query instead of an O(tree-depth) idom-chain walk, which is what turns
+    // per-edge back-edge detection in the loop passes from O(n^2) to O(n) on deep CFGs.
+    val enterTime: Map<BasicBlockId, Int> = emptyMap(),
+    val exitTime: Map<BasicBlockId, Int> = emptyMap(),
+) {
+    fun dominates(dominator: BasicBlockId, dominated: BasicBlockId): Boolean {
+        val enter = enterTime[dominator] ?: return false
+        val exit = exitTime[dominator] ?: return false
+        val target = enterTime[dominated] ?: return false
+        return enter <= target && target <= exit
+    }
+}
 
 class DominatorTreeResult(
     private val functionInfo: Map<FunctionId, FunctionDominanceInfo>,
@@ -73,58 +86,19 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
 
             val entryId = function.entryBlock!!.id
 
-            // Immediate dominators via Cooper-Harvey-Kennedy ("A Simple, Fast Dominance Algorithm").
-            // The previous formulation materialized a full dominator *set* per block and refined it
-            // by intersection to a fixpoint, which is O(n^2)-O(n^3) on long CFG chains (e.g. very
-            // large else-if ladders) and is recomputed by every dominance-dependent pass. CHK works
-            // directly on immediate dominators using reverse-postorder numbering, giving near-linear
-            // behavior in practice.
-            val postorder = computePostorder(function.entryBlock!!)
-            // Higher number == visited later in postorder == closer to the entry.
-            val postNumber = HashMap<BasicBlockId, Int>(postorder.size)
-            postorder.forEachIndexed { index, id -> postNumber[id] = index }
-            val reversePostorder = postorder.asReversed()
+            // Immediate dominators via Lengauer-Tarjan. The earlier Cooper-Harvey-Kennedy formulation
+            // is near-linear on typical CFGs but degrades to O(n^2) on a single high-fan-in merge fed
+            // by many deep predecessors (the canonical huge else-if ladder joining one block): each
+            // predecessor contributes an O(depth) idom-chain finger walk. Lengauer-Tarjan stays
+            // near-linear even on that shape. The immediate-dominator relation is unique, so the
+            // result — and therefore all downstream output — is identical; only the running time
+            // changes. This dominance recompute happens once per dominance-dependent pass, so the
+            // speedup compounds across the whole pipeline.
+            val idom = computeImmediateDominators(function.entryBlock!!, reachableBlocks, predecessors)
 
-            val idom = HashMap<BasicBlockId, BasicBlockId?>(reachableBlocks.size)
-            idom[entryId] = entryId
-
-            fun intersect(a: BasicBlockId, b: BasicBlockId): BasicBlockId {
-                var finger1 = a
-                var finger2 = b
-                while (finger1 != finger2) {
-                    while ((postNumber[finger1] ?: -1) < (postNumber[finger2] ?: -1)) {
-                        finger1 = idom.getValue(finger1)!!
-                    }
-                    while ((postNumber[finger2] ?: -1) < (postNumber[finger1] ?: -1)) {
-                        finger2 = idom.getValue(finger2)!!
-                    }
-                }
-                return finger1
-            }
-
-            var changed = true
-            while (changed) {
-                changed = false
-                for (blockId in reversePostorder) {
-                    if (blockId == entryId) continue
-
-                    val preds = predecessors[blockId]
-                        .orEmpty()
-                        .filter { it in reachableBlocks }
-
-                    // Combine only predecessors whose idom is already known this far.
-                    var newIdom: BasicBlockId? = null
-                    for (pred in preds) {
-                        if (idom[pred] == null) continue
-                        newIdom = if (newIdom == null) pred else intersect(pred, newIdom)
-                    }
-
-                    if (newIdom != null && idom[blockId] != newIdom) {
-                        idom[blockId] = newIdom
-                        changed = true
-                    }
-                }
-            }
+            // Build the maps below in the original reverse-postorder so dominator-tree child sets keep
+            // their previous iteration order (downstream consumers that do not re-sort stay unchanged).
+            val reversePostorder = computePostorder(function.entryBlock!!).asReversed()
 
             val immediateDominators = linkedMapOf<BasicBlockId, BasicBlockId?>()
             immediateDominators[entryId] = null
@@ -138,6 +112,32 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
             for ((blockId, idom) in immediateDominators) {
                 if (idom != null) {
                     treeChildren.getValue(idom).add(blockId)
+                }
+            }
+
+            // Euler-tour enter/exit times over the dominator tree, for O(1) dominance queries.
+            // Iterative DFS to survive deep dominator trees (long CFG chains).
+            val enterTime = HashMap<BasicBlockId, Int>(reachableBlocks.size * 2)
+            val exitTime = HashMap<BasicBlockId, Int>(reachableBlocks.size * 2)
+            run {
+                var timer = 0
+                val nodes = ArrayDeque<BasicBlockId>()
+                val iterators = ArrayDeque<Iterator<BasicBlockId>>()
+                enterTime[entryId] = timer++
+                nodes.addLast(entryId)
+                iterators.addLast(treeChildren.getValue(entryId).iterator())
+                while (nodes.isNotEmpty()) {
+                    val iterator = iterators.last()
+                    if (iterator.hasNext()) {
+                        val child = iterator.next()
+                        enterTime[child] = timer++
+                        nodes.addLast(child)
+                        iterators.addLast(treeChildren.getValue(child).iterator())
+                    } else {
+                        exitTime[nodes.last()] = timer++
+                        nodes.removeLast()
+                        iterators.removeLast()
+                    }
                 }
             }
 
@@ -167,7 +167,9 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
                 reachableBlocks = reachableBlocks,
                 immediateDominators = immediateDominators,
                 dominanceFrontier = dominanceFrontier.mapValues { it.value.toSet() },
-                treeChildren = treeChildren.mapValues { it.value.toSet() }
+                treeChildren = treeChildren.mapValues { it.value.toSet() },
+                enterTime = enterTime,
+                exitTime = exitTime,
             )
         }
 
@@ -199,6 +201,111 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
             }
         }
         return postorder
+    }
+
+    /**
+     * Immediate dominators of the blocks reachable from [entry], computed with the Lengauer-Tarjan
+     * algorithm (simple, path-compression variant). Returns a map from every reachable block to its
+     * immediate dominator, with [entry] mapped to itself. Near-linear even on degenerate
+     * high-fan-in-deep-predecessor CFGs where the iterative finger-walk approach is quadratic.
+     */
+    private fun computeImmediateDominators(
+        entry: BasicBlock,
+        reachableBlocks: Set<BasicBlockId>,
+        predecessors: PredecessorMap,
+    ): HashMap<BasicBlockId, BasicBlockId> {
+        val size = reachableBlocks.size
+        val num = HashMap<BasicBlockId, Int>(size * 2)
+        val byNum = arrayOfNulls<BasicBlockId>(size + 1)
+        val parent = IntArray(size + 1)
+        val semi = IntArray(size + 1)
+        val label = IntArray(size + 1)
+        val ancestor = IntArray(size + 1)
+        val idomNum = IntArray(size + 1)
+
+        // Depth-first preorder numbering (1-based), iterative to survive very long CFG chains.
+        var n = 0
+        run {
+            n++
+            num[entry.id] = n
+            byNum[n] = entry.id
+            parent[n] = 0
+            semi[n] = n
+            label[n] = n
+            val nodeStack = ArrayDeque<Int>()
+            val iterStack = ArrayDeque<Iterator<BasicBlock>>()
+            nodeStack.addLast(n)
+            iterStack.addLast(entry.getSuccessors().iterator())
+            while (nodeStack.isNotEmpty()) {
+                val iterator = iterStack.last()
+                if (iterator.hasNext()) {
+                    val successor = iterator.next()
+                    if (successor.id in reachableBlocks && successor.id !in num) {
+                        n++
+                        num[successor.id] = n
+                        byNum[n] = successor.id
+                        parent[n] = nodeStack.last()
+                        semi[n] = n
+                        label[n] = n
+                        nodeStack.addLast(n)
+                        iterStack.addLast(successor.getSuccessors().iterator())
+                    }
+                } else {
+                    nodeStack.removeLast()
+                    iterStack.removeLast()
+                }
+            }
+        }
+
+        // eval(v) returns the vertex with the minimum semidominator on the path from v to the root of
+        // its DSU forest, applying iterative path compression (recursion would overflow on long chains).
+        fun compress(v: Int) {
+            val path = ArrayList<Int>()
+            var x = v
+            while (ancestor[ancestor[x]] != 0) {
+                path.add(x)
+                x = ancestor[x]
+            }
+            for (index in path.indices.reversed()) {
+                val node = path[index]
+                val anc = ancestor[node]
+                if (semi[label[anc]] < semi[label[node]]) label[node] = label[anc]
+                ancestor[node] = ancestor[anc]
+            }
+        }
+        fun eval(v: Int): Int {
+            if (ancestor[v] == 0) return v
+            compress(v)
+            return label[v]
+        }
+
+        val buckets = Array(size + 1) { mutableListOf<Int>() }
+
+        for (i in n downTo 2) {
+            val blockId = byNum[i]!!
+            for (predId in predecessors[blockId].orEmpty()) {
+                val predNum = num[predId] ?: continue
+                val candidate = semi[eval(predNum)]
+                if (candidate < semi[i]) semi[i] = candidate
+            }
+            buckets[semi[i]].add(i)
+            ancestor[i] = parent[i]
+            for (v in buckets[parent[i]]) {
+                val u = eval(v)
+                idomNum[v] = if (semi[u] < semi[v]) u else parent[i]
+            }
+            buckets[parent[i]].clear()
+        }
+        for (i in 2..n) {
+            if (idomNum[i] != semi[i]) idomNum[i] = idomNum[idomNum[i]]
+        }
+
+        val result = HashMap<BasicBlockId, BasicBlockId>(size * 2)
+        result[entry.id] = entry.id
+        for (i in 2..n) {
+            result[byNum[i]!!] = byNum[idomNum[i]]!!
+        }
+        return result
     }
 
     private fun collectReachableBlocks(function: Function): Set<BasicBlockId> {

@@ -1,5 +1,6 @@
 package rusty.opt.passes.utils
 
+import space.norb.llvm.analysis.presets.FunctionDominanceInfo
 import space.norb.llvm.analysis.presets.PredecessorMap
 import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
@@ -15,14 +16,14 @@ internal data class NaturalLoop(
 internal fun findSimpleNaturalLoops(
     function: Function,
     predecessors: PredecessorMap,
-    immediateDominators: Map<BasicBlockId, BasicBlockId?>,
+    dominance: FunctionDominanceInfo,
 ): List<NaturalLoop> {
     val blockById = function.basicBlocks.associateBy { it.id }
     val loops = mutableListOf<NaturalLoop>()
 
     for (latch in function.basicBlocks) {
         for (header in latch.getSuccessors()) {
-            if (!dominates(header, latch, immediateDominators)) continue
+            if (!dominance.dominates(header.id, latch.id)) continue
             val loopBlocks = discoverLoop(header, latch, predecessors, blockById)
             val preheader = findSinglePreheader(header, loopBlocks, predecessors, blockById) ?: continue
             loops.add(NaturalLoop(header, latch, preheader, loopBlocks))
@@ -37,16 +38,8 @@ internal fun findSimpleNaturalLoops(
 internal fun dominates(
     dominator: BasicBlock,
     dominated: BasicBlock,
-    immediateDominators: Map<BasicBlockId, BasicBlockId?>,
-): Boolean {
-    if (dominator == dominated) return true
-    var cursor: BasicBlockId? = dominated.id
-    while (cursor != null) {
-        cursor = immediateDominators[cursor]
-        if (cursor == dominator.id) return true
-    }
-    return false
-}
+    dominance: FunctionDominanceInfo,
+): Boolean = dominance.dominates(dominator.id, dominated.id)
 
 private fun discoverLoop(
     header: BasicBlock,
