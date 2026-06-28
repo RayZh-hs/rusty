@@ -136,8 +136,19 @@ object Mem2RegPass : IRPass() {
             blockOrder = blockOrder
         )
 
-        for ((load, replacement) in loadReplacements) {
-            replaceAllUses(function, load, replacement)
+        // Apply every promoted load's replacement in a single sweep over the function. Doing one
+        // full-function scan per load is O(loads * instructions), which is quadratic when a variable
+        // is read many times (e.g. the `x` of a huge else-if ladder has one load per comparison).
+        if (loadReplacements.isNotEmpty()) {
+            for (block in function.basicBlocks) {
+                for (instruction in block.instructions) {
+                    for (index in 0 until instruction.getNumOperands()) {
+                        val replacement = (instruction.getOperand(index) as? LoadInst)
+                            ?.let { loadReplacements[it] } ?: continue
+                        instruction.setOperand(index, replacement)
+                    }
+                }
+            }
         }
 
         for (block in function.basicBlocks) {
@@ -253,23 +264,6 @@ object Mem2RegPass : IRPass() {
                 .sortedByDescending { blockOrder[it] ?: Int.MAX_VALUE }
             for (child in children) {
                 stack.addLast(RenameFrame(child, value))
-            }
-        }
-    }
-
-    private fun replaceAllUses(function: Function, oldValue: Value, newValue: Value) {
-        for (block in function.basicBlocks) {
-            for (instruction in block.instructions) {
-                if (instruction == oldValue) continue
-                replaceUses(instruction, oldValue, newValue)
-            }
-        }
-    }
-
-    private fun replaceUses(user: User, oldValue: Value, newValue: Value) {
-        for (index in 0 until user.getNumOperands()) {
-            if (user.getOperand(index) == oldValue) {
-                user.setOperand(index, newValue)
             }
         }
     }

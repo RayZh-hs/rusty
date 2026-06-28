@@ -72,32 +72,55 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
             }
 
             val entryId = function.entryBlock!!.id
-            val dominators = mutableMapOf<BasicBlockId, Set<BasicBlockId>>()
-            for (blockId in reachableBlocks) {
-                dominators[blockId] = if (blockId == entryId) setOf(entryId) else reachableBlocks
+
+            // Immediate dominators via Cooper-Harvey-Kennedy ("A Simple, Fast Dominance Algorithm").
+            // The previous formulation materialized a full dominator *set* per block and refined it
+            // by intersection to a fixpoint, which is O(n^2)-O(n^3) on long CFG chains (e.g. very
+            // large else-if ladders) and is recomputed by every dominance-dependent pass. CHK works
+            // directly on immediate dominators using reverse-postorder numbering, giving near-linear
+            // behavior in practice.
+            val postorder = computePostorder(function.entryBlock!!)
+            // Higher number == visited later in postorder == closer to the entry.
+            val postNumber = HashMap<BasicBlockId, Int>(postorder.size)
+            postorder.forEachIndexed { index, id -> postNumber[id] = index }
+            val reversePostorder = postorder.asReversed()
+
+            val idom = HashMap<BasicBlockId, BasicBlockId?>(reachableBlocks.size)
+            idom[entryId] = entryId
+
+            fun intersect(a: BasicBlockId, b: BasicBlockId): BasicBlockId {
+                var finger1 = a
+                var finger2 = b
+                while (finger1 != finger2) {
+                    while ((postNumber[finger1] ?: -1) < (postNumber[finger2] ?: -1)) {
+                        finger1 = idom.getValue(finger1)!!
+                    }
+                    while ((postNumber[finger2] ?: -1) < (postNumber[finger1] ?: -1)) {
+                        finger2 = idom.getValue(finger2)!!
+                    }
+                }
+                return finger1
             }
 
             var changed = true
             while (changed) {
                 changed = false
-                for (block in function.basicBlocks) {
-                    val blockId = block.id
-                    if (blockId == entryId || blockId !in reachableBlocks) continue
+                for (blockId in reversePostorder) {
+                    if (blockId == entryId) continue
 
                     val preds = predecessors[blockId]
                         .orEmpty()
                         .filter { it in reachableBlocks }
 
-                    val newDominators = if (preds.isEmpty()) {
-                        setOf(blockId)
-                    } else {
-                        preds
-                            .map { dominators.getValue(it) }
-                            .reduce(Set<BasicBlockId>::intersect) + blockId
+                    // Combine only predecessors whose idom is already known this far.
+                    var newIdom: BasicBlockId? = null
+                    for (pred in preds) {
+                        if (idom[pred] == null) continue
+                        newIdom = if (newIdom == null) pred else intersect(pred, newIdom)
                     }
 
-                    if (newDominators != dominators[blockId]) {
-                        dominators[blockId] = newDominators
+                    if (newIdom != null && idom[blockId] != newIdom) {
+                        idom[blockId] = newIdom
                         changed = true
                     }
                 }
@@ -105,14 +128,10 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
 
             val immediateDominators = linkedMapOf<BasicBlockId, BasicBlockId?>()
             immediateDominators[entryId] = null
-            for (block in function.basicBlocks) {
-                val blockId = block.id
-                if (blockId == entryId || blockId !in reachableBlocks) continue
-
-                val strictDominators = dominators.getValue(blockId) - blockId
-                val immediateDominator = strictDominators.maxByOrNull { dominators.getValue(it).size }
-                    ?: error("No immediate dominator found for block ${block.name}")
-                immediateDominators[blockId] = immediateDominator
+            for (blockId in reversePostorder) {
+                if (blockId == entryId) continue
+                immediateDominators[blockId] = idom[blockId]
+                    ?: error("No immediate dominator found for reachable block $blockId")
             }
 
             val treeChildren = reachableBlocks.associateWith { linkedSetOf<BasicBlockId>() }.toMutableMap()
@@ -133,7 +152,12 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
                 for (pred in preds) {
                     var runner: BasicBlockId? = pred
                     while (runner != null && runner != immediateDominator) {
-                        dominanceFrontier.getValue(runner).add(blockId)
+                        // Walks of distinct predecessors share their upper portion up to idom(blockId).
+                        // Once a runner already records blockId in its frontier, every ancestor up to
+                        // that idom was populated by the earlier walk, so we can stop. Without this the
+                        // computation is O(n^2) on a single merge with many deep predecessors (e.g. a
+                        // huge else-if ladder joining to one block) even though the result is O(n).
+                        if (!dominanceFrontier.getValue(runner).add(blockId)) break
                         runner = immediateDominators[runner]
                     }
                 }
@@ -148,6 +172,33 @@ object DominatorTreeAnalysis : Analysis<DominatorTreeResult>() {
         }
 
         return DominatorTreeResult(functionInfo, blockToFunction)
+    }
+
+    /**
+     * Depth-first postorder of the blocks reachable from [entry] (successor-children appended before
+     * their parent). Reversing it yields a reverse-postorder ordering suitable for the CHK dominance
+     * fixpoint. Iterative to avoid stack overflow on very long CFG chains.
+     */
+    private fun computePostorder(entry: BasicBlock): List<BasicBlockId> {
+        val postorder = ArrayList<BasicBlockId>()
+        val visited = HashSet<BasicBlockId>()
+        // Each stack frame tracks the block and an index into its successors.
+        val stack = ArrayDeque<Pair<BasicBlock, Iterator<BasicBlock>>>()
+        visited.add(entry.id)
+        stack.addLast(entry to entry.getSuccessors().iterator())
+        while (stack.isNotEmpty()) {
+            val (block, successors) = stack.last()
+            if (successors.hasNext()) {
+                val next = successors.next()
+                if (visited.add(next.id)) {
+                    stack.addLast(next to next.getSuccessors().iterator())
+                }
+            } else {
+                postorder.add(block.id)
+                stack.removeLast()
+            }
+        }
+        return postorder
     }
 
     private fun collectReachableBlocks(function: Function): Set<BasicBlockId> {
