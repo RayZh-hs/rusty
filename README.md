@@ -87,8 +87,6 @@ Due to time constraints official tests will be skipped in this phase.
 
 Customize testing by specifying the `-DlocalTestFile` and `-DlocalTestMode` options.
 
-Before issues in the official tests were fixed, there existed [a third-party fork](https://github.com/TheUnknownThing/RCompiler-Testcases) with ahead-of-time fixes from @TheUnknownThing. Run the fork using:
-
 IR generation has its own testbench. Manual IR resources run with clang+execution by default:
 
 ```bash

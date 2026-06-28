@@ -33,20 +33,6 @@ class OfficialSemanticTests : ExitValidationTestBase(TestMode.SEMANTIC) {
 }
 
 @Tag("ir")
-@Tag("fixed")
-class OfficialFixedIrTests : IrValidationTestBase() {
-	override val baseResourcePath: String = "@official-fixed"
-	override val subdirectoryPrefix: String = "IR-"
-}
-
-@Tag("semantic")
-@Tag("fixed")
-class OfficialFixedSemanticTests : ExitValidationTestBase(TestMode.SEMANTIC) {
-	override val baseResourcePath: String = "@official-fixed"
-	override val subdirectoryPrefix: String = "semantic-"
-}
-
-@Tag("ir")
 @Tag("manual")
 class ManualIrTests : IrValidationTestBase() {
 	override val baseResourcePath: String = "ir"

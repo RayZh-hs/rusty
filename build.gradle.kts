@@ -57,7 +57,7 @@ tasks.test {
     useJUnitPlatform()
     configureTestBehavior()
     useJUnitPlatform {
-        excludeTags("official", "fixed")
+        excludeTags("official")
     }
 }
 
@@ -93,9 +93,6 @@ for (stage in listOf("preprocessor", "lexer", "parser", "semantic", "ir")) {
 
 for (stage in listOf("semantic", "ir", "asm")) {
     registerTask(stage, source = "official")
-    if (stage != "asm") {
-        registerTask(stage, source = "fixed")
-    }
 }
 registerTask("opt", source = "official")
 
