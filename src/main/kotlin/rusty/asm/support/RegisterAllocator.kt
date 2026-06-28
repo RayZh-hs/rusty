@@ -544,38 +544,61 @@ object RegisterAllocator {
 
         val selectStack = mutableListOf<Value>()
 
+        // Lazy priority queue over the currently-simplifiable nodes (degree < registers.size),
+        // ordered by the exact same key the linear scan used to pick a node: degree ascending, then
+        // spill cost descending, then stable order ascending. Degrees only ever decrease during
+        // simplification, so a node, once below the register count, stays simplifiable; a decrease
+        // just pushes a fresher (lower-degree) entry and the stale one is skipped on poll. This makes
+        // the simplify phase O((V + E) log V) instead of O(V^2) while selecting an identical node
+        // every step, so the resulting coloring (and emitted asm) is unchanged.
+        val k = registers.size
+        // An entry snapshots the node's degree at enqueue time, so the queue key is immutable (the
+        // heap invariant holds even as degrees change). Tie-break exactly as the linear scan did:
+        // degree ascending, then spill cost descending, then stable order ascending.
+        class SimplifyEntry(val value: Value, val degree: Int)
+        val simplifyQueue = java.util.PriorityQueue<SimplifyEntry>(Comparator { a, b ->
+            if (a.degree != b.degree) return@Comparator a.degree - b.degree
+            val ca = spillCost[a.value] ?: 1L
+            val cb = spillCost[b.value] ?: 1L
+            if (ca != cb) return@Comparator if (ca > cb) -1 else 1
+            (stableOrder[a.value] ?: Int.MAX_VALUE).compareTo(stableOrder[b.value] ?: Int.MAX_VALUE)
+        })
+        fun enqueueIfSimplifiable(value: Value) {
+            val degree = currentDegree[value] ?: 0
+            if (degree >= k) return
+            simplifyQueue.add(SimplifyEntry(value, degree))
+        }
+
         fun removeFromRemaining(value: Value) {
             if (!remaining.remove(value)) return
             for (neighbor in graph[value].orEmpty()) {
                 if (neighbor in remaining) {
-                    currentDegree[neighbor] = (currentDegree[neighbor] ?: 0) - 1
+                    val degree = (currentDegree[neighbor] ?: 0) - 1
+                    currentDegree[neighbor] = degree
+                    if (degree < k) enqueueIfSimplifiable(neighbor)
                 }
             }
         }
 
+        for (value in remaining) enqueueIfSimplifiable(value)
+
         // Simplify the graph. Prefer low-degree nodes; when forced, pick a cheap spill.
         while (remaining.isNotEmpty()) {
             var selected: Value? = null
-            var selectedDegree = Int.MAX_VALUE
-            var selectedCost = 0L
-            var selectedOrder = Int.MAX_VALUE
 
-            for (value in remaining) {
-                val degree = currentDegree[value] ?: 0
-                if (degree >= registers.size) continue
-
-                val cost = spillCost[value] ?: 1L
-                val order = stableOrder[value] ?: Int.MAX_VALUE
-                val betterDegree = degree < selectedDegree
-                val betterCost = degree == selectedDegree && cost > selectedCost
-                val betterOrder = degree == selectedDegree && cost == selectedCost && order < selectedOrder
-
-                if (selected == null || betterDegree || betterCost || betterOrder) {
-                    selected = value
-                    selectedDegree = degree
-                    selectedCost = cost
-                    selectedOrder = order
+            // Pop the best simplifiable node. A node may have several stale entries (one per degree
+            // it passed through) and entries for already-removed nodes; skip any whose snapshot degree
+            // no longer matches the live degree, or that are gone / no longer below the register count.
+            // Since degrees only decrease, the freshest (lowest-degree) entry sorts first.
+            while (simplifyQueue.isNotEmpty()) {
+                val candidate = simplifyQueue.peek()
+                val liveDegree = currentDegree[candidate.value] ?: 0
+                if (candidate.value !in remaining || candidate.degree != liveDegree || liveDegree >= k) {
+                    simplifyQueue.poll()
+                    continue
                 }
+                selected = simplifyQueue.poll().value
+                break
             }
 
             if (selected == null) {
