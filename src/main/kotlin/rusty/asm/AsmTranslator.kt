@@ -1667,10 +1667,23 @@ internal class AsmTranslator(private val context: AsmContext) {
         if (foldsIntoImmediate(offset)) {
             storeRegisterAt(source, offset, sp)
         } else {
-            val scratch = if (source != t6) t6 else t5
-            addImmediate(scratch, sp, offset)
-            storeRegisterAt(source, 0, scratch)
+            val (addressScratch, safeSource) = spAddressScratch(source)
+            addImmediate(addressScratch, sp, offset)
+            storeRegisterAt(safeSource, 0, addressScratch)
         }
+    }
+
+    // For a store to a stack slot beyond the 12-bit immediate range we must first materialize sp+offset.
+    // `addImmediate` draws its own temporary from {t6, t5, t4} (preferring t6), so a naively chosen
+    // address register and that hidden temporary could land on the very register holding the value to
+    // store — silently corrupting it. Choosing t4 as the address register leaves t6 as addImmediate's
+    // temp (never t5), and a t6 source is first copied to t3. The returned (addressRegister, safeSource)
+    // pair is guaranteed not to clobber the stored value. (Dropping this guard corrupted spilled values
+    // and alloca addresses on large frames — a wrong answer, or a crash when the value was a pointer.)
+    private fun spAddressScratch(source: RvRegister): Pair<RvRegister, RvRegister> {
+        val addressScratch = if (source == t4) t6 else t4
+        val safeSource = if (source == t6) { asm.mv(t3, source); t3 } else source
+        return addressScratch to safeSource
     }
 
     private fun loadRegisterFromStack(destination: RvRegister, obj: PlacedStackObject) =
@@ -1693,8 +1706,8 @@ internal class AsmTranslator(private val context: AsmContext) {
             storeSizedAt(source, offset, sp, sizeBytes)
             return
         }
-        val scratch = if (source != t6) t6 else t5
-        storeSized(source, addressOfStack(obj, scratch), sizeBytes)
+        val (addressScratch, safeSource) = spAddressScratch(source)
+        storeSized(safeSource, addressOfStack(obj, addressScratch), sizeBytes)
     }
 
     private fun loadImmediate(destination: RvRegister, value: Long) {
