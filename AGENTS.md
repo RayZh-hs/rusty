@@ -21,7 +21,7 @@ fix: correct type inference for generic functions
 
 ## Optimization Guidelines
 
-When optimizing code, rely on instruction count when running on QEMU risc-v64. Use broad benchmarks to measure performance improvements. You are encouraged to compile the generated ir code though GCC, and compare the performance of the generated code with that of GCC. Strive to make it as fast as O2.
+When optimizing code, rely on instruction count when running on QEMU risc-v64. Use broad benchmarks to measure performance improvements. You are encouraged to compile the generated ir code though GCC, and compare the performance of the generated code with that of GCC. Strive to make it as fast as O2. Use `scripts/benchmark.py` to run the benchmarks, usage in `scripts/README.md`.
 
 After you modify, delete or add optimization passes, include that in docs/optimization.md. This file contains a full list of all IR and ASM optimization passes and their detailed algorithm descriptions.
 
