@@ -102,7 +102,11 @@ fn main() { let x = add(1, 2); ... }
      placeholders first, then clone the bodies, then fill in phi operands (two-phase to handle
      back-edges).
    - Split the caller block at the call: instructions after the call move into a new continuation
-     block; the caller block branches to the inlined entry.
+     block; the caller block branches to the inlined entry. Because the original terminator moves
+     with them, the edge into each original successor now leaves the continuation block — so any phi
+     in those successors that named the caller block as an incoming predecessor is repointed to the
+     continuation block. (Invisible when inlining phi-free IR, but essential if the pass is ever run
+     on IR already in SSA form, where stale phi predecessors would silently corrupt results.)
    - `return` instructions in the clone become unconditional branches to the continuation, recorded
      as "return sites".
    - If the call produced a value: a single return site forwards its value directly; multiple return

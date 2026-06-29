@@ -176,12 +176,32 @@ class FunctionInliningPass(
             callee.basicBlocks.map { blockMap.getValue(it) } + continuationBlock
         )
 
+        // The instructions after the call (including the original terminator) now live in the
+        // continuation block, so the edge into each original successor leaves the continuation block,
+        // not the caller block. Any phi in those successors that names the caller block as an incoming
+        // predecessor is stale and must be repointed to the continuation block. (Pre-Mem2Reg IR has no
+        // phis, so this only bites on a post-optimization inlining round.)
+        retargetSuccessorPhis(callerBlock, continuationBlock)
+
         val replacement = createReturnReplacement(call, continuationBlock, returnSites, usedValueNames, context)
         if (replacement != null) {
             // Use the incremental use registry instead of scanning the whole (growing) caller per
             // inlined call, which is O(calls * callerSize). Result is identical: it rewrites exactly
             // the operands that reference the call's value.
             call.replaceAllUsesWith(replacement)
+        }
+    }
+
+    private fun retargetSuccessorPhis(callerBlock: BasicBlock, continuationBlock: BasicBlock) {
+        val terminator = continuationBlock.terminator ?: return
+        for (successor in terminator.getSuccessors().distinct()) {
+            for (instruction in successor.instructions) {
+                val phi = instruction as? PhiNode ?: continue
+                val index = phi.getIncomingValueIndexForBlock(callerBlock) ?: continue
+                // Operands are laid out as [value0, block0, value1, block1, ...]; the block for
+                // incoming entry `index` sits at operand position `index * 2 + 1`.
+                phi.setOperand(index * 2 + 1, continuationBlock)
+            }
         }
     }
 
