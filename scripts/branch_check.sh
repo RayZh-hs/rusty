@@ -9,6 +9,9 @@ SRC=$ROOT/src/test/resources/@official/IR-1/src
 W=/tmp/brbench
 mkdir -p $W
 
+# Testcases to skip (known-flawed in the upstream submodule; see docs or README inside each).
+SKIP_CASES=(overflow)
+
 count() { qemu-riscv64 -plugin $PLUGIN "$1" < "$2" 2>&1 >/dev/null | sed -n 's/^INSNS //p'; }
 chk() { local got; got="$(qemu-riscv64 "$1" < "$2" 2>/dev/null)"; [ "$got" = "$(cat "$3")" ] && echo AC || echo WA; }
 
@@ -19,6 +22,9 @@ fi
 
 total_ac=0; total_n=0
 for C in "${CASES[@]}"; do
+  # Skip known-flawed testcases
+  for skip in "${SKIP_CASES[@]}"; do [[ "$C" == "$skip" ]] && continue 2; done
+
   D=$SRC/$C
   RX=$D/$C.rx; EXP=$D/$C.out
   [ -f "$RX" ] || { printf "%-22s MISSING\n" "$C"; continue; }

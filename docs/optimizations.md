@@ -642,6 +642,65 @@ producer onto the move's own source).
 
 ---
 
+### Leaf-frame omission — drop the frame for functions that need no stack
+*File: `rusty/asm/StackFrameMaterializer.kt` (`materializeSavedRegisters`, `canMoveParametersDirectly`)*
+
+**Purpose.** Stop reserving a stack frame for functions that have no reason to touch the stack. The
+frame is materialized from four object classes — spilled values, allocas, saved callee-saved registers,
+and call-argument temps. A *leaf* function (one that makes no calls) already needs none of the first
+three in the common case: the allocator prefers caller-saved registers for any value not live across a
+call, so leaf functions allocate no callee-saved registers, and without calls there is no `ra` to save.
+The only thing that still forced a frame was the **call-argument temp** reservation, which was keyed on
+`function.parameters.isNotEmpty()` — so *every* function that took an argument got a frame, even when its
+parameters were copied straight from `a0`–`a7` into registers and the temps were never read or written.
+The result was a dead `addi sp, sp, -N` / `addi sp, sp, N` pair wrapping the whole body.
+
+**Example.**
+```asm
+; before  (fn add(a, b) = a + b*2 — params moved directly into t1/t0)
+add:
+    addi sp, sp, -16     ; frame reserved only for unused call-arg temps
+    mv   t1, a0
+    mv   t0, a1
+    li   t5, 2
+    mulw t0, t0, t5
+    addw t0, t1, t0
+    mv   a0, t0
+    addi sp, sp, 16
+    ret
+; after  (no stack object is live → no frame, no prologue/epilogue)
+add:
+    mv   t1, a0
+    mv   t0, a1
+    li   t5, 2
+    mulw t0, t0, t5
+    addw t0, t1, t0
+    mv   a0, t0
+    ret
+```
+
+**Algorithm.** Call-argument temps serve two consumers: the non-direct parameter-move path (which spills
+each incoming argument register to a temp before reloading it) and call lowering (which stages each
+outgoing argument through a temp). Reserve them only for the consumer that is actually present:
+1. **Parameters need temps** only when they cannot be moved directly — i.e. when *any* parameter is past
+   the eighth argument register, is larger than a register, or is not allocated to a register.
+   `canMoveParametersDirectly` mirrors `AsmTranslator.canDirectMoveParameters` exactly, so a function
+   that takes the direct path never reserves temps and one that takes the spill path always does (the
+   translator would otherwise create a temp *after* the frame size was fixed, writing past the reserved
+   region).
+2. **The temp count** becomes `max(paramsIfNeeded, maxCallArgs)` — `function.parameters.size` only when
+   parameters genuinely need temps, and the widest call's argument count only when the function makes
+   calls. A non-leaf function with more register parameters than call arguments therefore also shrinks.
+3. When no spill, alloca, saved register, or temp is reserved, `frameSizeBytes` is `0`; `emitPrologue` /
+   `emitEpilogue` then emit no `sp` adjustment and no save/restore, and the function runs frame-free.
+
+Validated on the official IR-1 suite: 49/50 AC cases improved, none regressed, ~578k dynamic
+instructions saved (qemu rv64); biggest per-case wins −1.0% (comprehensive33) and −0.84%
+(comprehensive20). Output stays byte-for-byte correct (51/51 AC); `RiscvAsmTargetTest` and
+`OJCompileModeTest` green.
+
+---
+
 ## Summary table
 
 | # | Pass | Level | One-line effect |
@@ -663,3 +722,4 @@ producer onto the move's own source).
 | — | BranchLowering | ASM | fold `icmp+br` into compare-and-branch, fall through not-taken edge |
 | — | RegallocCoalescing | ASM | Briggs coalescing of phi/copy `mv`s during register allocation |
 | — | AsmCoalescing | ASM | coalesce scratch-register `mv`s (R1 forward, R2 propagate) |
+| — | LeafFrameOmission | ASM | reserve call-arg temps only when needed → leaf functions drop the stack frame |

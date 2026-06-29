@@ -56,8 +56,15 @@ internal object StackFrameMaterializer {
             }
         }
 
-        val needsArgTemps = function.parameters.isNotEmpty()
         val hasCalls = function.containsCall()
+        // Parameters need stack temps only when they cannot be copied straight from their incoming
+        // argument register into their allocated register. When every parameter moves directly (the
+        // common case for leaf functions), reserving these temps forces a stack frame whose only
+        // purpose is an unused prologue/epilogue `sp` adjustment. Mirrors AsmTranslator's
+        // canDirectMoveParameters so a function that takes the direct path never has temps reserved
+        // and one that takes the spill path always does.
+        val parametersNeedTemps = function.parameters.isNotEmpty() &&
+            !canMoveParametersDirectly(function, allocation, registerBytes)
 
         if (hasCalls && frame.objectWithName("ra") == null) {
             frame.save(rusty.asm.utils.Register.RA)
@@ -79,13 +86,17 @@ internal object StackFrameMaterializer {
             }
         }
 
-        if (hasCalls || needsArgTemps) {
+        if (hasCalls || parametersNeedTemps) {
             val maxCallArguments = maxOf(
-                function.parameters.size,
-                function.instructions()
-                    .filterIsInstance<CallInst>()
-                    .maxOfOrNull { it.arguments.size }
-                    ?: 0,
+                if (parametersNeedTemps) function.parameters.size else 0,
+                if (hasCalls) {
+                    function.instructions()
+                        .filterIsInstance<CallInst>()
+                        .maxOfOrNull { it.arguments.size }
+                        ?: 0
+                } else {
+                    0
+                },
             )
             for (index in 0 until maxCallArguments) {
                 val name = callArgumentTempName(index)
@@ -93,6 +104,21 @@ internal object StackFrameMaterializer {
                     frame.temp(sizeBytes = registerBytes, alignBytes = registerBytes, name = name)
                 }
             }
+        }
+    }
+
+    // RISC-V passes the first eight integer/pointer arguments in a0-a7.
+    private const val ARGUMENT_REGISTER_COUNT = 8
+
+    private fun canMoveParametersDirectly(
+        function: Function,
+        allocation: Map<Value, SavableSlot>,
+        registerBytes: Int,
+    ): Boolean {
+        return function.parameters.withIndex().all { (index, parameter) ->
+            index < ARGUMENT_REGISTER_COUNT &&
+                parameter.type.sizeBytes(function.module) <= registerBytes &&
+                allocation[parameter] is SavableSlot.Register
         }
     }
 }
