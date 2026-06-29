@@ -24,3 +24,8 @@ fix: correct type inference for generic functions
 When optimizing code, rely on instruction count when running on QEMU risc-v64. Use broad benchmarks to measure performance improvements. You are encouraged to compile the generated ir code though GCC, and compare the performance of the generated code with that of GCC. Strive to make it as fast as O2.
 
 After you modify, delete or add optimization passes, include that in docs/optimization.md. This file contains a full list of all IR and ASM optimization passes and their detailed algorithm descriptions.
+
+Each optimization should start with a docstring. It should be concise and human-readable:
+- What algorithm it uses;
+- Through an example, what is reformed into what;
+- Optional footnotes or limitations of this pass (e.g. expect inputting ir to have no phi nodes ...).

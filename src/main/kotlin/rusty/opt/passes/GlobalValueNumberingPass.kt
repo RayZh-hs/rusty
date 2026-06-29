@@ -1,21 +1,19 @@
 package rusty.opt.passes
 
-// Dominator-tree scoped global value numbering.
+// Dominator-tree-scoped global value numbering. Two jobs, both kept sound without alias analysis:
 //
-// Two complementary jobs, both kept deliberately conservative so they are always sound without an
-// alias analysis:
+//   1. Pure-expression CSE. A pure instruction (arithmetic, cast, icmp, gep) is keyed by opcode +
+//      operands; if an equal key already has a leader defined in a *dominating* scope, the
+//      instruction is replaced by that leader. Walks the dominator tree with a pre-order DFS,
+//      dropping a block's keys when its subtree is finished.
+//        x = i % 512   (in header) ... y = i % 512  (in body)  ->  y replaced by x
 //
-//   1. Pure-expression CSE across the dominator tree. A pure instruction (arithmetic, cast, icmp,
-//      gep) whose value-numbering key already has a leader in a *dominating* scope is replaced by
-//      that leader. Because the leader dominates the use and both compute from identical operands,
-//      the result is provably the same. This collapses recomputed subexpressions such as `i % 512`
-//      evaluated three times, or `i ^ (acc & 255)` evaluated twice, in a hot loop body.
+//   2. Block-local redundant-load elimination / store-to-load forwarding. Within one block, a load
+//      whose pointer has no intervening clobber reuses the last loaded or stored value.
+//        store v, p ; ... ; x = load p   ->  x replaced by v
 //
-//   2. Block-local redundant-load elimination and store-to-load forwarding. Within a single basic
-//      block, a load from a pointer with no intervening clobber reuses the previously loaded or
-//      stored value. Resetting the cache per block (and clobbering it on any store/call) keeps this
-//      sound without alias information, while still removing the repeated reloads of struct scalar
-//      fields that dominate the hot loops in redundant_memory / bytecode_vm.
+// Notes: the load cache is per-block and is cleared on any store or call (conservative, no aliasing).
+// Expects valid SSA (runs after Mem2Reg); CSE relies on dominator info from the analysis manager.
 
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis

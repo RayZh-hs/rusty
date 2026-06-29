@@ -6,6 +6,14 @@ import space.norb.llvm.structure.BasicBlock
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.BasicBlockId
 
+// Shared loop discovery for the loop optimization passes.
+//
+// findSimpleNaturalLoops returns the natural loops that are simple enough for those passes to rewrite:
+// a back-edge latch -> header where the header dominates the latch, the loop body is everything that
+// can reach the latch without leaving through the header, and the header has exactly one out-of-loop
+// predecessor that branches only to the header (a dedicated preheader). Loops without such a preheader
+// are skipped, so the passes always have a single, safe place to hoist code into.
+
 internal data class NaturalLoop(
     val header: BasicBlock,
     val latch: BasicBlock,

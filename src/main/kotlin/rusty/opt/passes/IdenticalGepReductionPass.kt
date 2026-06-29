@@ -1,6 +1,12 @@
 package rusty.opt.passes
 
-// Folds identical GetElementPtr instructions into a single instruction, to be run as a cleanup pass after Mem2Reg.
+// Block-local CSE restricted to GetElementPtr. Within each block, the first gep with a given
+// (elementType, pointer, indices, inBounds) becomes the leader; later identical geps are replaced by it.
+//
+//   p = gep %s, 0, 1 ; ... ; q = gep %s, 0, 1   ->   q replaced by p
+//
+// Note: a cheap cleanup run after Mem2Reg. GlobalValueNumberingPass also CSEs geps dominator-wide;
+// this pass exists as a lightweight block-local pre-pass and the cache is reset per block.
 
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.core.User

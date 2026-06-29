@@ -19,12 +19,16 @@ import space.norb.llvm.structure.Module
 import space.norb.llvm.transformation.IRPass
 
 /**
- * Conservative LICM for natural loops that already have a single preheader.
+ * Loop-invariant code motion for natural loops with a single preheader.
  *
- * The pass hoists side-effect-free instructions whose operands are loop-invariant
- * into the preheader, but only when the instruction's block dominates every loop
- * exit. That avoids introducing new work on paths where the original instruction
- * might not execute.
+ * Algorithm: repeatedly hoist a side-effect-free instruction into the preheader when all of its
+ * operands are loop-invariant (defined outside the loop, or already hoisted). Iterates to a fixpoint
+ * so chains become invariant one layer at a time.
+ *
+ *   for (...) { y = x * 4; ... }   ->   y = x * 4; for (...) { ... }      // x defined outside the loop
+ *
+ * Note: an instruction is only hoisted if its block dominates every loop exit, so we never speculate
+ * work onto a path where the original might not have run. Skips memory ops and phis (no aliasing info).
  */
 object LoopInvariantCodeMotionPass : IRPass() {
     override fun run(module: Module, am: AnalysisManager): Module {

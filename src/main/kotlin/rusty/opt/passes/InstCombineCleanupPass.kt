@@ -38,6 +38,20 @@ import space.norb.llvm.values.constants.IntConstant
 import java.lang.Long.divideUnsigned
 import java.lang.Long.remainderUnsigned
 
+/**
+ * Peephole simplification: algebraic identities + constant folding + trivial dead-code removal,
+ * iterated to a fixpoint (capped at MAX_ITERATIONS).
+ *
+ * Each instruction is matched against a small rule set and, if it reduces to an existing value or a
+ * constant, replaced in place:
+ *     x + 0      -> x          3 + 4        -> 7
+ *     x - x      -> 0          icmp eq x, x -> true
+ *     mul x, 1   -> x          phi [v, a],[v, b] -> v
+ * After each simplification sweep, instructions with no uses are removed.
+ *
+ * Notes: only rewrites when the replacement's type matches the original. Constant folding sign-extends
+ * operands for signed ops, since IntConstant stores the unsigned bit-pattern truncated to the type width.
+ */
 object InstCombineCleanupPass : IRPass() {
     private const val MAX_ITERATIONS = 8
 

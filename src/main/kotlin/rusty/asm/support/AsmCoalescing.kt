@@ -8,36 +8,23 @@ import space.norb.riscv.LabelLine
 import space.norb.riscv.Register
 
 /**
- * Stage 2 of register copy coalescing: asm-level, run over the emitted RISC-V program.
+ * Stage 2 of register copy coalescing: an asm-level peephole over the emitted RISC-V program.
  *
- * This is the counterpart to [RegallocCoalescing], which runs inside the allocator. That stage removes
- * phi/parameter copies (value-to-value moves the allocator can see). This stage removes the *codegen
- * artifact* moves it cannot: GEP / load lowering computes into a reserved scratch register (t3-t6) and
- * then moves the result into the allocated destination, leaving a `mv` after roughly every address
- * computation and memory load. See [RegallocCoalescing]'s header for the full four-source breakdown;
- * the two rows this stage owns are:
+ * Where [RegallocCoalescing] removes phi-resolution copies the allocator can see, this stage removes
+ * the codegen-artifact moves it cannot: gep/load lowering computes into a fixed scratch register
+ * (t3-t6) and then moves the result into the allocated destination, leaving a `mv` after almost every
+ * address computation and load. Two rewrites, iterated to a fixpoint (each exposes work for the other):
  *
- *  - Load result  `mv dst, t5`  (lowerLoad, AsmTranslator:838)  — handled by R1
- *  - GEP result   `mv dst, t4`  (lowerGep,  AsmTranslator:869)  — handled by R1/R2
+ *   R1 result-forwarding:        OP t5, a, b ; mv rd, t5   ->   OP rd, a, b
+ *   R2 scratch copy-propagation: mv t4, rs ; ... use t4    ->   ... use rs   (then the dead copy is dropped)
  *
- * wano's hot loops contain almost no moves; ours contained ~45% moves before this pass.
+ * Both are valid because of the codegen invariant that scratch t3-t6 are never live across an
+ * instruction-selection boundary — each is written and consumed within the lowering of a single IR
+ * instruction. R1 also relies on the producer and move being adjacent (a RISC-V op reads all sources
+ * before writing its destination), and is guarded by a scan proving the scratch is dead after the move.
  *
- * Two transformations, both relying on the codegen invariant that the scratch registers t3-t6 are never
- * live across an instruction-selection boundary (they are written and consumed inside the lowering of a
- * single IR instruction, never carried across IR instructions or basic-block edges):
- *
- *  R1 result-forwarding:  `OP tX, ...; mv rd, tX`  ->  `OP rd, ...`
- *      Valid because a RISC-V instruction reads all its sources before writing its destination, and the
- *      two instructions are adjacent, so redirecting OP's destination to rd has exactly the same effect
- *      as the following move. Guarded by a scan proving tX is dead after the move.
- *
- *  R2 scratch copy-propagation:  `mv tX, rs; ... use(tX) ...`  ->  substitute rs for tX
- *      Valid while rs is not redefined between the copy and the use and tX is not redefined. After all
- *      in-block uses are rewritten the copy is dead (tX is scratch, dead at the block boundary) and is
- *      removed.
- *
- * Anything the classifier does not positively recognize is treated as a barrier, so unknown mnemonics
- * can never be miscompiled — they only stop optimization.
+ * Note: any mnemonic the classifier does not positively recognize is treated as a barrier, so unknown
+ * instructions only stop optimization — they can never be miscompiled.
  */
 object AsmCoalescing {
     private const val T3 = 28

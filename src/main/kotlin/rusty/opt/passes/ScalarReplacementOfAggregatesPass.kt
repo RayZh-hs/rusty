@@ -14,6 +14,18 @@ import space.norb.llvm.transformation.IRPass
 import space.norb.llvm.types.StructType
 import space.norb.llvm.values.constants.IntConstant
 
+/**
+ * Scalar replacement of aggregates: split a struct alloca into one independent alloca per scalar
+ * field, so the following Mem2Reg can promote each field into a register on its own.
+ *
+ *   s = alloca {i32, i32}        s.field0 = alloca i32
+ *   a = gep s, 0, 0         ->   s.field1 = alloca i32
+ *   b = gep s, 0, 1             (geps replaced by the matching field alloca; s removed if fully split)
+ *
+ * Notes: bails out if the aggregate escapes as a whole (any use of the alloca other than a
+ * constant-index field gep — e.g. passed to a call or memcpy). Fields that are themselves aggregates
+ * (further GEP'd into) stay inside the original alloca, which is then kept. Runs before Mem2Reg.
+ */
 object ScalarReplacementOfAggregatesPass : IRPass() {
     private data class FieldKey(val indices: List<Long>)
     private data class ReplacementPlan(
@@ -69,17 +81,11 @@ object ScalarReplacementOfAggregatesPass : IRPass() {
     }
 
     /**
-     * Build a scalar-replacement plan for a struct alloca.
+     * Build a scalar-replacement plan for a struct alloca, or return null if it cannot be split.
      *
-     * Scalar replacement is only sound when the aggregate's storage is never observed as a whole:
-     * the moment its address escapes (passed to a call, bitcast for a `memfill`/`memcpy`, or the
-     * pointer itself stored somewhere) another path can read or write the very fields we are about
-     * to split into independent scalar allocas, and those copies would silently go out of sync.
-     * So we bail out on any non-GEP use of the alloca.
-     *
-     * Among the constant-index field GEPs, we scalarize only the fields that are exclusively
-     * loaded/stored. Fields that are themselves aggregates (further GEP'd into) keep living inside
-     * the struct, so the original alloca is retained whenever any such field remains.
+     * Bails on any non-GEP use of the alloca (the address escapes, so a split would let aliased
+     * copies drift out of sync). Of the constant-index field GEPs, only fields used exclusively by
+     * load/store are scalarized; aggregate fields stay in the struct and the original alloca is kept.
      */
     private fun buildPlan(alloca: AllocaInst, function: Function): ReplacementPlan? {
         val directUses = alloca.getUses().filter { isAliveInstruction(it, function) }

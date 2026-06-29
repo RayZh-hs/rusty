@@ -1,6 +1,19 @@
 package rusty.opt.passes
 
-// Recognize patterns like foo[a] and replace array access with advancing pointer arithmetic to substitute multiplication with addition.
+// Strength reduction of array indexing by a loop induction variable: replace the per-iteration
+// address computation (an implicit multiply by the element size) with a pointer that marches by one
+// element each iteration (an add).
+//
+//   for (i = start; ...; i += 1)        for (p = &a[start]; ...; p = p + 1)
+//       use a[i]                  ->         use *p
+//
+// Concretely a `gep a, 0, i` recomputed in the body is replaced by a pointer phi:
+//   p     = phi [&a[start], preheader], [p.next, latch]
+//   p.next = gep p, 1                    (inserted after the i += 1 update)
+//
+// Notes: only simple natural loops with a single preheader; only `i += 1` integer inductions and
+// single-dimension `a[i]` geps whose element is not itself an aggregate; the array base must be
+// loop-invariant and the gep's block must be dominated by the header. Runs after Mem2Reg (uses phis).
 
 import rusty.opt.passes.utils.NaturalLoop
 import rusty.opt.passes.utils.findSimpleNaturalLoops

@@ -16,6 +16,17 @@ import space.norb.llvm.structure.Module
 import space.norb.llvm.transformation.IRPass
 import space.norb.llvm.types.PointerType
 
+/**
+ * Forward a pointer-typed alloca that is stored exactly once: replace every load of the slot with the
+ * stored pointer directly, then delete the slot.
+ *
+ *   p = alloca ptr           q used directly in place of every `load p`
+ *   store q, p          ->   (alloca, store and loads removed)
+ *   x = load p ; use x       use q
+ *
+ * Notes: only fires when the single store dominates all loads and the alloca has no other uses. A
+ * targeted pre-Mem2Reg cleanup that collapses pointer indirection so later passes see the pointee.
+ */
 object PointerSlotForwardingPass : IRPass() {
     override fun run(module: Module, am: AnalysisManager): Module {
         var changed = false

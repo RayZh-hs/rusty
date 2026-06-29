@@ -10,15 +10,13 @@ import space.norb.llvm.values.constants.IntConstant
 import space.norb.llvm.utils.getSizeInBytes
 
 /**
- * IR pass that inlines sizeof helper functions into constant integer values.
+ * Inline `sizeof` helpers into constants. The frontend emits `aux.func.sizeof.<Struct>` helpers that
+ * compute a struct's byte-size at runtime; this pass computes the size statically from the type layout,
+ * replaces each call with the `i32` constant, and deletes the now-dead helper.
  *
- * The compiler emits auxiliary functions named `aux.func.sizeof.<StructName>` that compute
- * the byte-size of a struct at runtime via pointer arithmetic. This pass:
+ *   n = call aux.func.sizeof.Point()   ->   n = i32 12
  *
- * 1. Identifies those helper functions by name prefix.
- * 2. Computes the struct size statically using the library's layout utilities.
- * 3. Replaces every call to a sizeof helper with an `i32` constant.
- * 4. Removes the now-dead sizeof functions from the module.
+ * Note: a helper for an opaque or unresolvable struct is left untouched (no constant, not removed).
  */
 object SizeInliningPass : IRPass() {
     private const val SIZEOF_PREFIX = "aux.func.sizeof."

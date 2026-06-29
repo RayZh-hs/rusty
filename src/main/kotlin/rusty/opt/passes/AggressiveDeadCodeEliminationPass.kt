@@ -13,17 +13,16 @@ import java.util.IdentityHashMap
 /**
  * Mark-and-sweep dead code elimination.
  *
- * The existing InstCombine cleanup only removes instructions whose use list is empty, which cannot
- * break self-referential cycles. Mem2Reg routinely produces such cycles: a variable that is declared
- * inside a loop and reassigned on every iteration before use ends up with a loop-header phi whose only
- * consumer is the matching back-edge phi (and vice-versa). The values are never observed by any
- * side-effecting instruction, yet each cycle still consumes a register and a back-edge copy per
- * iteration. On the bytecode-VM interpreter this left ~16 dead loop-carried phi pairs in the hot loop.
+ * Algorithm: collect the live set from observable instructions (terminators, stores, calls), then walk
+ * operands backwards. Whatever is never reached is dead and removed.
  *
- * This pass seeds liveness from the instructions that are observable — terminators, stores and calls —
- * then propagates backwards through operands to a fixpoint. Anything not reached is dead (it can only be
- * used by other dead instructions) and is removed. Removing a value that no live instruction observes
- * cannot change program behavior, so the transform is sound by construction.
+ * Example — a self-referential phi cycle whose only consumers are each other:
+ *     x = phi [x0, entry], [y, latch]
+ *     y = phi [x,  header]            // x and y feed nothing else
+ *   both are deleted.
+ *
+ * Note: unlike use-list DCE (which only drops instructions with zero uses), this breaks dead cycles.
+ * Mem2Reg routinely creates them for loop-carried variables reassigned-before-use.
  */
 object AggressiveDeadCodeEliminationPass : IRPass() {
     override fun run(module: Module, am: AnalysisManager): Module {

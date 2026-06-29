@@ -14,8 +14,13 @@ import space.norb.llvm.types.IntegerType
 import space.norb.llvm.values.constants.IntConstant
 
 /**
- * Lowers small fixed-size aggregate copies from `aux.func.memfill(dst, src, size, 1)`
- * into scalar load/store pairs. The frontend uses this call shape as memcpy.
+ * Lower small fixed-size aggregate copies into a single load/store of an integer that wide. The
+ * frontend emits `aux.func.memfill(dst, src, size, 1)` as its memcpy shape.
+ *
+ *   call aux.func.memfill(dst, src, 8, 1)   ->   v = load i64 src ; store i64 v, dst
+ *
+ * Note: only fires for a repeat count of 1 and size 1..MAX_SCALAR_COPY_BYTES; larger copies keep the
+ * call. Replacing the copy with one wide scalar load/store lets later passes forward the value.
  */
 object SmallMemcopyLoweringPass : IRPass() {
     private const val MEMFILL_NAME = "aux.func.memfill"

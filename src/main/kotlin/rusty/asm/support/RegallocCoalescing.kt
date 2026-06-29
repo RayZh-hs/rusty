@@ -5,44 +5,20 @@ import space.norb.llvm.core.Value
 /**
  * Stage 1 of register copy coalescing: graph-level, run *inside* the allocator before coloring.
  *
- * The instruction selector emits a `mv` for every value-to-value copy in the program. There are four
- * distinct sources, and they are *not* one problem — each is removed by a different stage:
+ * Algorithm — Briggs conservative coalescing over the interference graph, using union-find. For each
+ * move-related pair (a phi and one of its incoming values), merge the two nodes iff they do not
+ * interfere and the merge passes the Briggs test: the combined node has fewer than `registerCount`
+ * (= K) neighbors of significant degree (degree >= K). Iterate to a fixpoint, since each merge lowers
+ * the degree of shared neighbors and can unblock a pair that failed earlier.
  *
- * ```
- * Source: Phi resolution            mv phiReg, incomingReg
- *   Where:        emitScalarPhiMoves (AsmTranslator:1218)
- *   Removed by:   today, only if the allocator coincidentally gave phi and incoming the same slot
- *                 (emitScalarPhiMoves' removeAll { destination == source })
- *   Coalescable in allocator?  Yes — THIS pass is the target.
- * ────────────────────────────────────────
- * Source: Parameter setup           mv allocReg, argReg
- *   Where:        moveParametersDirectly (AsmTranslator:735)
- *   Removed by:   today, only coincidentally (dest == argReg)
- *   Coalescable in allocator?  Yes (biasing) — future extension; not handled here yet.
- * ────────────────────────────────────────
- * Source: Load result              mv dst, t5
- *   Where:        lowerLoad loads into fixed scratch t5, then writeValue moves it (AsmTranslator:838)
- *   Removed by:   AsmCoalescing R1
- *   Coalescable in allocator?  No — a codegen artifact, not an IR copy. See [AsmCoalescing].
- * ────────────────────────────────────────
- * Source: GEP result               mv dst, t4
- *   Where:        lowerGep -> emitGepAddress(.., t4) then writeValue (AsmTranslator:869)
- *   Removed by:   AsmCoalescing R1/R2
- *   Coalescable in allocator?  No — a codegen artifact, not an IR copy. See [AsmCoalescing].
- * ```
+ * Once a phi and its incoming value share a node they get the same register, so the phi-resolution
+ * move the translator emits becomes `mv x, x` and the move sequencer drops it for free:
+ *     mv phiReg, incomingReg   ->   (phiReg and incomingReg coalesced to the same register, move gone)
  *
- * This pass handles row 1 (phi resolution). It merges a phi and a copy-related operand into one node so
- * they receive the same register; the phi-resolution move then has identical source and destination and
- * [rusty.asm.AsmTranslator]'s move sequencer drops it for free. [AsmCoalescing] is the asm-level stage 2
- * that mops up rows 3-4, the scratch moves this pass structurally cannot see.
- *
- * Algorithm — Briggs conservative coalescing.
- * Move-related node pairs (phi, incoming) are merged via union-find iff they do not interfere and the
- * merge passes the Briggs test: the combined node has fewer than `registerCount` neighbors of
- * significant degree (degree >= registerCount). Briggs proved this test can never turn a K-colorable
- * graph into a non-K-colorable one, so coalescing here never trades a move for a spill. We iterate over
- * the move set to a fixpoint because merging two nodes lowers the degree of their common neighbors,
- * which can unblock a move that failed the test on an earlier pass.
+ * Notes: this stage only sees value-to-value copies, i.e. phi-resolution moves. The `mv dst, t4/t5`
+ * artifacts left by gep/load lowering use fixed scratch registers and are invisible here — the
+ * asm-level [AsmCoalescing] (stage 2) removes those. The Briggs test provably never turns a
+ * K-colorable graph non-colorable, so coalescing here never trades a move for a spill.
  */
 object RegallocCoalescing {
     data class Result(

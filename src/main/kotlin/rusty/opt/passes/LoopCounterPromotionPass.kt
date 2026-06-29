@@ -1,6 +1,16 @@
 package rusty.opt.passes
 
-// Promote hot counter fields across loops
+// Promote a memory counter that is incremented every iteration into a register accumulator carried by
+// a header phi, flushed back to memory once on loop exit. Turns a load+add+store per iteration into a
+// single add per iteration.
+//
+//   loop body:  t  = load p           header:  acc = phi [load p (preheader)], [acc.next, latch]
+//               t2 = t + c       ->    body:   acc.next = acc + c        (load/store removed)
+//               store t2, p            exit:   store acc.last, p
+//
+// Notes: requires a single loop exit out of the header, no calls inside the loop, and the update must
+// be straight-line on every iteration (its block dominates the latch). The promoted field must not
+// alias any other load/store in the loop. p is a constant-index struct field gep, loop-invariant base.
 
 import rusty.opt.passes.utils.NaturalLoop
 import rusty.opt.passes.utils.dominates
