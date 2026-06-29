@@ -16,7 +16,6 @@ import space.norb.llvm.structure.BasicBlockId
 import space.norb.llvm.structure.Function
 import space.norb.llvm.structure.Module
 import space.norb.llvm.types.VoidType
-import space.norb.llvm.utils.Renamer
 import space.norb.llvm.utils.computeLayout
 
 object RegisterAllocator {
@@ -87,24 +86,11 @@ object RegisterAllocator {
         val useDef = analysisManager.get(UseDefAnalysis::class)
         val blockLiveness = computeBlockLiveness(function, useDef)
         val loopDepth = computeLoopDepth(function, analysisManager)
-
-        // Split long live ranges at loop boundaries when register pressure is high. Only fires
-        // when more candidates are live into a loop header than registers exist, ensuring zero
-        // overhead in low-pressure functions.
-        val splitPhis = splitLiveRangesAtLoopBoundaries(function, registerCandidates, blockLiveness, config, analysisManager)
-        if (splitPhis.isNotEmpty()) {
-            // Add newly created split phis directly to registerCandidates
-            registerCandidates.addAll(splitPhis)
-            analysisManager.invalidateAllIn(UseDefAnalysis::class, PredecessorAnalysis::class)
-        }
-
-        val useDef2 = analysisManager.get(UseDefAnalysis::class)
-        val blockLiveness2 = computeBlockLiveness(function, useDef2)
-        val spillWeight = computeSpillWeights(function, useDef2, loopDepth)
+        val spillWeight = computeSpillWeights(function, useDef, loopDepth)
 
         // Cap peak register pressure before building the graph. Values evicted here are spilled
         // directly to the stack and excluded from the interference graph, keeping its size bounded.
-        val forcedSpills = computeForcedSpills(function, registerCandidates, useDef2, blockLiveness2, config)
+        val forcedSpills = computeForcedSpills(function, registerCandidates, useDef, blockLiveness, config)
         for (value in forcedSpills) {
             forcedStackSlots[value] = nextStackSlot()
         }
@@ -113,7 +99,7 @@ object RegisterAllocator {
             else registerCandidates.filterTo(LinkedHashSet()) { it !in forcedSpills }
 
         val interference =
-            buildInterferenceGraph(function, graphCandidates, useDef2, blockLiveness2, loopDepth, forcedSpills)
+            buildInterferenceGraph(function, graphCandidates, useDef, blockLiveness, loopDepth, forcedSpills)
 
         // Stage 1 coalescing: merge each phi with copy-related operands so they share a register and the
         // phi-resolution move disappears (see RegallocCoalescing). Coloring then runs on the merged graph
@@ -146,10 +132,7 @@ object RegisterAllocator {
             ::nextStackSlot,
         )
 
-        // Build the final allocation map including any split phis
-        val allValues = LinkedHashSet<Value>(candidates)
-        allValues.addAll(splitPhis)
-        return allValues.associateWithTo(linkedMapOf()) { value ->
+        return candidates.associateWithTo(linkedMapOf()) { value ->
             forcedStackSlots[value] ?: colored.getValue(representativeOf.getValue(value))
         }
     }
@@ -251,159 +234,6 @@ object RegisterAllocator {
         }
 
         return depth
-    }
-
-    /**
-     * Splits live ranges at loop boundaries by inserting phi nodes at loop headers.
-     *
-     * For each value V live into a loop header but defined outside the loop, inserts:
-     *   V' = phi [V, outside_pred1], ..., [V', backedge_pred1], ...
-     * and rewrites all in-loop uses of V to V'. This creates two independent live ranges so
-     * that V can be cheaply spilled (only one load at loop entry) while V' stays in a register.
-     *
-     * Only triggers when register pressure at the loop header exceeds the register count — in
-     * low-pressure functions no phis are inserted and there is zero overhead.
-     *
-     * Returns true if any splitting was performed (caller must re-collect candidates).
-     */
-    private fun splitLiveRangesAtLoopBoundaries(
-        function: Function,
-        candidates: Set<Value>,
-        blockLiveness: BlockLiveness,
-        config: Config,
-        analysisManager: AnalysisManager,
-    ): List<PhiNode> {
-        if (function.basicBlocks.size < 2) return emptyList()
-
-        val dominanceInfo = analysisManager.get(DominatorTreeAnalysis::class).getFunctionInfo(function) ?: return emptyList()
-        val predecessors = analysisManager.get(PredecessorAnalysis::class)
-        val blockById = function.basicBlocks.associateBy { it.id }
-        val numRegisters = config.allocatableRegisters.size
-
-        // Build instruction-to-block map
-        val instructionBlock = HashMap<Value, BasicBlock>()
-        for (block in function.basicBlocks) {
-            for (inst in block.instructions) instructionBlock[inst] = block
-        }
-
-        // Discover natural loops
-        data class LoopInfo(val header: BasicBlock, val loopBlocks: Set<BasicBlock>, val backEdges: Set<BasicBlock>)
-        val loops = mutableListOf<LoopInfo>()
-
-        for (latch in function.basicBlocks) {
-            for (header in latch.getSuccessors()) {
-                if (!dominanceInfo.dominates(header.id, latch.id)) continue
-                val loopBlocks = linkedSetOf(header, latch)
-                val worklist = ArrayDeque<BasicBlock>()
-                worklist.add(latch)
-                while (worklist.isNotEmpty()) {
-                    val block = worklist.removeFirst()
-                    for (predId in predecessors[block.id].orEmpty()) {
-                        val pred = blockById[predId] ?: continue
-                        if (loopBlocks.add(pred)) worklist.add(pred)
-                    }
-                }
-                val backEdgePreds = linkedSetOf<BasicBlock>()
-                for (predId in predecessors[header.id].orEmpty()) {
-                    val pred = blockById[predId] ?: continue
-                    if (pred in loopBlocks) backEdgePreds.add(pred)
-                }
-                loops.add(LoopInfo(header, loopBlocks, backEdgePreds))
-            }
-        }
-
-        if (loops.isEmpty()) return emptyList()
-
-        val createdPhis = mutableListOf<PhiNode>()
-
-        for (loop in loops) {
-            val header = loop.header
-            val loopBlocks = loop.loopBlocks
-
-            // Only split when pressure at the loop header exceeds register count.
-            val liveAtHeader = blockLiveness.liveIn[header].orEmpty().count { it in candidates }
-            if (liveAtHeader <= numRegisters) continue
-
-            // Collect split candidates: defined outside, used ≥2 times inside, register-sized
-            val splitCandidates = mutableListOf<Value>()
-            for (value in candidates) {
-                // Only split register-sized values (aggregates are already on stack)
-                if (value.sizeInBytes(function, config.registerBytes) > config.registerBytes) continue
-                val defBlock = instructionBlock[value]
-                if (defBlock != null && defBlock in loopBlocks) continue
-
-                var usesInLoop = 0
-                for (user in value.getUses()) {
-                    val userBlock = instructionBlock[user] ?: continue
-                    if (user is PhiNode && userBlock == header) continue
-                    if (userBlock in loopBlocks) usesInLoop++
-                }
-                if (usesInLoop >= 2) splitCandidates.add(value)
-            }
-
-            if (splitCandidates.isEmpty()) continue
-
-            val outsidePreds = mutableListOf<BasicBlock>()
-            for (predId in predecessors[header.id].orEmpty()) {
-                val pred = blockById[predId] ?: continue
-                if (pred !in loop.backEdges) outsidePreds.add(pred)
-            }
-            if (outsidePreds.isEmpty()) continue
-
-            // Limit: only split the excess over the register count, prioritizing values with fewest
-            // in-loop uses (they benefit least from staying in a register and splitting them frees
-            // slots for the hotter values).
-            val excess = liveAtHeader - numRegisters
-            val toSplit = splitCandidates.take(excess.coerceAtMost(splitCandidates.size))
-
-            for (value in toSplit) {
-                val phiName = Renamer.another("split.${value.name ?: "v"}")
-                val phi = PhiNode.createPlaceholder(phiName, value.type)
-
-                for (pred in outsidePreds) phi.addIncomingMutable(value, pred)
-                for (pred in loop.backEdges) phi.addIncomingMutable(phi, pred)
-
-                // Count actual in-loop users that will be rewritten (excluding header phis)
-                val inLoopUsers = value.getUses().filter { user ->
-                    val userBlock = instructionBlock[user] ?: return@filter false
-                    if (userBlock !in loopBlocks) return@filter false
-                    if (user is PhiNode && userBlock == header) return@filter false
-                    true
-                }
-                if (inLoopUsers.isEmpty()) continue
-
-                // Insert after existing phis
-                val insertIndex = header.instructions.indexOfLast { it is PhiNode } + 1
-                header.instructions.add(insertIndex, phi)
-                instructionBlock[phi] = header
-
-                // Rewrite in-loop uses of V to V'
-                for (user in inLoopUsers) {
-                    if (user is PhiNode) {
-                        for ((inVal, inBlock) in user.incomingValues.toList()) {
-                            if (inVal === value && inBlock in loopBlocks) {
-                                user.replaceUsesOfWith(value, phi)
-                                break
-                            }
-                        }
-                    } else {
-                        user.replaceUsesOfWith(value, phi)
-                    }
-                }
-
-                // Safety: if phi ended up with no uses (e.g., all uses were at the header's own
-                // phis that we skipped), remove it to prevent dangling references.
-                if (!phi.hasUses()) {
-                    header.instructions.remove(phi)
-                    continue
-                }
-                createdPhis.add(phi)
-            }
-            // Process one loop at a time to avoid stale candidate/liveness data in nested loops.
-            if (createdPhis.isNotEmpty()) return createdPhis
-        }
-
-        return createdPhis
     }
 
     private fun collectCandidates(function: Function): LinkedHashSet<Value> {
