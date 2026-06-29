@@ -75,6 +75,8 @@ internal class AsmTranslator(private val context: AsmContext) {
     private lateinit var allocation: Map<Value, SavableSlot>
     private lateinit var allocaObjects: Map<AllocaInst, PlacedStackObject>
     private lateinit var blockLabels: Map<BasicBlock, String>
+    private lateinit var blockLayoutNext: Map<BasicBlock, BasicBlock?>
+    private lateinit var fusedComparisons: Set<ICmpInst>
     private lateinit var edgePhiMoves: Map<Pair<BasicBlock, BasicBlock>, List<Pair<PhiNode, Value>>>
     private lateinit var cachedFields: Map<GetElementPtrInst, CachedField>
     private lateinit var cachedFieldAvailability: Map<Instruction, Set<FieldAddressKey>>
@@ -178,6 +180,8 @@ internal class AsmTranslator(private val context: AsmContext) {
         frame = context.stackManager.getStackFrame(fn)
         allocation = context.registerAllocation.getValue(fn)
         blockLabels = fn.basicBlocks.associateWith { block -> "${fn.asmName()}.${block.asmName()}" }
+        blockLayoutNext = buildBlockLayoutNext(fn)
+        fusedComparisons = computeFusedComparisons(fn)
         edgePhiMoves = buildEdgePhiMoves(fn)
         allocaObjects = collectAllocaObjects(fn)
         noAliasArgumentPairs = proveNoAliasArgumentPairs(fn)
@@ -201,6 +205,47 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
 
         asm.size(fn.asmName(), ".-${fn.asmName()}")
+    }
+
+    private fun buildBlockLayoutNext(fn: Function): Map<BasicBlock, BasicBlock?> {
+        val blocks = fn.basicBlocks
+        val result = linkedMapOf<BasicBlock, BasicBlock?>()
+        for (index in blocks.indices) {
+            result[blocks[index]] = blocks.getOrNull(index + 1)
+        }
+        return result
+    }
+
+    /**
+     * Comparisons whose result feeds directly into a conditional branch and nothing else, so the branch
+     * can be lowered to a single RISC-V compare-and-branch instead of materializing a boolean.
+     *
+     * Restricted to a compare that is the last value-producing instruction before its block terminator:
+     * the branch re-reads the compare's operands, so they must still be live there — an intervening
+     * instruction could reuse an operand's register once the (now dead) compare result is the only use.
+     */
+    private fun computeFusedComparisons(fn: Function): Set<ICmpInst> {
+        val result = linkedSetOf<ICmpInst>()
+        for (block in fn.basicBlocks) {
+            // The terminator field is not reliably populated (some blocks keep the branch in the
+            // instruction list), so take it from the lowering sequence's last element directly.
+            val instructions = block.instructionsIncludingTerminator().toList()
+            val terminator = instructions.lastOrNull() as? BranchInst ?: continue
+            if (terminator.isUnconditional()) continue
+            val icmp = terminator.getCondition() as? ICmpInst ?: continue
+            if (icmp.getUses().size != 1) continue
+            if (branchPredicateOf(icmp.predicate.name) == null) continue
+
+            var precedingIsIcmp = false
+            for (index in instructions.size - 2 downTo 0) {
+                val candidate = instructions[index]
+                if (candidate is CommentAttachment) continue
+                precedingIsIcmp = candidate === icmp
+                break
+            }
+            if (precedingIsIcmp) result.add(icmp)
+        }
+        return result
     }
 
     private fun buildEdgePhiMoves(fn: Function): Map<Pair<BasicBlock, BasicBlock>, List<Pair<PhiNode, Value>>> {
@@ -759,7 +804,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             is StoreInst -> lowerStore(instruction)
             is GetElementPtrInst -> lowerGep(instruction)
             is BinaryInst -> lowerBinary(instruction)
-            is ICmpInst -> lowerIcmp(instruction)
+            is ICmpInst -> if (instruction !in fusedComparisons) lowerIcmp(instruction)
             is BranchInst -> lowerBranch(instruction)
             is ReturnInst -> lowerReturn(instruction)
             is CallInst -> lowerCall(instruction)
@@ -1020,25 +1065,127 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerBranch(instruction: BranchInst) {
         val currentBlock = instruction.getParent() as? BasicBlock
             ?: function.basicBlocks.first { it.terminator == instruction }
+        val layoutNext = blockLayoutNext[currentBlock]
 
         if (instruction.isUnconditional()) {
             val destination = instruction.getDestination() as BasicBlock
             emitPhiMoves(currentBlock, destination)
-            asm.j(blockLabels.getValue(destination))
+            if (destination !== layoutNext) asm.j(blockLabels.getValue(destination))
             return
         }
 
         val trueDestination = instruction.getTrueDestination() as BasicBlock
         val falseDestination = instruction.getFalseDestination() as BasicBlock
-        val falseEdgeLabel = "${blockLabels.getValue(currentBlock)}.__false_edge"
-        val cond = loadValue(instruction.getCondition()!!, t5)
 
-        asm.beqz(cond, falseEdgeLabel)
-        emitPhiMoves(currentBlock, trueDestination)
-        asm.j(blockLabels.getValue(trueDestination))
-        asm.label(falseEdgeLabel)
-        emitPhiMoves(currentBlock, falseDestination)
-        asm.j(blockLabels.getValue(falseDestination))
+        if (trueDestination === falseDestination) {
+            emitPhiMoves(currentBlock, trueDestination)
+            if (trueDestination !== layoutNext) asm.j(blockLabels.getValue(trueDestination))
+            return
+        }
+
+        val trueMoves = edgePhiMoves[currentBlock to trueDestination].orEmpty()
+        val falseMoves = edgePhiMoves[currentBlock to falseDestination].orEmpty()
+
+        // Two orientations: branch taken on the true edge, or (inverting the predicate) on the false
+        // edge. The not-taken edge falls through, so it carries its phi moves for free and pays nothing
+        // when it is the layout successor. The taken edge, if it has phi moves, needs a trampoline (an
+        // extra jump). Pick the orientation that emits fewer unconditional jumps; break ties toward the
+        // natural (non-inverted) form.
+        fun jumps(branchHasMoves: Boolean, fallDestination: BasicBlock): Int =
+            if (branchHasMoves) 2 else if (fallDestination === layoutNext) 0 else 1
+
+        val scoreTrueTaken = jumps(trueMoves.isNotEmpty(), falseDestination)
+        val scoreFalseTaken = jumps(falseMoves.isNotEmpty(), trueDestination)
+        val takenWhenTrue = scoreTrueTaken <= scoreFalseTaken
+
+        val branchDestination = if (takenWhenTrue) trueDestination else falseDestination
+        val fallDestination = if (takenWhenTrue) falseDestination else trueDestination
+        val branchMoves = if (takenWhenTrue) trueMoves else falseMoves
+
+        if (branchMoves.isEmpty()) {
+            emitConditionalBranch(instruction, takenWhenTrue, blockLabels.getValue(branchDestination))
+            emitPhiMoves(currentBlock, fallDestination)
+            if (fallDestination !== layoutNext) asm.j(blockLabels.getValue(fallDestination))
+        } else {
+            // Both edges carry phi moves: the taken edge needs its own block to run them.
+            val trampolineLabel = "${blockLabels.getValue(currentBlock)}.__br_edge"
+            emitConditionalBranch(instruction, takenWhenTrue, trampolineLabel)
+            emitPhiMoves(currentBlock, fallDestination)
+            asm.j(blockLabels.getValue(fallDestination))
+            asm.label(trampolineLabel)
+            emitPhiMoves(currentBlock, branchDestination)
+            asm.j(blockLabels.getValue(branchDestination))
+        }
+    }
+
+    private enum class BranchPredicate { EQ, NE, SLT, SGT, SLE, SGE, ULT, UGT, ULE, UGE }
+
+    private fun BranchPredicate.inverted(): BranchPredicate = when (this) {
+        BranchPredicate.EQ -> BranchPredicate.NE
+        BranchPredicate.NE -> BranchPredicate.EQ
+        BranchPredicate.SLT -> BranchPredicate.SGE
+        BranchPredicate.SGE -> BranchPredicate.SLT
+        BranchPredicate.SGT -> BranchPredicate.SLE
+        BranchPredicate.SLE -> BranchPredicate.SGT
+        BranchPredicate.ULT -> BranchPredicate.UGE
+        BranchPredicate.UGE -> BranchPredicate.ULT
+        BranchPredicate.UGT -> BranchPredicate.ULE
+        BranchPredicate.ULE -> BranchPredicate.UGT
+    }
+
+    private fun branchPredicateOf(name: String): BranchPredicate? = when (name) {
+        "EQ" -> BranchPredicate.EQ
+        "NE" -> BranchPredicate.NE
+        "SLT" -> BranchPredicate.SLT
+        "SGT" -> BranchPredicate.SGT
+        "SLE" -> BranchPredicate.SLE
+        "SGE" -> BranchPredicate.SGE
+        "ULT" -> BranchPredicate.ULT
+        "UGT" -> BranchPredicate.UGT
+        "ULE" -> BranchPredicate.ULE
+        "UGE" -> BranchPredicate.UGE
+        else -> null
+    }
+
+    /** Emit a branch to [label] taken exactly when `a <pred> b` holds, swapping operands where RISC-V
+     *  lacks the direct form (e.g. `a > b` becomes `b < a`). */
+    private fun emitPredicatedBranch(predicate: BranchPredicate, a: RvRegister, b: RvRegister, label: String) {
+        when (predicate) {
+            BranchPredicate.EQ -> asm.beq(a, b, label)
+            BranchPredicate.NE -> asm.bne(a, b, label)
+            BranchPredicate.SLT -> asm.blt(a, b, label)
+            BranchPredicate.SGE -> asm.bge(a, b, label)
+            BranchPredicate.SGT -> asm.blt(b, a, label)
+            BranchPredicate.SLE -> asm.bge(b, a, label)
+            BranchPredicate.ULT -> asm.bltu(a, b, label)
+            BranchPredicate.UGE -> asm.bgeu(a, b, label)
+            BranchPredicate.UGT -> asm.bltu(b, a, label)
+            BranchPredicate.ULE -> asm.bgeu(b, a, label)
+        }
+    }
+
+    private fun branchOperand(value: Value, scratch: RvRegister): RvRegister {
+        return if (value is IntConstant && value.value == 0L) zero else loadValue(value, scratch)
+    }
+
+    /** Lower the conditional branch [branch] to a single compare-and-branch to [label], taken when its
+     *  condition is true ([takenWhenTrue]) or false (inverting the predicate). Folds a fused comparison
+     *  into the branch; otherwise tests the materialized boolean against zero. */
+    private fun emitConditionalBranch(branch: BranchInst, takenWhenTrue: Boolean, label: String) {
+        val condition = branch.getCondition()!!
+        val icmp = condition as? ICmpInst
+        if (icmp != null && icmp in fusedComparisons) {
+            val predicate = branchPredicateOf(icmp.predicate.name)
+                ?: throw UnsupportedOperationException("Unknown icmp predicate ${icmp.predicate}")
+            val effective = if (takenWhenTrue) predicate else predicate.inverted()
+            val a = branchOperand(icmp.lhs, t4)
+            val b = branchOperand(icmp.rhs, t5)
+            emitPredicatedBranch(effective, a, b, label)
+            return
+        }
+
+        val cond = loadValue(condition, t5)
+        if (takenWhenTrue) asm.bnez(cond, label) else asm.beqz(cond, label)
     }
 
     private fun emitPhiMoves(from: BasicBlock, to: BasicBlock) {

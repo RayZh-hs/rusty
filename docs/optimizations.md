@@ -482,6 +482,64 @@ registers (`t3`–`t6`) before moving them into the allocated destination, which
 roughly every address computation and load. The register allocator coalesces what it can; the peephole
 below cleans up the rest.
 
+### Branch lowering & compare fusion
+*File: `rusty/asm/AsmTranslator.kt` (`lowerBranch`, `computeFusedComparisons`, `emitConditionalBranch`)*
+
+**Purpose.** Lower a conditional `br i1 %c, A, B` to as few RISC-V instructions as possible. A naive
+lowering materializes the boolean (`icmp` → `slt`/`xor`/`seqz`…), tests it (`beqz`), and routes **both**
+edges through explicit jumps via a trampoline block. This pass instead (1) folds a comparison directly
+into a compare-and-branch, (2) makes the not-taken edge a **fall-through**, and (3) emits a trampoline
+only in the rare case where both edges carry phi moves. Because a conditional branch is the bottom of
+essentially every loop, this is a per-iteration win.
+
+**Example.**
+```llvm
+; IR
+%c = icmp slt i32 %i, %n
+br i1 %c, label %body, label %exit   ; %body is the next block in layout order
+```
+```asm
+; before  (boolean materialized, both edges jump through a trampoline)
+slt  t0, %i, %n
+beqz t0, .L.__false_edge
+j    .L.body
+.L.__false_edge:
+j    .L.exit
+; after  (compare folded; not-taken edge falls through into .L.body)
+bge  %i, %n, .L.exit
+; ...   .L.body follows immediately
+```
+Compare-to-zero collapses further: `icmp ne %x, 0; br` becomes `bne %x, zero, …` (one instruction)
+because the constant `0` is lowered to the hardwired `zero` register.
+
+**Algorithm.**
+1. **Fusion candidates (`computeFusedComparisons`).** A comparison is fusable when its result feeds
+   *only* a conditional branch and it is the last value-producing instruction before that branch's
+   terminator. The adjacency requirement is a correctness condition, not a heuristic: the branch
+   re-reads the comparison's operands, so nothing may run between the (now un-emitted) compare and the
+   branch that could reuse an operand's register. The terminator is read from the **last element of the
+   block's instruction sequence**, not the `BasicBlock.terminator` field, which is not reliably
+   populated. Fused comparisons are skipped during instruction selection (no boolean is materialized).
+2. **Orientation choice.** The two edges are the *taken* (branch) edge and the *not-taken*
+   (fall-through) edge; inverting the predicate swaps which is which. The not-taken edge runs its phi
+   moves inline and pays nothing when it is the layout-successor block; the taken edge needs an extra
+   jump only if it carries phi moves. `lowerBranch` scores both orientations by the number of
+   unconditional jumps emitted and picks the cheaper (ties prefer the non-inverted form).
+3. **Emit (`emitConditionalBranch` / `emitPredicatedBranch`).** For a fused compare, map the (possibly
+   inverted) predicate to a native branch — `beq/bne/blt/bge/bltu/bgeu`, swapping operands for the
+   greater-than / less-or-equal forms RISC-V lacks, and using `zero` for compare-to-zero operands. For a
+   non-fused condition, test the materialized boolean with `bnez`/`beqz`. Then emit the not-taken edge's
+   phi moves and fall through (or `j` if it is not the layout-successor).
+4. **Trampoline only when unavoidable.** If *both* edges carry phi moves, the taken edge's moves are
+   placed in a `.__br_edge` block reached by the conditional branch; the not-taken edge still falls
+   through / jumps as above. Unconditional branches likewise drop their `j` when the destination is the
+   layout-successor.
+
+Validated on the official IR-1 suite: −17.5% dynamic instructions (qemu rv64) versus the trampoline
+lowering, every case improved, no regressions, all `officialAsmTests` green.
+
+---
+
 ### AsmPeephole — register-level copy coalescing
 *File: `rusty/asm/support/AsmPeephole.kt` (invoked from `AsmTranslator.render`)*
 
@@ -557,4 +615,5 @@ producer onto the move's own source).
 | 14 | LoopAddressReduction | IR | array index multiply → advancing pointer add |
 | 16 | LoopCounterPromotion | IR | memory counter → register accumulator + flush |
 | 18 | CFGSimplify | IR | drop unreachable blocks, merge straight-line chains |
+| — | BranchLowering | ASM | fold `icmp+br` into compare-and-branch, fall through not-taken edge |
 | — | AsmPeephole | ASM | coalesce scratch-register `mv`s (R1 forward, R2 propagate) |
