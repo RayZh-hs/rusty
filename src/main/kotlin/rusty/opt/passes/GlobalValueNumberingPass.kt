@@ -8,15 +8,23 @@ package rusty.opt.passes
 //      dropping a block's keys when its subtree is finished.
 //        x = i % 512   (in header) ... y = i % 512  (in body)  ->  y replaced by x
 //
-//   2. Block-local redundant-load elimination / store-to-load forwarding. Within one block, a load
-//      whose pointer has no intervening clobber reuses the last loaded or stored value.
+//   2. Redundant-load elimination / store-to-load forwarding. A load whose pointer has no
+//      intervening clobber reuses the last loaded or stored value.
 //        store v, p ; ... ; x = load p   ->  x replaced by v
+//      The available-load map flows across the dominator tree, but only into a block that has a
+//      *single* predecessor: such a block's lone predecessor is necessarily its immediate dominator,
+//      so memory state arrives unmerged with no intervening block. Blocks with multiple predecessors
+//      (loop headers, merges) start empty, so nothing stale crosses a back-edge or join.
+//        block A:  x = load p ; ... (no store) ... ; br B   // B's only predecessor
+//        block B:  y = load p   ->  y replaced by x
 //
-// Notes: the load cache is per-block and is cleared on any store or call (conservative, no aliasing).
-// Expects valid SSA (runs after Mem2Reg); CSE relies on dominator info from the analysis manager.
+// Notes: the load map is cleared on any store or call (conservative, no aliasing). Expects valid SSA
+// (runs after Mem2Reg); CSE and the single-predecessor test rely on dominator/predecessor info.
 
 import space.norb.llvm.analysis.AnalysisManager
 import space.norb.llvm.analysis.presets.DominatorTreeAnalysis
+import space.norb.llvm.analysis.presets.PredecessorAnalysis
+import space.norb.llvm.analysis.presets.PredecessorMap
 import space.norb.llvm.core.User
 import space.norb.llvm.core.Value
 import space.norb.llvm.core.ValueUseRegistry
@@ -37,13 +45,15 @@ import space.norb.llvm.values.constants.IntConstant
 object GlobalValueNumberingPass : IRPass() {
 
     override fun run(module: Module, am: AnalysisManager): Module {
+        am.register(PredecessorAnalysis)
         val domResult = am.get(DominatorTreeAnalysis::class)
+        val predecessors = am.get(PredecessorAnalysis::class)
         var changed = false
 
         for (function in module.functions) {
             if (function.isDeclaration || function.entryBlock == null) continue
             val info = domResult.getFunctionInfo(function) ?: continue
-            changed = runOnFunction(function, info.treeChildren) || changed
+            changed = runOnFunction(function, info.treeChildren, predecessors) || changed
         }
 
         if (changed) am.invalidateAll() else am.invalidateNone()
@@ -53,6 +63,7 @@ object GlobalValueNumberingPass : IRPass() {
     private fun runOnFunction(
         function: Function,
         treeChildren: Map<space.norb.llvm.structure.BasicBlockId, Set<space.norb.llvm.structure.BasicBlockId>>,
+        predecessors: PredecessorMap,
     ): Boolean {
         val entry = function.entryBlock ?: return false
         // Pure-expression leaders visible on the current dominator path. We only ever insert a key
@@ -61,12 +72,19 @@ object GlobalValueNumberingPass : IRPass() {
         val pureTable = HashMap<ValueKey, Value>()
         var changed = false
 
+        // A block may reuse its immediate dominator's available loads only when it has exactly one
+        // predecessor (then that predecessor is the idom and memory flows in directly). The entry
+        // block has no predecessor, so it starts empty.
+        fun startCacheFor(blockId: space.norb.llvm.structure.BasicBlockId, parentEnd: HashMap<Value, Value>): HashMap<Value, Value> =
+            if (predecessors[blockId]?.size == 1) HashMap(parentEnd) else HashMap()
+
         // Pre-order DFS over the dominator tree using an explicit stack (avoids deep recursion).
         // A frame is processed (block CSE'd) when first pushed; its inserted keys are dropped when
-        // the whole subtree has been visited.
+        // the whole subtree has been visited. Each frame keeps the load map left at its block's exit
+        // so single-predecessor children can inherit it.
         val stack = ArrayDeque<Frame>()
         val entryFrame = Frame(treeChildren[entry.id].orEmpty().toMutableList())
-        changed = processBlock(entry, pureTable, entryFrame) || changed
+        changed = processBlock(entry, pureTable, entryFrame, HashMap()) || changed
         stack.addLast(entryFrame)
 
         while (stack.isNotEmpty()) {
@@ -80,7 +98,8 @@ object GlobalValueNumberingPass : IRPass() {
             val childId = frame.pendingChildren.removeLast()
             val childBlock = BasicBlock.fromId(childId) ?: continue
             val childFrame = Frame(treeChildren[childId].orEmpty().toMutableList())
-            changed = processBlock(childBlock, pureTable, childFrame) || changed
+            val childStart = startCacheFor(childId, frame.endLoadCache)
+            changed = processBlock(childBlock, pureTable, childFrame, childStart) || changed
             stack.addLast(childFrame)
         }
 
@@ -89,12 +108,21 @@ object GlobalValueNumberingPass : IRPass() {
 
     private class Frame(val pendingChildren: MutableList<space.norb.llvm.structure.BasicBlockId>) {
         val insertedKeys = ArrayList<ValueKey>()
+        // Available-load map at this block's exit, handed down to single-predecessor children.
+        var endLoadCache: HashMap<Value, Value> = HashMap()
     }
 
-    private fun processBlock(block: BasicBlock, pureTable: HashMap<ValueKey, Value>, frame: Frame): Boolean {
+    private fun processBlock(
+        block: BasicBlock,
+        pureTable: HashMap<ValueKey, Value>,
+        frame: Frame,
+        startLoadCache: HashMap<Value, Value>,
+    ): Boolean {
         var changed = false
-        // Block-local memory state for redundant-load elimination / store-to-load forwarding.
-        val loadCache = HashMap<Value, Value>()
+        // Memory state for redundant-load elimination / store-to-load forwarding, seeded from the
+        // immediate dominator when this block has a single predecessor (see runOnFunction).
+        val loadCache = startLoadCache
+        frame.endLoadCache = loadCache
         val insertedKeys = frame.insertedKeys
 
         for (inst in block.instructions.toList()) {

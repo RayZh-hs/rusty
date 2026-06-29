@@ -330,7 +330,7 @@ and removed. The map is cleared at each block boundary (no cross-block reasoning
 **Purpose.** Two conservative redundancy eliminators, neither of which needs alias analysis:
 1. **Pure-expression CSE across the dominator tree** — a recomputed pure expression whose value is
    already available from a dominating block is replaced by that earlier result.
-2. **Block-local redundant-load elimination and store-to-load forwarding.**
+2. **Redundant-load elimination and store-to-load forwarding** across single-predecessor edges.
 
 **Examples.**
 ```llvm
@@ -338,9 +338,12 @@ and removed. The map is cleared at each block boundary (no cross-block reasoning
 %m1 = srem i32 %i, 512    ; leader, in a dominating block
 ...
 %m2 = srem i32 %i, 512    ; replaced by %m1
-; (2) store-to-load forwarding within a block:
+; (2) store-to-load forwarding:
 store i32 %v, ptr %p
 %l = load i32, ptr %p     ; replaced by %v
+; (3) cross-block load forwarding into a single-predecessor block (e.g. a swap path):
+A: %x = load i32, ptr %p ; ... no store ... ; br i1 %c, label %B, label %C
+B: %y = load i32, ptr %p ; replaced by %x   (B's only predecessor is A)
 ```
 
 **Algorithm.**
@@ -351,11 +354,20 @@ store i32 %v, ptr %p
   matches an existing dominating leader (→ replace) or becomes the new leader, recorded so it can be
   dropped when its subtree is finished. Because a key is only ever inserted when absent, every entry in
   the table corresponds to a definition that dominates the current block.
-- **Block-local memory:** a `loadCache` maps pointer → last loaded/stored value, reset per block. A
-  store clears the cache (it may alias anything) and then records its own pointer → value for an
-  immediate reload; a load reuses a cached value of matching type or otherwise records itself; a call
-  or any may-write instruction clears the cache. Clearing on every possibly-aliasing write is what
-  keeps this sound without alias analysis.
+- **Memory (load forwarding):** a `loadCache` maps pointer → last loaded/stored value. A store clears
+  the cache (it may alias anything) and then records its own pointer → value for an immediate reload; a
+  load reuses a cached value of matching type or otherwise records itself; a call or any may-write
+  instruction clears the cache. Clearing on every possibly-aliasing write is what keeps this sound
+  without alias analysis. The cache flows down the dominator DFS: a block seeds its cache from its
+  immediate dominator's exit cache **only when it has a single predecessor** — then that predecessor is
+  the idom and memory arrives unmerged with no intervening block, so the carried values are still valid.
+  Multi-predecessor blocks (loop headers, merges) start empty, so nothing stale crosses a join or
+  back-edge. This catches the common reload-after-branch pattern (a swap path reloading the two elements
+  it just compared) that block-local forwarding missed.
+
+  *Trade-off:* forwarding a load lengthens the source value's live range, which can add minor register
+  pressure (a few benchmarks regress <2% while the load-heavy ones improve far more); the net is a clear
+  win.
 
 ---
 
@@ -718,7 +730,7 @@ instructions saved (qemu rv64); biggest per-case wins −1.0% (comprehensive33) 
 | 7 | Mem2Reg | IR | promote allocas to SSA registers + phis |
 | 8 | AggressiveDCE | IR | mark-sweep DCE, kills dead phi/value cycles |
 | 10 | IdenticalGepReduction | IR | block-local GEP CSE |
-| 11 | GVN | IR | dominator-tree pure CSE + block-local load forwarding |
+| 11 | GVN | IR | dominator-tree pure CSE + load forwarding across single-predecessor edges |
 | 13 | LICM | IR | hoist loop-invariant pure instructions to preheader |
 | 14 | LoopAddressReduction | IR | array index multiply → advancing pointer add |
 | 16 | LoopCounterPromotion | IR | memory counter → register accumulator + flush |
