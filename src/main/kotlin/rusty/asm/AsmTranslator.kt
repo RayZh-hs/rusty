@@ -669,14 +669,14 @@ internal class AsmTranslator(private val context: AsmContext) {
         adjustStack(-frame.frameSizeBytes)
         for (saved in frame.frameObjects.filter { it.stackObject.savedRegister != null }) {
             val register = saved.stackObject.savedRegister!!.toRv()
-            storeRegister(register, addressOfStack(saved, t6))
+            storeRegisterToStack(register, saved)
         }
     }
 
     private fun emitEpilogue() {
         for (saved in frame.frameObjects.filter { it.stackObject.savedRegister != null }.asReversed()) {
             val register = saved.stackObject.savedRegister!!.toRv()
-            loadRegister(register, addressOfStack(saved, t6))
+            loadRegisterFromStack(register, saved)
         }
         adjustStack(frame.frameSizeBytes)
         asm.ret()
@@ -703,11 +703,11 @@ internal class AsmTranslator(private val context: AsmContext) {
                 argumentRegisters[index]
             } else {
                 val offset = frame.frameSizeBytes + (index - argumentRegisters.size) * registerBytes
-                loadRegister(t4, stackArgumentAddress(offset, t6))
+                loadRegisterFromSp(t4, offset)
                 t4
             }
             val saveTemp = resolveCallArgTemp(frame, index)
-            storeRegister(src, addressOfStack(saveTemp, t6))
+            storeRegisterToStack(src, saveTemp)
         }
 
         for ((index, parameter) in function.parameters.withIndex()) {
@@ -791,7 +791,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     }
 
     private fun loadRegisterScratch(temp: PlacedStackObject): RvRegister {
-        loadRegister(t5, addressOfStack(temp, t6))
+        loadRegisterFromStack(t5, temp)
         return t5
     }
 
@@ -1279,7 +1279,7 @@ internal class AsmTranslator(private val context: AsmContext) {
     private fun lowerCall(instruction: CallInst) {
         val callerSavedTemps = callerSavedTemps(instruction)
         for ((register, temp) in callerSavedTemps) {
-            storeRegister(register.toRv(), addressOfStack(temp, t6))
+            storeRegisterToStack(register.toRv(), temp)
         }
 
         val directArgumentMoves = mutableListOf<CallArgumentMove>()
@@ -1307,7 +1307,7 @@ internal class AsmTranslator(private val context: AsmContext) {
                 addressOf(argument, t5)
             }
             asm.mv(t3, value)
-            storeRegister(t3, addressOfStack(temp, t6))
+            storeRegisterToStack(t3, temp)
         }
 
         val directArgumentIndexes = directArgumentMoves.mapTo(mutableSetOf()) { it.index }
@@ -1317,7 +1317,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             if (index in directArgumentIndexes) continue
             val temp = frame.objectWithName(callArgumentTempName(index))
                 ?: throw IllegalStateException("Missing call argument temp $index in ${function.name}")
-            loadRegister(argumentRegisters[index], addressOfStack(temp, t6))
+            loadRegisterFromStack(argumentRegisters[index], temp)
         }
 
         val stackArgumentCount = (instruction.arguments.size - argumentRegisters.size).coerceAtLeast(0)
@@ -1326,8 +1326,8 @@ internal class AsmTranslator(private val context: AsmContext) {
             val argumentIndex = argumentRegisters.size + stackIndex
             val temp = frame.objectWithName(callArgumentTempName(argumentIndex))
                 ?: throw IllegalStateException("Missing call argument temp $argumentIndex in ${function.name}")
-            loadRegister(t4, addressOfStack(temp, t6))
-            storeRegister(t4, stackArgumentAddress(stackIndex * registerBytes - stackArgumentBytes, t6))
+            loadRegisterFromStack(t4, temp)
+            storeRegisterToSp(t4, stackIndex * registerBytes - stackArgumentBytes)
         }
 
         adjustStack(-stackArgumentBytes)
@@ -1347,7 +1347,7 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
 
         for ((register, temp) in callerSavedTemps.asReversed()) {
-            loadRegister(register.toRv(), addressOfStack(temp, t6))
+            loadRegisterFromStack(register.toRv(), temp)
         }
 
         if (instruction.producesValue() && instruction in allocation) {
@@ -1378,7 +1378,7 @@ internal class AsmTranslator(private val context: AsmContext) {
 
             val cycleSource = pending.firstNotNullOf { it.source.registerOrNull() }
             val temp = resolveCallArgTemp(frame, pending.first().index)
-            storeRegister(cycleSource, addressOfStack(temp, t6))
+            storeRegisterToStack(cycleSource, temp)
             for (move in pending) {
                 if (move.source.registerOrNull() == cycleSource) {
                     move.source = CallArgumentMoveSource.TempSource(temp)
@@ -1528,7 +1528,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             is SavableSlot.Stack -> {
                 val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                     ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
-                loadSized(scratch, addressOfStack(obj, scratch), value.type.sizeBytes(module))
+                loadSizedFromStack(scratch, obj, value.type.sizeBytes(module))
             }
             null -> throw IllegalStateException("No register allocation for ${value.getIdentifier()} in ${function.name}")
         }
@@ -1543,9 +1543,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             is SavableSlot.Stack -> {
                 val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                     ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
-                val addressScratch = if (source == t4) t6 else t4
-                val safeSource = if (source == t6) { asm.mv(t3, source); t3 } else source
-                storeSized(safeSource, addressOfStack(obj, addressScratch), value.type.sizeBytes(module))
+                storeSizedToStack(source, obj, value.type.sizeBytes(module))
             }
             null -> Unit
         }
@@ -1560,7 +1558,7 @@ internal class AsmTranslator(private val context: AsmContext) {
             is SavableSlot.Stack -> {
                 val obj = frame.objectWithStackSlotId(slot.stackSlotId)
                     ?: throw IllegalStateException("Missing stack slot ${slot.stackSlotId} in ${function.name}")
-                loadSized(destination, addressOfStack(obj, t6), sizeBytes)
+                loadSizedFromStack(destination, obj, sizeBytes)
             }
         }
         return destination
@@ -1591,28 +1589,29 @@ internal class AsmTranslator(private val context: AsmContext) {
         return destination
     }
 
-    private fun stackArgumentAddress(offsetFromSp: Int, destination: RvRegister): RvRegister {
-        addImmediate(destination, sp, offsetFromSp)
-        return destination
-    }
+    private fun loadSized(destination: RvRegister, address: RvRegister, sizeBytes: Int): RvRegister =
+        loadSizedAt(destination, 0, address, sizeBytes)
 
-    private fun loadSized(destination: RvRegister, address: RvRegister, sizeBytes: Int): RvRegister {
+    private fun loadSizedAt(destination: RvRegister, offset: Int, base: RvRegister, sizeBytes: Int): RvRegister {
         when (sizeBytes) {
-            1 -> asm.lbu(destination, mem(0, address))
-            2 -> asm.lhu(destination, mem(0, address))
-            3, 4 -> asm.lw(destination, mem(0, address))
-            5, 6, 7, 8 -> asm.emit("ld", destination, mem(0, address))
+            1 -> asm.lbu(destination, mem(offset, base))
+            2 -> asm.lhu(destination, mem(offset, base))
+            3, 4 -> asm.lw(destination, mem(offset, base))
+            5, 6, 7, 8 -> asm.emit("ld", destination, mem(offset, base))
             else -> throw UnsupportedOperationException("Cannot scalar-load $sizeBytes bytes in ${function.name}")
         }
         return destination
     }
 
-    private fun storeSized(source: RvRegister, address: RvRegister, sizeBytes: Int) {
+    private fun storeSized(source: RvRegister, address: RvRegister, sizeBytes: Int) =
+        storeSizedAt(source, 0, address, sizeBytes)
+
+    private fun storeSizedAt(source: RvRegister, offset: Int, base: RvRegister, sizeBytes: Int) {
         when (sizeBytes) {
-            1 -> asm.sb(source, mem(0, address))
-            2 -> asm.sh(source, mem(0, address))
-            3, 4 -> asm.sw(source, mem(0, address))
-            5, 6, 7, 8 -> asm.emit("sd", source, mem(0, address))
+            1 -> asm.sb(source, mem(offset, base))
+            2 -> asm.sh(source, mem(offset, base))
+            3, 4 -> asm.sw(source, mem(offset, base))
+            5, 6, 7, 8 -> asm.emit("sd", source, mem(offset, base))
             else -> throw UnsupportedOperationException("Cannot scalar-store $sizeBytes bytes in ${function.name}")
         }
     }
@@ -1625,12 +1624,77 @@ internal class AsmTranslator(private val context: AsmContext) {
         }
     }
 
+    private fun loadRegisterAt(destination: RvRegister, offset: Int, base: RvRegister) {
+        if (registerBytes == 8) {
+            asm.emit("ld", destination, mem(offset, base))
+        } else {
+            asm.lw(destination, mem(offset, base))
+        }
+    }
+
     private fun storeRegister(source: RvRegister, address: RvRegister) {
         if (registerBytes == 8) {
             asm.emit("sd", source, mem(0, address))
         } else {
             asm.sw(source, mem(0, address))
         }
+    }
+
+    private fun storeRegisterAt(source: RvRegister, offset: Int, base: RvRegister) {
+        if (registerBytes == 8) {
+            asm.emit("sd", source, mem(offset, base))
+        } else {
+            asm.sw(source, mem(offset, base))
+        }
+    }
+
+    // Stack slots are addressed relative to sp. RISC-V loads/stores carry a 12-bit signed offset, so
+    // for the common case of a small frame the slot offset folds straight into the memory operand
+    // (`ld rd, off(sp)`) instead of first materializing the address (`addi tmp, sp, off; ld rd, 0(tmp)`).
+    // Only frames larger than the immediate range fall back to materializing the address.
+    private fun foldsIntoImmediate(offset: Int): Boolean = offset in -2048..2047
+
+    private fun loadRegisterFromSp(destination: RvRegister, offset: Int) {
+        if (foldsIntoImmediate(offset)) {
+            loadRegisterAt(destination, offset, sp)
+        } else {
+            addImmediate(destination, sp, offset)
+            loadRegisterAt(destination, 0, destination)
+        }
+    }
+
+    private fun storeRegisterToSp(source: RvRegister, offset: Int) {
+        if (foldsIntoImmediate(offset)) {
+            storeRegisterAt(source, offset, sp)
+        } else {
+            val scratch = if (source != t6) t6 else t5
+            addImmediate(scratch, sp, offset)
+            storeRegisterAt(source, 0, scratch)
+        }
+    }
+
+    private fun loadRegisterFromStack(destination: RvRegister, obj: PlacedStackObject) =
+        loadRegisterFromSp(destination, obj.offsetFromSp)
+
+    private fun storeRegisterToStack(source: RvRegister, obj: PlacedStackObject) =
+        storeRegisterToSp(source, obj.offsetFromSp)
+
+    private fun loadSizedFromStack(destination: RvRegister, obj: PlacedStackObject, sizeBytes: Int): RvRegister {
+        val offset = obj.offsetFromSp
+        if (foldsIntoImmediate(offset)) {
+            return loadSizedAt(destination, offset, sp, sizeBytes)
+        }
+        return loadSized(destination, addressOfStack(obj, destination), sizeBytes)
+    }
+
+    private fun storeSizedToStack(source: RvRegister, obj: PlacedStackObject, sizeBytes: Int) {
+        val offset = obj.offsetFromSp
+        if (foldsIntoImmediate(offset)) {
+            storeSizedAt(source, offset, sp, sizeBytes)
+            return
+        }
+        val scratch = if (source != t6) t6 else t5
+        storeSized(source, addressOfStack(obj, scratch), sizeBytes)
     }
 
     private fun loadImmediate(destination: RvRegister, value: Long) {
