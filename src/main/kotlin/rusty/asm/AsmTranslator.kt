@@ -2,7 +2,7 @@ package rusty.asm
 
 import rusty.core.RiscvTargetConfig
 import rusty.asm.support.AsmContext
-import rusty.asm.support.AsmPeephole
+import rusty.asm.support.AsmCoalescing
 import rusty.asm.support.PlacedStackObject
 import rusty.asm.support.StackFrame
 import rusty.asm.utils.SavableSlot
@@ -105,7 +105,7 @@ internal class AsmTranslator(private val context: AsmContext) {
                 blank()
             }
         }
-        return AsmPeephole.optimize(program).render()
+        return AsmCoalescing.optimize(program).render()
     }
 
     private fun emitGlobals() {

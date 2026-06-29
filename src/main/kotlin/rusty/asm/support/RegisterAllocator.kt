@@ -100,17 +100,60 @@ object RegisterAllocator {
 
         val interference =
             buildInterferenceGraph(function, graphCandidates, useDef, blockLiveness, loopDepth, forcedSpills)
-        val colored = colorGraph(
+
+        // Stage 1 coalescing: merge each phi with copy-related operands so they share a register and the
+        // phi-resolution move disappears (see RegallocCoalescing). Coloring then runs on the merged graph
+        // of representatives, and every original value inherits its representative's slot.
+        val moves = collectMovePairs(function, graphCandidates)
+        val graphOrder = HashMap<Value, Int>()
+        for ((index, value) in interference.graph.keys.withIndex()) graphOrder[value] = index
+        val coalescing = RegallocCoalescing.run(
             interference.graph,
-            spillWeight,
-            interference.callCrossing,
+            moves,
+            config.allocatableRegisters.size,
+        ) { graphOrder[it] ?: Int.MAX_VALUE }
+
+        // Project the per-value spill weights and call-crossing bias onto representatives: a merged node's
+        // spill cost is the sum of its members' costs, and it prefers callee-saved registers if any member
+        // is live across a loop call.
+        val representativeOf = coalescing.representativeOf
+        val mergedSpillWeight = HashMap<Value, Long>()
+        val mergedCallCrossing = LinkedHashSet<Value>()
+        for ((value, representative) in representativeOf) {
+            mergedSpillWeight[representative] = (mergedSpillWeight[representative] ?: 0L) + (spillWeight[value] ?: 0L)
+            if (value in interference.callCrossing) mergedCallCrossing.add(representative)
+        }
+
+        val colored = colorGraph(
+            coalescing.mergedGraph,
+            mergedSpillWeight,
+            mergedCallCrossing,
             config.allocatableRegisters,
             ::nextStackSlot,
         )
 
         return candidates.associateWithTo(linkedMapOf()) { value ->
-            forcedStackSlots[value] ?: colored.getValue(value)
+            forcedStackSlots[value] ?: colored.getValue(representativeOf.getValue(value))
         }
+    }
+
+    /**
+     * Copy-related node pairs for coalescing. In SSA the only true value-to-value copies are phi operands:
+     * a phi `p = phi [v, B], ...` is a copy of `v` along the edge from `B`, so (p, v) is a coalescing
+     * candidate. Operands that are not register candidates (constants, globals, force-spilled values) are
+     * skipped — they are never in the interference graph and cannot share a register with the phi.
+     */
+    private fun collectMovePairs(function: Function, graphCandidates: Set<Value>): List<Pair<Value, Value>> {
+        val moves = mutableListOf<Pair<Value, Value>>()
+        for (block in function.basicBlocks) {
+            for (phi in block.instructions.filterIsInstance<PhiNode>()) {
+                if (phi !in graphCandidates) continue
+                for ((incomingValue, _) in phi.incomingValues) {
+                    if (incomingValue in graphCandidates) moves.add(phi to incomingValue)
+                }
+            }
+        }
+        return moves
     }
 
     /**

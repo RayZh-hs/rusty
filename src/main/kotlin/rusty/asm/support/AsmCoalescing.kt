@@ -8,13 +8,19 @@ import space.norb.riscv.LabelLine
 import space.norb.riscv.Register
 
 /**
- * Local, register-level copy coalescing over the emitted RISC-V program.
+ * Stage 2 of register copy coalescing: asm-level, run over the emitted RISC-V program.
  *
- * The instruction selector materializes each IR value into a fresh virtual register and relies on the
- * register allocator to coalesce copies, but GEP / load lowering computes into a reserved scratch
- * register (t3-t6) and then moves the result into the allocated destination. That leaves a `mv` after
- * roughly every address computation and memory load. wano's hot loops contain almost no moves; ours
- * contained ~45% moves before this pass.
+ * This is the counterpart to [RegallocCoalescing], which runs inside the allocator. That stage removes
+ * phi/parameter copies (value-to-value moves the allocator can see). This stage removes the *codegen
+ * artifact* moves it cannot: GEP / load lowering computes into a reserved scratch register (t3-t6) and
+ * then moves the result into the allocated destination, leaving a `mv` after roughly every address
+ * computation and memory load. See [RegallocCoalescing]'s header for the full four-source breakdown;
+ * the two rows this stage owns are:
+ *
+ *  - Load result  `mv dst, t5`  (lowerLoad, AsmTranslator:838)  — handled by R1
+ *  - GEP result   `mv dst, t4`  (lowerGep,  AsmTranslator:869)  — handled by R1/R2
+ *
+ * wano's hot loops contain almost no moves; ours contained ~45% moves before this pass.
  *
  * Two transformations, both relying on the codegen invariant that the scratch registers t3-t6 are never
  * live across an instruction-selection boundary (they are written and consumed inside the lowering of a
@@ -33,7 +39,7 @@ import space.norb.riscv.Register
  * Anything the classifier does not positively recognize is treated as a barrier, so unknown mnemonics
  * can never be miscompiled — they only stop optimization.
  */
-object AsmPeephole {
+object AsmCoalescing {
     private const val T3 = 28
     private const val T4 = 29
     private const val T5 = 30

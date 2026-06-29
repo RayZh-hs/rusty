@@ -479,8 +479,20 @@ B: ... ; br C    -->      ...            B removed; phis in B
 After IR optimization, instruction selection lowers the IR to a RISC-V `AssemblyProgram`. The selector
 materializes each IR value into a virtual register and computes GEP/load results into reserved scratch
 registers (`t3`–`t6`) before moving them into the allocated destination, which leaves a `mv` after
-roughly every address computation and load. The register allocator coalesces what it can; the peephole
-below cleans up the rest.
+roughly every address computation and load.
+
+Copy `mv`s are removed in **two coalescing stages** that operate on disjoint move populations:
+
+| Move source | Example | Removed by |
+|---|---|---|
+| Phi resolution | `mv phiReg, incomingReg` (`emitScalarPhiMoves`) | **RegallocCoalescing** (graph-level) |
+| Parameter setup | `mv allocReg, argReg` (`moveParametersDirectly`) | RegallocCoalescing — *biasing, future work* |
+| Load result | `mv dst, t5` (`lowerLoad`) | **AsmCoalescing** R1 (scratch artifact) |
+| GEP result | `mv dst, t4` (`lowerGep`) | AsmCoalescing R1/R2 (scratch artifact) |
+
+The first two are real IR value-to-value copies the allocator can eliminate by giving both sides the same
+register; the last two are codegen artifacts of scratch lowering the allocator cannot see. The two stages
+are described below.
 
 ### Branch lowering & compare fusion
 *File: `rusty/asm/AsmTranslator.kt` (`lowerBranch`, `computeFusedComparisons`, `emitConditionalBranch`)*
@@ -540,8 +552,41 @@ lowering, every case improved, no regressions, all `officialAsmTests` green.
 
 ---
 
-### AsmPeephole — register-level copy coalescing
-*File: `rusty/asm/support/AsmPeephole.kt` (invoked from `AsmTranslator.render`)*
+### RegallocCoalescing — phi/copy coalescing in the allocator
+*File: `rusty/asm/support/RegallocCoalescing.kt` (invoked from `RegisterAllocator.allocateFunction`)*
+
+**Purpose.** Eliminate phi-resolution `mv`s by giving a phi and its copy-related operands the same
+register. In SSA the only true value-to-value copies are phi operands: `p = phi [v, B], …` is a copy of
+`v` along the edge from `B`. If `p` and `v` share a register, the move `emitScalarPhiMoves` would emit on
+that edge has identical source and destination and the move sequencer drops it for free. This is the
+class of move the asm-level pass below structurally cannot see (neither operand is a scratch register).
+
+**Algorithm — Briggs conservative coalescing**, run as a pre-pass on the interference graph before the
+simplify/select colorer.
+1. **Move set.** Collect every `(phi, incoming)` pair where both are register candidates (constants,
+   globals and force-spilled operands are skipped — they are never in the graph).
+2. **Coalesce loop.** With a union-find over graph nodes, repeatedly attempt each move `(x, y)`:
+   - skip if already merged (`find(x) == find(y)`) or interfering (`y ∈ adj[x]`);
+   - otherwise apply the **Briggs test** — merge iff the combined neighbourhood `adj[x] ∪ adj[y]` has
+     fewer than `K` neighbours of *significant degree* (degree `≥ K`), where `K` is the allocatable
+     register count. Briggs proved this can never make a `K`-colorable graph non-colorable, so a coalesce
+     never trades a move for a spill.
+
+   Merging redirects the dropped node's edges onto the survivor, which lowers the degree of their common
+   neighbours; this can unblock a move that failed the test earlier, so the loop iterates to a fixpoint.
+3. **Color & expand.** The colorer runs unchanged on the merged graph of representatives (a merged node's
+   spill weight is the sum of its members', and it prefers callee-saved registers if any member crosses a
+   loop call). Every original value then inherits its representative's slot.
+
+Because conservative coalescing only ever merges non-interfering nodes, a phi-swap permutation or a
+"lost copy" (an incoming still live past the phi) interferes and is never coalesced — the move sequencer
+handles the remainder, including cycles, exactly as before. Measured on the IR-1 resource suite: total
+`mv` count fell 454 → 420 (−7.5%) with all `officialAsmTests`/`officialOptTests` still green.
+
+---
+
+### AsmCoalescing — scratch-register copy coalescing
+*File: `rusty/asm/support/AsmCoalescing.kt` (invoked from `AsmTranslator.translate`)*
 
 **Purpose.** Eliminate the redundant `mv` instructions produced by scratch-register lowering. Before
 this pass ~45% of hot-loop instructions were moves; the reference compiler's hot loops contain almost
@@ -616,4 +661,5 @@ producer onto the move's own source).
 | 16 | LoopCounterPromotion | IR | memory counter → register accumulator + flush |
 | 18 | CFGSimplify | IR | drop unreachable blocks, merge straight-line chains |
 | — | BranchLowering | ASM | fold `icmp+br` into compare-and-branch, fall through not-taken edge |
-| — | AsmPeephole | ASM | coalesce scratch-register `mv`s (R1 forward, R2 propagate) |
+| — | RegallocCoalescing | ASM | Briggs coalescing of phi/copy `mv`s during register allocation |
+| — | AsmCoalescing | ASM | coalesce scratch-register `mv`s (R1 forward, R2 propagate) |
