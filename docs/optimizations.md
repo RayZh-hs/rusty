@@ -453,13 +453,24 @@ loop { self.count += 1; ... }
 2. **Collect updates:** find `store (add (load fieldPtr), constIncrement), fieldPtr` triples where
    the load and store address the *same* struct field (constant-index GEP), the increment is
    nonzero, and load/add live in the same block.
-3. For each field key, require: the base pointer is loop-invariant; the update is straight-line on
-   **every** iteration (single update block that dominates the latch); and the field is **safe** —
-   no other load/store in the loop may alias the same field (a simple base+field alias test).
-4. **Rewrite:** create a preheader GEP + initial load, a header phi accumulator
-   `[init, preheader], [lastAdd, latch]`, replace each in-loop load with the running accumulator
-   value (chaining adds), delete the in-loop loads and stores, and emit one flush store of the final
-   accumulator into the field in the exit block.
+3. For each field key, require: the base pointer is loop-invariant, and the field is **safe** — no
+   other load/store in the loop may alias the same field (a simple base+field alias test).
+4. **Rewrite**, by one of two paths depending on how the field is updated:
+   - **Straight-line** (the update is unconditional in a single block that dominates the latch):
+     create a preheader GEP + initial load, a header phi accumulator `[init, preheader], [lastAdd,
+     latch]`, replace each in-loop load with the running accumulator value (chaining adds), delete the
+     in-loop loads and stores, and emit one flush store of the final accumulator in the exit block.
+   - **General / conditional** (the update sits on a some-but-not-all-iterations path, e.g. inside an
+     `if`): run single-variable SSA construction over the loop region. Place phis at the iterated
+     dominance frontier of the store-owning blocks (seeded with the preheader, which forces the header
+     phi), then rename in a dominator-tree pre-order walk: each in-loop load is replaced by the value
+     currently reaching it, each store advances that value, and every region edge feeds its
+     successor's phi. The field is loaded once in the preheader and flushed once on the (single,
+     header-dominated) exit. This is gated so the exit's only predecessor is the header, so the flush
+     runs exactly on loop exit.
+
+   *Impact:* the conditional path is what unlocks counter-heavy benchmarks — promoting the per-iteration
+   bookkeeping fields in the sort/matrix loops of `comprehensive21` cut that case ~24% on its own.
 
 ---
 
@@ -733,7 +744,7 @@ instructions saved (qemu rv64); biggest per-case wins −1.0% (comprehensive33) 
 | 11 | GVN | IR | dominator-tree pure CSE + load forwarding across single-predecessor edges |
 | 13 | LICM | IR | hoist loop-invariant pure instructions to preheader |
 | 14 | LoopAddressReduction | IR | array index multiply → advancing pointer add |
-| 16 | LoopCounterPromotion | IR | memory counter → register accumulator + flush |
+| 16 | LoopCounterPromotion | IR | memory counter → register accumulator + flush (straight-line or SSA for conditional updates) |
 | 18 | CFGSimplify | IR | drop unreachable blocks, merge straight-line chains |
 | — | BranchLowering | ASM | fold `icmp+br` into compare-and-branch, fall through not-taken edge |
 | — | RegallocCoalescing | ASM | Briggs coalescing of phi/copy `mv`s during register allocation |

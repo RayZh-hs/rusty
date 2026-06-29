@@ -1,16 +1,20 @@
 package rusty.opt.passes
 
-// Promote a memory counter that is incremented every iteration into a register accumulator carried by
-// a header phi, flushed back to memory once on loop exit. Turns a load+add+store per iteration into a
-// single add per iteration.
+// Promote a memory counter updated inside a loop into a register accumulator carried by phis, loaded
+// once in the preheader and flushed back to memory once on loop exit. Turns a load+add+store per
+// iteration into a single add per iteration.
 //
 //   loop body:  t  = load p           header:  acc = phi [load p (preheader)], [acc.next, latch]
 //               t2 = t + c       ->    body:   acc.next = acc + c        (load/store removed)
 //               store t2, p            exit:   store acc.last, p
 //
-// Notes: requires a single loop exit out of the header, no calls inside the loop, and the update must
-// be straight-line on every iteration (its block dominates the latch). The promoted field must not
-// alias any other load/store in the loop. p is a constant-index struct field gep, loop-invariant base.
+// Two paths share the same safety gates (single header exit, no calls in the loop, loop-invariant
+// constant-index struct-field base, and the field aliases nothing else in the loop):
+//   * Straight-line: the field is updated unconditionally in one block that dominates the latch — a
+//     header phi plus one exit flush suffice.
+//   * General (SSA): the field is updated on some-but-not-all loop paths (inside an `if`). Runs
+//     textbook single-variable SSA construction over the loop region — phis at the iterated dominance
+//     frontier of the store sites, then a dominator-tree rename threading the accumulator through them.
 
 import rusty.opt.passes.utils.NaturalLoop
 import rusty.opt.passes.utils.dominates
@@ -48,7 +52,7 @@ object LoopCounterPromotionPass : IRPass() {
             val domInfo = dominators.getFunctionInfo(function) ?: continue
             val loops = findSimpleNaturalLoops(function, predecessors, domInfo)
             for (loop in loops) {
-                changed = runOnLoop(loop, domInfo) || changed
+                changed = runOnLoop(loop, domInfo, predecessors) || changed
             }
         }
 
@@ -59,6 +63,7 @@ object LoopCounterPromotionPass : IRPass() {
     private fun runOnLoop(
         loop: NaturalLoop,
         dominance: FunctionDominanceInfo,
+        predecessors: space.norb.llvm.analysis.presets.PredecessorMap,
     ): Boolean {
         if (loop.blocks.any { block -> block.instructions.any { it is CallInst } }) return false
         val exit = singleHeaderExit(loop) ?: return false
@@ -70,12 +75,149 @@ object LoopCounterPromotionPass : IRPass() {
         var changed = false
         for ((key, keyUpdates) in updates) {
             if (!isLoopInvariant(key.base, loop, owners)) continue
-            if (!isStraightLineEveryIteration(loop, keyUpdates, dominance)) continue
             if (!isSafeField(loop, key, keyUpdates)) continue
-            rewriteField(loop, exit, key, keyUpdates)
-            changed = true
+            if (isStraightLineEveryIteration(loop, keyUpdates, dominance)) {
+                // Fast path: the field is updated unconditionally in one block — a header phi plus a
+                // single exit flush suffices, with no merge phis.
+                rewriteField(loop, exit, key, keyUpdates)
+                changed = true
+            } else if (promoteFieldSSA(loop, exit, key, dominance, predecessors)) {
+                // The field is updated on some-but-not-all loop paths (e.g. inside an `if`); promote it
+                // with full single-variable SSA construction so the accumulator threads through phis at
+                // the loop's internal merges.
+                changed = true
+            }
         }
         return changed
+    }
+
+    // Promote a loop-invariant field that is read/written only through this exact field gep, but whose
+    // updates are not straight-line (they sit on a conditional path). Performs textbook single-variable
+    // SSA construction restricted to the loop: place phis at the iterated dominance frontier of the
+    // store sites, then rename loads/stores to register values threaded through those phis. The field
+    // is loaded once in the preheader and flushed once on the single loop exit.
+    private fun promoteFieldSSA(
+        loop: NaturalLoop,
+        exit: BasicBlock,
+        key: FieldKey,
+        dominance: FunctionDominanceInfo,
+        predecessors: space.norb.llvm.analysis.presets.PredecessorMap,
+    ): Boolean {
+        // The exit flush is inserted at the top of the exit block, so it must run only when leaving the
+        // loop — require the exit's sole predecessor to be the header.
+        if (predecessors[exit.id]?.singleOrNull() != loop.header.id) return false
+
+        val keyLoads = mutableListOf<LoadInst>()
+        val keyStores = mutableListOf<StoreInst>()
+        for (block in loop.blocks) {
+            for (inst in block.instructions) {
+                when (inst) {
+                    is LoadInst -> if (fieldKey(inst.pointer) == key) keyLoads.add(inst)
+                    is StoreInst -> if (fieldKey(inst.pointer) == key) keyStores.add(inst)
+                }
+            }
+        }
+        if (keyStores.isEmpty()) return false
+        val fieldType = keyStores.first().storedType
+        if (fieldType !is IntegerType) return false
+        if (keyStores.any { it.storedType != fieldType } || keyLoads.any { it.loadedType != fieldType }) return false
+
+        val region = loop.blocks + exit
+        val regionIds = region.mapTo(linkedSetOf(), BasicBlock::id)
+
+        // Iterated dominance frontier of the defining blocks, intersected with the loop region; each
+        // becomes a phi for the promoted value. The def set is the store-owning blocks plus the
+        // preheader, which holds the initial definition (the seed load) — exactly as textbook SSA
+        // construction treats the entry block. Seeding the preheader is what places the header phi.
+        val defBlocks = linkedSetOf<BasicBlock>()
+        defBlocks.add(loop.preheader)
+        keyStores.mapTo(defBlocks) { ownerBlock(it, loop) ?: return false }
+        val phiBlocks = iteratedDominanceFrontier(defBlocks, regionIds, dominance)
+        if (loop.header !in phiBlocks) return false // a loop-carried value must have a header phi
+
+        val namePrefix = "${key.name}.loop.${loop.header.id}.ssa"
+        val gep = GetElementPtrInst.create(
+            "$namePrefix.addr",
+            key.structType,
+            key.base,
+            listOf(IntConstant(0L, IntegerType.I32), IntConstant(key.field, IntegerType.I32)),
+        )
+        loop.preheader.instructions.add(loop.preheader.insertionIndexBeforeTerminator(), gep)
+        val initialLoad = LoadInst("$namePrefix.init", fieldType, gep)
+        loop.preheader.instructions.add(loop.preheader.insertionIndexBeforeTerminator(), initialLoad)
+
+        val phis = HashMap<BasicBlock, PhiNode>()
+        for (block in phiBlocks) {
+            val phi = PhiNode.createPlaceholder("$namePrefix.${block.id}.phi", fieldType)
+            block.instructions.add(0, phi)
+            phis[block] = phi
+        }
+
+        val keyLoadSet = keyLoads.toHashSet()
+        val keyStoreSet = keyStores.toHashSet()
+        val removals = mutableListOf<Instruction>()
+        var flushValue: Value = initialLoad
+
+        // Rename via a pre-order walk of the dominator tree, entering only region blocks. `currentDef`
+        // is the SSA value of the field reaching the current program point.
+        fun rename(block: BasicBlock, incoming: Value) {
+            var currentDef = phis[block] ?: incoming
+            for (inst in block.instructions.toList()) {
+                when {
+                    inst is PhiNode -> Unit
+                    inst is LoadInst && inst in keyLoadSet -> {
+                        inst.replaceAllUsesWith(currentDef)
+                        removals.add(inst)
+                    }
+                    inst is StoreInst && inst in keyStoreSet -> {
+                        currentDef = inst.value
+                        removals.add(inst)
+                    }
+                }
+            }
+            for (successor in block.terminator?.getSuccessors().orEmpty().distinct()) {
+                phis[successor]?.addIncomingMutable(currentDef, block)
+            }
+            if (block == exit) flushValue = currentDef
+            for (childId in dominance.treeChildren[block.id].orEmpty()) {
+                if (childId !in regionIds) continue
+                rename(BasicBlock.fromId(childId) ?: continue, currentDef)
+            }
+        }
+        rename(loop.preheader, initialLoad)
+
+        for (inst in removals) {
+            inst.detachOperands()
+            ownerBlock(inst, loop)?.instructions?.remove(inst) ?: exit.instructions.remove(inst)
+        }
+
+        val flush = StoreInst("$namePrefix.flush", fieldType, flushValue, gep)
+        exit.instructions.add(exit.instructions.indexOfLast { it is PhiNode } + 1, flush)
+        return true
+    }
+
+    private fun ownerBlock(inst: Instruction, loop: NaturalLoop): BasicBlock? =
+        loop.blocks.firstOrNull { inst in it.instructions }
+
+    private fun iteratedDominanceFrontier(
+        defBlocks: Set<BasicBlock>,
+        regionIds: Set<space.norb.llvm.structure.BasicBlockId>,
+        dominance: FunctionDominanceInfo,
+    ): Set<BasicBlock> {
+        val result = linkedSetOf<BasicBlock>()
+        val worklist = ArrayDeque(defBlocks)
+        val seen = defBlocks.toHashSet()
+        while (worklist.isNotEmpty()) {
+            val block = worklist.removeFirst()
+            for (frontierId in dominance.dominanceFrontier[block.id].orEmpty()) {
+                if (frontierId !in regionIds) continue
+                val frontier = BasicBlock.fromId(frontierId) ?: continue
+                if (result.add(frontier) && seen.add(frontier)) {
+                    worklist.add(frontier)
+                }
+            }
+        }
+        return result
     }
 
     private fun collectUpdates(
