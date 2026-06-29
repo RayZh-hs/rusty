@@ -47,7 +47,7 @@ bin/
 todo-list
 
 ### Other ###
-test-space/
+dev/
 .kilocode/
 opencode.json
 .claude/
